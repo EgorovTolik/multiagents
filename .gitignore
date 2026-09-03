@@ -1,0 +1,15 @@
+node_modules/
+dist/
+contexts/
+previews/
+*.log
+.DS_Store
+
+# Тестовые скрипты
+ma-*.mjs
+server/ws-*.mjs
+
+# Рантайм агентов
+agents/sessions/
+agents/auth.json
+agents/models-store.json

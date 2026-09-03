@@ -1,0 +1,4 @@
+{
+  "model": "eac-mac-ai/Qwen3.6-27B-Q4_K_M.gguf",
+  "port": 3000
+}
