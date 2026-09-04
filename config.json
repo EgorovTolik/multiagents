@@ -1,4 +1,8 @@
 {
-  "model": "eac-mac-ai/Qwen3.6-27B-Q4_K_M.gguf",
-  "port": 3000
+  "model": "eac-mac-ai/Qwen3.6-35B-A3B-UD-Q6_K.gguf",
+  "port": 3000,
+  "apiKeys": {
+    "eac-mac-ai": "kv-123",
+    "eac-home-ai": "kv-123"
+  }
 }

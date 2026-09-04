@@ -13,8 +13,20 @@ import {
   agentColor,
   useServer,
 } from "./api";
+import AgentEditor from "./AgentEditor";
+
+function useHashRoute(): string {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const fn = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", fn);
+    return () => window.removeEventListener("hashchange", fn);
+  }, []);
+  return hash;
+}
 
 export default function App() {
+  const route = useHashRoute();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [contexts, setContexts] = useState<ContextMeta[]>([]);
   const [activeCtx, setActiveCtx] = useState<ContextMeta | null>(null);
@@ -199,9 +211,17 @@ export default function App() {
   const send = () => {
     const text = input.trim();
     if ((!text && attachedFiles.length === 0) || !activeCtx || sentText !== null) return;
+    // Если WS не подключён — не отправляем, текст остаётся в поле
+    if (api.status !== "connected") return;
     setSentText(text || "(файл)");
     api.send({ type: "message", ctxId: activeCtx.id, text: text || "Посмотри на файл", files: attachedFiles.length > 0 ? attachedFiles : undefined });
+    setInput("");
     setAttachedFiles([]);
+    // Сброс высоты textarea до минимальной
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) { el.style.height = "auto"; el.style.height = "3.5rem"; }
+    });
   };
 
   const addFiles = useCallback((files: FileList | File[]) => {
@@ -227,6 +247,11 @@ export default function App() {
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
 
+  // Страница редактора агентов (после всех хуков — Rules of Hooks)
+  if (route === "#/agents") {
+    return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
+  }
+
   return (
     <div className="flex h-dvh bg-slate-950 text-slate-200">
       {/* Мобильный оверлей */}
@@ -245,6 +270,12 @@ export default function App() {
         <div className="border-b border-slate-800 p-4">
           <h1 className="text-lg font-semibold text-white">Multiagents</h1>
           <p className="mt-1 text-xs text-slate-500">мультиагентная система на pi</p>
+          <a
+            href="#/agents"
+            className="mt-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
+          >
+            ⚙️ Редактор агентов
+          </a>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           <div className="mb-2 flex items-center justify-between">
@@ -379,7 +410,14 @@ export default function App() {
                   {agentName(running.agentId)} работает…
                 </span>
               )}
-              <div className="ml-auto flex shrink-0 gap-1.5 sm:gap-2">
+              {/* Индикатор статуса WS */}
+              <span
+                className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ${
+                  api.status === "connected" ? "bg-emerald-400" : api.status === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-500"
+                }`}
+                title={api.status === "connected" ? "Подключено" : api.status === "connecting" ? "Подключение…" : "Отключено"}
+              />
+              <div className="flex shrink-0 gap-1.5 sm:gap-2">
                 {pending && (
                   <button
                     onClick={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
@@ -519,7 +557,7 @@ export default function App() {
                 />
                 <button
                   onClick={send}
-                  disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null}
+                  disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
                   className="self-stretch rounded-lg bg-indigo-600 px-4 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 sm:px-5"
                 >
                   <span className="hidden sm:inline">{sentText !== null ? "Отправлено…" : "Отправить"}</span>

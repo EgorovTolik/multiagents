@@ -50,31 +50,50 @@ type ServerMsg =
   | { type: "context_renamed"; ctxId: string; name: string }
   | { type: "error"; ctxId?: string; message: string };
 
+export type ConnStatus = "connected" | "connecting" | "disconnected";
+
 export interface ClientApi {
   send: (msg: unknown) => void;
   onMessage: (fn: (msg: ServerMsg) => void) => void;
+  status: ConnStatus;
 }
 
 export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
   const wsRef = useRef<WebSocket | null>(null);
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<ConnStatus>("connecting");
 
   useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.hostname}:3000`);
-    wsRef.current = ws;
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onmessage = (ev) => {
-      try {
-        handlerRef.current(JSON.parse(ev.data));
-      } catch {
-        // ignore
-      }
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      if (closed) return;
+      setStatus("connecting");
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${location.hostname}:3000`);
+      wsRef.current = ws;
+      ws.onopen = () => setStatus("connected");
+      ws.onclose = () => {
+        setStatus("disconnected");
+        // авто-реконнект через 2 сек
+        if (!closed) timer = setTimeout(connect, 2000);
+      };
+      ws.onerror = () => { /* onclose сработает после */ };
+      ws.onmessage = (ev) => {
+        try {
+          handlerRef.current(JSON.parse(ev.data));
+        } catch { /* ignore */ }
+      };
+    }
+
+    connect();
+    return () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      wsRef.current?.close();
     };
-    return () => ws.close();
   }, []);
 
   return {
@@ -82,6 +101,7 @@ export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(msg));
     },
     onMessage: () => {},
+    status,
   };
 }
 

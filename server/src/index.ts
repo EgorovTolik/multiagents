@@ -24,6 +24,23 @@ const AGENTS_DIR = path.join(root, "agents");
 const CONTEXTS_DIR = path.join(root, "contexts");
 const SYSTEM_DIR = path.join(root, "system");
 
+// Записываем API-ключи из config.json в agents/auth.json (pi SDK ищет их там)
+function syncAuthKeys(): void {
+  const apiKeys: Record<string, string> = config.apiKeys ?? {};
+  if (Object.keys(apiKeys).length === 0) return;
+  const authPath = path.join(AGENTS_DIR, "auth.json");
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(authPath, "utf8"));
+  } catch { /* файл пуст или не существует */ }
+  for (const [provider, key] of Object.entries(apiKeys)) {
+    existing[provider] = { type: "api_key", key };
+  }
+  fs.mkdirSync(AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(authPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
+}
+syncAuthKeys();
+
 const registry = new AgentRegistry(AGENTS_DIR);
 const store = new ContextStore(CONTEXTS_DIR, "orchestrator");
 
@@ -44,6 +61,7 @@ const runner = new AgentRunner(
 );
 
 const app = express();
+app.use(express.json({ limit: "50mb" })); // JSON body parser (включая большие файлы)
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -89,10 +107,123 @@ app.get("/api/previews/:name", (req, res) => {
   res.sendFile(full);
 });
 
-// Статика фронтенда (сборка web)
+// === Редактор агентов: REST API ===
+
+interface AgentFileEntry { filename: string; content: string }
+
+app.get("/api/agents", (_req, res) => {
+  const list = registry.list().map((a) => ({ id: a.id, name: a.name, description: a.description }));
+  res.json(list);
+});
+
+app.get("/api/agents/:id/detail", (req, res) => {
+  const id = String(req.params.id ?? "");
+  const dir = path.join(AGENTS_DIR, id);
+  if (!id || id.includes("..") || id.includes("/") || !fs.existsSync(dir)) {
+    res.status(404).json({ error: "agent not found" });
+    return;
+  }
+  // config.json
+  const cfgPath = path.join(dir, "config.json");
+  const cfg = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, "utf8")) : {};
+  // AGENT.md
+  const promptPath = path.join(dir, "AGENT.md");
+  const systemPrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf8") : "";
+  // rules/
+  const rules: AgentFileEntry[] = [];
+  const rulesDir = path.join(dir, "rules");
+  if (fs.existsSync(rulesDir)) {
+    for (const f of fs.readdirSync(rulesDir).sort()) {
+      if (f.endsWith(".md")) rules.push({ filename: f, content: fs.readFileSync(path.join(rulesDir, f), "utf8") });
+    }
+  }
+  // skills/
+  const skills: AgentFileEntry[] = [];
+  const skillsDir = path.join(dir, "skills");
+  if (fs.existsSync(skillsDir)) {
+    for (const f of fs.readdirSync(skillsDir).sort()) {
+      if (f.endsWith(".md")) skills.push({ filename: f, content: fs.readFileSync(path.join(skillsDir, f), "utf8") });
+    }
+  }
+  // Эффективный набор инструментов (как его видит раннер)
+  const baseTools = cfg.tools ?? ["read", "bash", "edit", "write"];
+  const effectiveTools = [...baseTools, "route_to_agent", "list_agents", "ask_user"];
+  if (id === "agent-creator") {
+    effectiveTools.push("create_agent", "delete_agent");
+  }
+
+  res.json({ id, name: cfg.name ?? id, description: cfg.description ?? "", tools: effectiveTools, model: cfg.model ?? null, thinkingLevel: cfg.thinkingLevel ?? null, systemPrompt, rules, skills });
+});
+
+app.put("/api/agents/:id", (req, res) => {
+  const id = String(req.params.id ?? "");
+  const dir = path.join(AGENTS_DIR, id);
+  if (!id || id.includes("..") || id.includes("/") || !fs.existsSync(dir)) {
+    res.status(404).json({ error: "agent not found" });
+    return;
+  }
+  const { name, description, tools, model, thinkingLevel, systemPrompt, rules, skills } = req.body;
+
+  // config.json
+  const cfg: Record<string, unknown> = {};
+  if (name) cfg.name = name;
+  if (description !== undefined) cfg.description = description;
+  if (tools) cfg.tools = tools;
+  if (model) cfg.model = model;
+  if (thinkingLevel) cfg.thinkingLevel = thinkingLevel;
+  fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(cfg, null, 2));
+
+  // AGENT.md
+  fs.writeFileSync(path.join(dir, "AGENT.md"), systemPrompt ?? "");
+
+  // rules/
+  const rulesDir = path.join(dir, "rules");
+  fs.mkdirSync(rulesDir, { recursive: true });
+  // удалить старые файлы которые не в списке
+  if (fs.existsSync(rulesDir)) {
+    for (const f of fs.readdirSync(rulesDir)) {
+      if (f.endsWith(".md") && !rules?.some((r: AgentFileEntry) => r.filename === f)) {
+        fs.unlinkSync(path.join(rulesDir, f));
+      }
+    }
+  }
+  for (const rule of rules ?? []) {
+    if (rule.filename && !rule.filename.includes("..") && !rule.filename.includes("/")) {
+      fs.writeFileSync(path.join(rulesDir, rule.filename), rule.content);
+    }
+  }
+
+  // skills/
+  const skillsDir = path.join(dir, "skills");
+  fs.mkdirSync(skillsDir, { recursive: true });
+  if (fs.existsSync(skillsDir)) {
+    for (const f of fs.readdirSync(skillsDir)) {
+      if (f.endsWith(".md") && !skills?.some((s: AgentFileEntry) => s.filename === f)) {
+        fs.unlinkSync(path.join(skillsDir, f));
+      }
+    }
+  }
+  for (const skill of skills ?? []) {
+    if (skill.filename && !skill.filename.includes("..") && !skill.filename.includes("/")) {
+      fs.writeFileSync(path.join(skillsDir, skill.filename), skill.content);
+    }
+  }
+
+  // Перезагрузить реестр и разослать обновлённый список
+  registry.reload();
+  broadcast({ type: "agents", agents: registry.list() });
+
+  res.json({ ok: true });
+});
+
+// Статика фронтенда (сборка web) + SPA fallback
 const webDist = path.join(root, "web", "dist");
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist));
+  // SPA: все не-API пути возвращают index.html
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    res.sendFile(path.join(webDist, "index.html"));
+  });
 }
 
 wss.on("connection", (ws) => {
