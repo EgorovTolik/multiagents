@@ -281,6 +281,15 @@ wss.on("connection", (ws) => {
           }
           break;
         }
+        case "truncate_history": {
+          const idx = Number(msg.fromIndex ?? 0);
+          if (Number.isInteger(idx) && idx >= 0) {
+            store.truncateHistory(msg.ctxId, idx);
+            runner.invalidateContext(msg.ctxId); // сбрасываем кэш сессий — история перечитается из файла
+            broadcast({ type: "history_truncated", ctxId: msg.ctxId });
+          }
+          break;
+        }
         case "message": {
           send({ type: "message_received", ctxId: msg.ctxId });
           // Автоименование: если контекст "Новый чат" — генерируем имя в фоне

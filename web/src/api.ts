@@ -48,6 +48,7 @@ type ServerMsg =
   | { type: "context_deleted"; ctxId: string }
   | { type: "message_received"; ctxId: string }
   | { type: "context_renamed"; ctxId: string; name: string }
+  | { type: "history_truncated"; ctxId: string }
   | { type: "error"; ctxId?: string; message: string };
 
 export type ConnStatus = "connected" | "connecting" | "disconnected";

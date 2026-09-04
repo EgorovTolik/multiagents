@@ -149,6 +149,16 @@ export class ContextStore {
     }
   }
 
+  /** Удалить сообщения начиная с индекса fromIndex (включительно). */
+  truncateHistory(ctxId: string, fromIndex: number): Message[] {
+    const p = path.join(this.dir(ctxId), "messages.jsonl");
+    if (!fs.existsSync(p)) return [];
+    const lines = fs.readFileSync(p, "utf8").split("\n").filter(Boolean);
+    const remaining = lines.slice(0, fromIndex).map((l) => JSON.parse(l));
+    fs.writeFileSync(p, remaining.map((m) => JSON.stringify(m)).join("\n") + (remaining.length ? "\n" : ""), "utf8");
+    return remaining;
+  }
+
   readMessages(ctxId: string): Message[] {
     const p = path.join(this.dir(ctxId), "messages.jsonl");
     if (!fs.existsSync(p)) return [];

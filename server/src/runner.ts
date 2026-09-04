@@ -164,6 +164,17 @@ export class AgentRunner {
     return `${ctxId}/${agentId}`;
   }
 
+  /** Сбросить все сессии контекста — при следующем обращении история будет перечитана из файла. */
+  invalidateContext(ctxId: string) {
+    const prefix = ctxId + "/";
+    for (const [k, s] of [...this.sessions]) {
+      if (k.startsWith(prefix)) {
+        s.abort();
+        this.sessions.delete(k);
+      }
+    }
+  }
+
   private resolveModel(id?: string) {
     if (!this.modelRuntime) return undefined;
     const spec = id ?? this.defaultModel;
