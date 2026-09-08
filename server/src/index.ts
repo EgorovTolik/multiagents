@@ -565,8 +565,9 @@ wss.on("connection", (ws) => {
 });
 
 runner.init().then(() => {
-  server.listen(PORT, () => {
-    console.log(`multiagents: http://localhost:${PORT}`);
+  // 0.0.0.0 — принимать подключения с любого интерфейса (не только localhost)
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`multiagents: http://0.0.0.0:${PORT} (доступен с других устройств по IP машины)`);
     console.log(`Агентов в реестре: ${registry.list().map((a) => a.id).join(", ")}`);
   });
 });
