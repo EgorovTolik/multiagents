@@ -8,11 +8,13 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
+    "archiver": "^8.0.0",
     "express": "^4.21.0",
     "typebox": "^1.1.38",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",

@@ -10,6 +10,7 @@ import { MessageRow } from "./components/MessageRow";
 import { InputArea, type AttachedFile } from "./components/InputArea";
 import { Lightbox } from "./components/Lightbox";
 import { ToastContainer, useToasts } from "./components/Toast";
+import type { ArchiveInfo } from "./components/Sidebar";
 
 // ─── Hash routing ────────────────────────────────────────────────────────────────
 function useHashRoute(): string {
@@ -44,12 +45,15 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { toasts, notify } = useToasts();
+  const [archiveStatus, setArchiveStatus] = useState<Record<string, ArchiveInfo>>({});
+  const { toasts, notify, dismiss } = useToasts();
 
   // Refs
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ClientApi | null>(null);
+  const contextsRef = useRef<ContextMeta[]>([]);
+  contextsRef.current = contexts;
 
   // ─── WS message handler ────────────────────────────────────────────────────────
   const handle = useCallback(
@@ -61,7 +65,7 @@ export default function App() {
         case "contexts":
           setContexts(msg.contexts);
           if (!activeCtx && msg.contexts.length > 0) {
-            const latest = msg.contexts.reduce((a, b) =>
+            const latest = msg.contexts.reduce((a: ContextMeta, b: ContextMeta) =>
               (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a,
             );
             if (latest.lastMessageAt) {
@@ -148,6 +152,21 @@ export default function App() {
           setSentText(null);
           setInput("");
           break;
+        case "archive_status":
+          setArchiveStatus((s) => ({
+            ...s,
+            [msg.ctxId]: { state: msg.state, url: msg.url, error: msg.error },
+          }));
+          if (msg.state === "ready" && msg.url) {
+            const name = contextsRef.current.find((c) => c.id === msg.ctxId)?.name ?? msg.ctxId;
+            notify(`Архив «${name}» готов`, {
+              sticky: true,
+              action: { label: "Скачать", onClick: () => downloadArchiveUrl(msg.url!) },
+            });
+          } else if (msg.state === "error") {
+            notify(`Не удалось подготовить архив: ${msg.error ?? "ошибка"}`, { sticky: true });
+          }
+          break;
         case "error":
           setErrors((e) => [...e, msg.message]);
           setTimeout(() => setErrors((e) => e.slice(1)), 5000);
@@ -217,6 +236,32 @@ export default function App() {
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
 
+  // ─── Archive download ─────────────────────────────────────────────────────────
+  const downloadArchiveUrl = (url: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const onPrepareArchive = (ctxId: string) => {
+    const st = archiveStatus[ctxId];
+    if (st?.state === "ready" && st.url) {
+      downloadArchiveUrl(st.url);
+    } else if (st?.state === "queued" || st?.state === "preparing") {
+      notify("Архив уже готовится…");
+    } else {
+      apiRef.current?.send({ type: "prepare_archive", ctxId });
+    }
+  };
+
+  const onDownloadArchive = (ctxId: string) => {
+    const st = archiveStatus[ctxId];
+    if (st?.state === "ready" && st.url) downloadArchiveUrl(st.url);
+  };
+
   // ─── Agent Editor / Settings routes (after all hooks — Rules of Hooks) ─────────
   if (route === "#/agents") {
     return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
@@ -237,6 +282,7 @@ export default function App() {
         renamingCtx={renamingCtx}
         renameValue={renameValue}
         sidebarOpen={sidebarOpen}
+        archiveStatus={archiveStatus}
         onSidebarClose={() => setSidebarOpen(false)}
         onCreateContext={() => api.send({ type: "create_context", name: "Новый чат" })}
         onSelectContext={loadContext}
@@ -245,6 +291,8 @@ export default function App() {
         onRenameChange={setRenameValue}
         onRenameConfirm={renameContext}
         onRenameCancel={() => setRenamingCtx(null)}
+        onPrepareArchive={onPrepareArchive}
+        onDownloadArchive={onDownloadArchive}
         agentName={agentName}
       />
 
@@ -359,7 +407,7 @@ export default function App() {
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
 
       {/* Toasts */}
-      <ToastContainer toasts={toasts} />
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

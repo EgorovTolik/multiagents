@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocketServer } from "ws";
+import * as archiver from "archiver";
 import { AgentRegistry } from "./registry";
 import { ContextStore } from "./context-store";
 import { AgentRunner } from "./runner";
@@ -23,6 +24,8 @@ const PORT = config.port ?? 3000;
 const AGENTS_DIR = path.join(root, "agents");
 const CONTEXTS_DIR = path.join(root, "contexts");
 const SYSTEM_DIR = path.join(root, "system");
+const ARCHIVES_DIR = path.join(root, "archives");
+fs.mkdirSync(ARCHIVES_DIR, { recursive: true });
 
 // Записываем API-ключи из config.json в agents/auth.json (pi SDK ищет их там)
 // Поддерживает обе структуры: legacy apiKeys и новую providers
@@ -61,6 +64,100 @@ const broadcast = (msg: unknown) => {
   }
 };
 
+// === Очередь подготовки архивов контекстов (FIFO, по одному за раз) ===
+type ArchiveState = "queued" | "preparing" | "ready" | "error";
+
+function zipDir(srcDir: string, outPath: string, topFolder: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(outPath);
+    const archive = new archiver.ZipArchive({ zlib: { level: 9 } });
+    let settled = false;
+    const fail = (e: Error) => {
+      if (settled) return;
+      settled = true;
+      output.destroy();
+      try { fs.unlinkSync(outPath); } catch { /* ignore */ }
+      reject(e);
+    };
+    output.on("close", () => { if (!settled) { settled = true; resolve(); } });
+    archive.on("error", fail);
+    output.on("error", fail);
+    archive.pipe(output);
+    archive.directory(srcDir, topFolder);
+    archive.finalize();
+  });
+}
+
+class ArchiveQueue {
+  private queue: string[] = [];
+  private pending = new Set<string>(); // ctxId в очереди или в работе
+  private processing = false;
+
+  constructor(private emit: (msg: unknown) => void) {}
+
+  private status(ctxId: string, state: ArchiveState, extra: { url?: string; error?: string } = {}) {
+    this.emit({ type: "archive_status", ctxId, state, ...extra });
+  }
+
+  /** Возвращает true, если задание добавлено; false — если уже в очереди/в работе */
+  enqueue(ctxId: string): boolean {
+    if (this.pending.has(ctxId)) return false;
+    this.pending.add(ctxId);
+    this.queue.push(ctxId);
+    this.status(ctxId, "queued");
+    void this.process();
+    return true;
+  }
+
+  private async process() {
+    if (this.processing) return;
+    this.processing = true;
+    try {
+      while (this.queue.length > 0) {
+        const ctxId = this.queue.shift()!;
+        await this.run(ctxId);
+      }
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  private async run(ctxId: string) {
+    const ctxDir = path.join(CONTEXTS_DIR, ctxId);
+    if (!fs.existsSync(ctxDir)) {
+      this.pending.delete(ctxId);
+      this.status(ctxId, "error", { error: "Контекст не найден" });
+      return;
+    }
+    const file = `${ctxId}-${Date.now()}.zip`;
+    const outPath = path.join(ARCHIVES_DIR, file);
+    this.status(ctxId, "preparing");
+    try {
+      await zipDir(ctxDir, outPath, ctxId);
+      this.pending.delete(ctxId);
+      this.status(ctxId, "ready", { url: `/api/archive?ctx=${encodeURIComponent(ctxId)}&file=${encodeURIComponent(file)}` });
+    } catch (e: any) {
+      this.pending.delete(ctxId);
+      this.status(ctxId, "error", { error: String(e?.message ?? e) });
+    }
+  }
+}
+
+const archiveQueue = new ArchiveQueue(broadcast);
+
+// Очистка архивов старше 24 часов — при старте и раз в час
+function cleanupArchives() {
+  const now = Date.now();
+  for (const f of fs.readdirSync(ARCHIVES_DIR)) {
+    const full = path.join(ARCHIVES_DIR, f);
+    try {
+      if (now - fs.statSync(full).mtimeMs > 24 * 3600 * 1000) fs.unlinkSync(full);
+    } catch { /* ignore */ }
+  }
+}
+cleanupArchives();
+setInterval(cleanupArchives, 3600 * 1000).unref();
+
 const runner = new AgentRunner(
   registry,
   store,
@@ -94,6 +191,27 @@ app.get("/api/files", (req, res) => {
     return;
   }
   res.download(full);
+});
+
+// Скачивание готового архива контекста
+app.get("/api/archive", (req, res) => {
+  const ctxId = String(req.query.ctx ?? "");
+  const file = String(req.query.file ?? "");
+  if (!ctxId || !file) {
+    res.status(400).json({ error: "missing ctx or file" });
+    return;
+  }
+  // Файл должен принадлежать этому контексту и быть zip-архивом
+  if (!file.startsWith(ctxId + "-") || !file.endsWith(".zip") || file.includes("/") || file.includes("..") || file.includes("\\")) {
+    res.status(400).json({ error: "bad file" });
+    return;
+  }
+  const full = path.join(ARCHIVES_DIR, file);
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  res.download(full, file);
 });
 
 // Превью изображений (системная папка, вне контекстов)
@@ -424,6 +542,11 @@ wss.on("connection", (ws) => {
             }
           }
           await runner.handleMessage(msg.ctxId, msg.text, msg.files);
+          break;
+        }
+        case "prepare_archive": {
+          const added = archiveQueue.enqueue(String(msg.ctxId ?? ""));
+          if (!added) send({ type: "archive_status", ctxId: msg.ctxId, state: "queued" as const });
           break;
         }
         case "abort":

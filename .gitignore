@@ -2,6 +2,8 @@ node_modules/
 dist/
 contexts/
 previews/
+archives/
+.pi/
 *.log
 .DS_Store
 

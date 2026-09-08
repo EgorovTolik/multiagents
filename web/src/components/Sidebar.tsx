@@ -1,5 +1,16 @@
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { AgentInfo, ContextMeta } from "../api";
 import { agentColor } from "../utils/format";
+
+export interface ArchiveInfo {
+  state: "queued" | "preparing" | "ready" | "error";
+  url?: string;
+  error?: string;
+}
+
+const MENU_W = 176;
+const MENU_H = 84;
 
 export function Sidebar({
   contexts,
@@ -9,6 +20,7 @@ export function Sidebar({
   renamingCtx,
   renameValue,
   sidebarOpen,
+  archiveStatus,
   onSidebarClose,
   onCreateContext,
   onSelectContext,
@@ -17,6 +29,8 @@ export function Sidebar({
   onRenameChange,
   onRenameConfirm,
   onRenameCancel,
+  onPrepareArchive,
+  onDownloadArchive,
   agentName,
 }: {
   contexts: ContextMeta[];
@@ -26,6 +40,7 @@ export function Sidebar({
   renamingCtx: string | null;
   renameValue: string;
   sidebarOpen: boolean;
+  archiveStatus: Record<string, ArchiveInfo>;
   onSidebarClose: () => void;
   onCreateContext: () => void;
   onSelectContext: (id: string) => void;
@@ -34,8 +49,24 @@ export function Sidebar({
   onRenameChange: (value: string) => void;
   onRenameConfirm: () => void;
   onRenameCancel: () => void;
+  onPrepareArchive: (id: string) => void;
+  onDownloadArchive: (id: string) => void;
   agentName: (id: string) => string;
 }) {
+  // Контекстное меню: координаты в fixed-системе (портал в body)
+  const [menu, setMenu] = useState<{ ctxId: string; x: number; y: number } | null>(null);
+
+  const openMenu = (ctxId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    let x = rect.right - MENU_W;
+    x = Math.max(8, Math.min(x, window.innerWidth - MENU_W - 8));
+    let y = rect.bottom + 4;
+    if (y + MENU_H > window.innerHeight - 8) y = Math.max(8, rect.top - MENU_H - 4);
+    setMenu({ ctxId, x, y });
+  };
+
   return (
     <>
       {sidebarOpen && (
@@ -74,57 +105,81 @@ export function Sidebar({
               +
             </button>
           </div>
-          {contexts.map((c) => (
-            <div
-              key={c.id}
-              className={`group mb-1 flex items-center rounded-md pr-1 ${
-                activeCtx?.id === c.id ? "bg-slate-800" : "hover:bg-slate-900"
-              }`}
-            >
-              {renamingCtx === c.id ? (
-                <input
-                  autoFocus
-                  value={renameValue}
-                  onChange={(e) => onRenameChange(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onRenameConfirm();
-                    if (e.key === "Escape") onRenameCancel();
-                  }}
-                  onBlur={onRenameConfirm}
-                  className="w-full min-w-0 flex-1 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-sm text-white outline-none"
-                />
-              ) : (
-                <button
-                  onClick={() => onSelectContext(c.id)}
-                  onDoubleClick={() => onRenameStart(c.id)}
-                  title={`contexts/${c.id}`}
-                  className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
-                    activeCtx?.id === c.id ? "text-white" : "text-slate-400"
-                  }`}
-                >
-                  <div className="truncate font-medium">{c.name}</div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                    <span
-                      className={`inline-block h-1.5 w-1.5 rounded-full ${
-                        activeCtx?.id === c.id && running?.ctxId === c.id ? "animate-pulse bg-emerald-400" : "bg-slate-600"
-                      }`}
-                    />
-                    {agentName(c.activeAgentId)}
-                    {c.handoffs.length > 0 && (
-                      <span className="text-slate-600">· {c.handoffs.length} передач</span>
-                    )}
-                  </div>
-                </button>
-              )}
-              <button
-                onClick={() => onDeleteContext(c.id)}
-                title="Удалить контекст"
-                className="hidden shrink-0 rounded px-1.5 py-1 text-xs text-slate-500 hover:bg-rose-500/20 hover:text-rose-300 group-hover:block"
+          {contexts.map((c) => {
+            const arch = archiveStatus[c.id];
+            return (
+              <div
+                key={c.id}
+                className={`group mb-1 flex items-center rounded-md pr-1 ${
+                  activeCtx?.id === c.id ? "bg-slate-800" : "hover:bg-slate-900"
+                }`}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                {renamingCtx === c.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => onRenameChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") onRenameConfirm();
+                      if (e.key === "Escape") onRenameCancel();
+                    }}
+                    onBlur={onRenameConfirm}
+                    className="w-full min-w-0 flex-1 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-sm text-white outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => onSelectContext(c.id)}
+                    onDoubleClick={() => onRenameStart(c.id)}
+                    onContextMenu={(e) => openMenu(c.id, e)}
+                    title={`contexts/${c.id}`}
+                    className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
+                      activeCtx?.id === c.id ? "text-white" : "text-slate-400"
+                    }`}
+                  >
+                    <div className="truncate font-medium">{c.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${
+                          activeCtx?.id === c.id && running?.ctxId === c.id ? "animate-pulse bg-emerald-400" : "bg-slate-600"
+                        }`}
+                      />
+                      {agentName(c.activeAgentId)}
+                      {c.handoffs.length > 0 && (
+                        <span className="text-slate-600">· {c.handoffs.length} передач</span>
+                      )}
+                    </div>
+                  </button>
+                )}
+                {/* Статус архива */}
+                {arch?.state === "queued" || arch?.state === "preparing" ? (
+                  <span
+                    className="mx-1 h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-slate-500 border-t-transparent"
+                    title="Подготовка архива…"
+                  />
+                ) : arch?.state === "ready" ? (
+                  <button
+                    onClick={() => onDownloadArchive(c.id)}
+                    title="Скачать архив"
+                    className="mx-1 shrink-0 rounded px-1.5 py-1 text-xs text-emerald-400 hover:bg-emerald-500/20"
+                  >
+                    ⬇
+                  </button>
+                ) : arch?.state === "error" ? (
+                  <span className="mx-1 shrink-0 cursor-help px-1 text-xs" title={`Ошибка архива: ${arch.error}`}>
+                    ⚠️
+                  </span>
+                ) : null}
+                {/* Кнопка меню */}
+                <button
+                  onClick={(e) => openMenu(c.id, e)}
+                  title="Действия"
+                  className="shrink-0 rounded px-1.5 py-1 text-sm text-slate-500 hover:bg-slate-800 hover:text-white md:opacity-0 md:group-hover:opacity-100"
+                >
+                  ⋮
+                </button>
+              </div>
+            );
+          })}
           {contexts.length === 0 && (
             <p className="px-2 py-4 text-xs text-slate-600">
               Нет контекстов — создай первый, чтобы начать
@@ -145,6 +200,45 @@ export function Sidebar({
           </ul>
         </div>
       </aside>
+
+      {/* Контекстное меню (портал: aside имеет transform, fixed внутри него ломается) */}
+      {menu &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[60]"
+              onClick={() => setMenu(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu(null);
+              }}
+            />
+            <div
+              style={{ left: menu.x, top: menu.y }}
+              className="fixed z-[61] w-44 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
+            >
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  onPrepareArchive(menu.ctxId);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
+              >
+                ⬇️ Скачать архив
+              </button>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  onDeleteContext(menu.ctxId);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-rose-300 hover:bg-rose-500/10"
+              >
+                🗑 Удалить
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
     </>
   );
 }

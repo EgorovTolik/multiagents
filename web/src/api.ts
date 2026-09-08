@@ -30,7 +30,7 @@ export interface AgentInfo {
   description: string;
 }
 
-type ServerMsg =
+export type ServerMsg =
   | { type: "agents"; agents: AgentInfo[] }
   | { type: "contexts"; contexts: ContextMeta[] }
   | { type: "context_created"; context: ContextMeta }
@@ -49,6 +49,7 @@ type ServerMsg =
   | { type: "message_received"; ctxId: string }
   | { type: "context_renamed"; ctxId: string; name: string }
   | { type: "history_truncated"; ctxId: string }
+  | { type: "archive_status"; ctxId: string; state: "queued" | "preparing" | "ready" | "error"; url?: string; error?: string }
   | { type: "error"; ctxId?: string; message: string };
 
 export type ConnStatus = "connected" | "connecting" | "disconnected";
