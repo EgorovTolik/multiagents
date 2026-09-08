@@ -9,6 +9,10 @@
     "eac-home-ai": {
       "url": "http://eac-agent.online:44221",
       "apiKey": "kv-123"
+    },
+    "eac-work-ai": {
+      "url": "http://eac-agent.online:44222",
+      "apiKey": "kv-123"
     }
   }
 }
