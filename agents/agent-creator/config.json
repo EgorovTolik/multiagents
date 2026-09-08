@@ -1,5 +1,5 @@
 {
-  "name": "Агент-создатель",
+  "name": "Создатель",
   "description": "Создаёт новых агентов: пишет системные промпты, правила и навыки, регистрирует агентов в системе для использования оркестратором.",
   "tools": [
     "bash",
@@ -15,6 +15,16 @@
     "ask_user",
     "create_agent",
     "delete_agent",
-    "read"
+    "read",
+    "route_to_agent",
+    "list_agents",
+    "ask_user",
+    "create_agent",
+    "delete_agent",
+    "route_to_agent",
+    "list_agents",
+    "ask_user",
+    "create_agent",
+    "delete_agent"
   ]
 }

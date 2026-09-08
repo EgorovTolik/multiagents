@@ -45,6 +45,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+
   // Загрузка списка агентов
   useEffect(() => {
     fetch("/api/agents")
@@ -77,11 +78,36 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
     [data, original],
   );
 
-  const anyDirty = data && original && (
+  const anyDirty = !!(data && original && (
     isDirty("name") || isDirty("description") || isDirty("tools") ||
     isDirty("model") || isDirty("thinkingLevel") || isDirty("systemPrompt") ||
     isDirty("rules") || isDirty("skills")
-  );
+  ));
+
+  /** Запустить действие с защитой от потери изменений. */
+  const guardedAction = (action: () => void) => {
+    if (anyDirty) {
+      const ok = window.confirm("Есть несохранённые изменения.\nЕсли вы уйдёте сейчас, внесённые данные будут потеряны.\n\nПродолжить?");
+      if (!ok) return;
+      action();
+    } else {
+      action();
+    }
+  };
+
+  // Защита при закрытии вкладки/окна
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (anyDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [anyDirty]);
+
+
 
   const save = async () => {
     if (!data || !original) return;
@@ -95,6 +121,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOriginal(JSON.parse(JSON.stringify(data)));
+      // Обновляем список агентов (имя могло измениться)
+      const fresh = await fetch("/api/agents").then((r) => r.json());
+      setAgents(fresh);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -148,7 +177,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       {/* Верхняя панель */}
       <header className="flex items-center gap-3 border-b border-slate-800 px-4 py-3 sm:px-6">
         <button
-          onClick={onBack}
+          onClick={() => guardedAction(onBack)}
           className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
         >
           ← Чат
@@ -177,7 +206,10 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
             {agents.map((a) => (
               <button
                 key={a.id}
-                onClick={() => setSelectedId(a.id)}
+                onClick={() => {
+                  if (a.id === selectedId) return;
+                  guardedAction(() => setSelectedId(a.id));
+                }}
                 className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
                   selectedId === a.id
                     ? "bg-indigo-600/20 text-indigo-300"
@@ -316,6 +348,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
           )}
         </main>
       </div>
+
     </div>
   );
 }
