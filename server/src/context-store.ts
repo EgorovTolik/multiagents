@@ -70,7 +70,10 @@ export class ContextStore {
       activeAgentId: this.defaultAgent,
       handoffs: [],
     };
-    fs.mkdirSync(this.dir(id), { recursive: true });
+    const dir = this.dir(id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "results"), { recursive: true });
     this.save(meta);
     return meta;
   }

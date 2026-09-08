@@ -404,7 +404,9 @@ export class AgentRunner {
       `Диалог передан агентом ${pending.from}.\n` +
       `Причина: ${pending.reason}\n\n` +
       `Контекст задачи:\n${pending.context}\n\n` +
-      `Продолжай работу. Если следующий шаг снова требует другой экспертизы — передай диалог дальше через route_to_agent.`
+      `ВАЖНО: если в контексте указан путь к файлу ТЗ (tasks/task-<timestamp>.md) — сначала прочитай его, потом приступай к работе.\n` +
+      `По завершении вызови handoff_file(type="result", title="...", body="...") — инструмент создаст файл и вернёт путь. Упомяни путь в сообщении пользователю.\n` +
+      `Если следующий шаг требует другой экспертизы — вызови handoff_file(type="task", ...) и передай диалог через route_to_agent.`
     );
   }
 
@@ -456,8 +458,9 @@ export class AgentRunner {
       this.makeListAgentsTool(),
       this.makeRouteTool(ctxId, agentId),
       this.makeAskUserTool(ctxId, agentId),
+      this.makeHandoffFileTool(ctxId),
     ];
-    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user"];
+    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file"];
     if (agentId === "agent-creator") {
       customTools.push(this.makeCreateAgentTool());
       customTools.push(this.makeDeleteAgentTool());
@@ -552,11 +555,11 @@ export class AgentRunner {
           description: "ID целевого агента (см. list_agents)",
         }),
         reason: Type.String({
-          description: "Короткая причина передачи (покажется пользователю в интерфейсе)",
+          description: "Одно короткое предложение — причина передачи (покажется пользователю в интерфейсе)",
         }),
         context: Type.String({
           description:
-            "Саммари контекста задачи для нового агента: цель, что уже сделано, что нужно сделать. Новый агент увидит только это.",
+            "Короткое описание задачи (1-3 предложения) + абсолютный путь к файлу ТЗ (вернёт handoff_file). НЕ пересказывай всё задание — агент сам прочитает файл. Укажи инструкции: прочитай ТЗ, результат запиши через handoff_file(type='result').",
         }),
       }),
       execute: async (_id, params: { agentId: string; reason: string; context: string }) => {
@@ -629,6 +632,53 @@ export class AgentRunner {
         this.emit({ type: "message", ctxId, message: sysMsg });
         return okText(
           `Вопрос отправлен пользователю: «${params.question}». ЗАВЕРШИ ХОД — не продолжай работу и не вызывай другие инструменты. Ответ пользователя придёт в следующем сообщении.`,
+        );
+      },
+    });
+  }
+
+  /**
+   * handoff_file: создаёт файл задания или результата с timestamp-именем.
+   * Агент не думает об именовании — инструмент сам генерирует имя и записывает файл.
+   */
+  private makeHandoffFileTool(ctxId: string) {
+    return defineTool({
+      name: "handoff_file",
+      label: "Файл задания/результата",
+      description:
+        "Создаёт файл задания (task) или результата (result) в рабочей директории контекста. " +
+        "Имя файла генерируется автоматически с timestamp (task-<ms>.md / result-<ms>.md). " +
+        "Возвращает абсолютный путь к созданному файлу — используй его в route_to_agent (context) и в сообщениях.",
+      parameters: Type.Object({
+        type: Type.Union([Type.Literal("task"), Type.Literal("result")], {
+          description: "task = файл задания для другого агента, result = файл с твоим результатом работы",
+        }),
+        title: Type.String({
+          description: "Краткое название (1-5 слов), станет заголовком файла. Пример: 'Создать REST API задач'",
+        }),
+        body: Type.String({
+          description:
+            "Полное содержимое файла в markdown. Для task: контекст, задача, файлы для работы, где записать результат. " +
+            "Для result: что сделано, детали, следующие шаги, список файлов.",
+        }),
+      }),
+      execute: async (_id, params: { type: "task" | "result"; title: string; body: string }) => {
+        const ts = Date.now();
+        const dirName = params.type === "task" ? "tasks" : "results";
+        const fileBase = `${params.type}-${ts}`;
+        const dirPath = path.join(this.store.dir(ctxId), dirName);
+        fs.mkdirSync(dirPath, { recursive: true });
+
+        const header = params.type === "task"
+          ? `# Задание: ${params.title}\n\n`
+          : `# Результат: ${params.title}\n\n`;
+
+        const filePath = path.join(dirPath, `${fileBase}.md`);
+        fs.writeFileSync(filePath, header + params.body, "utf8");
+
+        return okText(
+          `Файл создан: ${filePath}\n` +
+          `Используй этот путь в route_to_agent (параметр context) и в сообщениях пользователю.`,
         );
       },
     });
