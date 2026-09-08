@@ -245,7 +245,7 @@ app.get("/api/config", (_req, res) => {
 app.put("/api/config", (req, res) => {
   try {
     const current = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    const { model, port, providers, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb } = req.body;
+    const { model, port, providers, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb, recoveryMode } = req.body;
     if (model !== undefined) current.model = model;
     if (port !== undefined) current.port = port;
     if (providers !== undefined) {
@@ -257,6 +257,7 @@ app.put("/api/config", (req, res) => {
     if (maxRecoveries !== undefined) current.maxRecoveries = maxRecoveries;
     if (stallTimeoutMs !== undefined) current.stallTimeoutMs = stallTimeoutMs;
     if (maxUploadSizeMb !== undefined) current.maxUploadSizeMb = maxUploadSizeMb;
+    if (recoveryMode !== undefined) current.recoveryMode = recoveryMode === "orchestrator_check" ? "orchestrator_check" : "router_agent";
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2));
     // Пересинхронизировать API-ключи
     syncAuthKeys();

@@ -38,8 +38,11 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
+/** Режим восстановления обрыва цепочки: агент-маршрутизатор или автопроверка оркестратором. */
+export type RecoveryMode = "router_agent" | "orchestrator_check";
+
 /** Читаем системные настройки из config.json (с дефолтами). */
-function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stallTimeoutMs: number; maxUploadSizeMb: number } {
+function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stallTimeoutMs: number; maxUploadSizeMb: number; recoveryMode: RecoveryMode } {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, "config.json"), "utf8"));
     return {
@@ -47,9 +50,10 @@ function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stall
       maxRecoveries: cfg.maxRecoveries ?? 2,
       stallTimeoutMs: cfg.stallTimeoutMs ?? 3 * 60 * 1000,
       maxUploadSizeMb: cfg.maxUploadSizeMb ?? 50,
+      recoveryMode: cfg.recoveryMode === "orchestrator_check" ? "orchestrator_check" : "router_agent",
     };
   } catch {
-    return { maxHandoffs: 200, maxRecoveries: 2, stallTimeoutMs: 3 * 60 * 1000, maxUploadSizeMb: 50 };
+    return { maxHandoffs: 200, maxRecoveries: 2, stallTimeoutMs: 3 * 60 * 1000, maxUploadSizeMb: 50, recoveryMode: "router_agent" };
   }
 }
 
@@ -58,9 +62,12 @@ const MAX_HANDOFFS = sysCfg.maxHandoffs;
 const MAX_RECOVERIES = sysCfg.maxRecoveries;
 const STALL_TIMEOUT_MS = sysCfg.stallTimeoutMs;
 const MAX_UPLOAD_SIZE_MB = sysCfg.maxUploadSizeMb;
+const RECOVERY_MODE: RecoveryMode = sysCfg.recoveryMode;
 
 /** ID оркестратора — хаб цепочки; его «обрыв» (ответ пользователю) не считается прерыванием. */
 const ORCHESTRATOR_ID = "orchestrator";
+/** ID системного агента-маршрутизатора (режим recoveryMode="router_agent"). */
+const CHAIN_ROUTER_ID = "chain-router";
 
 function extractText(msg: unknown): string {
   const c = (msg as any)?.content;
@@ -90,7 +97,9 @@ function buildSystemPrompt(def: AgentDef, workdir: string, globalRules: string[]
     p += "\n\n## Дополнительные правила\n\n" + def.rules.join("\n\n");
   }
   // Глобальные правила окружения (system/*.md) — общие для всех агентов.
-  if (globalRules.length > 0) {
+  // chain-router — системный агент: он не создаёт файлы и не задаёт вопросы
+  // пользователю, поэтому правила окружения (handoff_file, ask_user) ему не нужны.
+  if (globalRules.length > 0 && def.id !== "chain-router") {
     p += "\n\n## Правила окружения\n\n" + globalRules.join("\n\n");
   }
   if (def.skills.length > 0) {
@@ -358,13 +367,44 @@ export class AgentRunner {
       }
 
       // Обрыв цепочки: агент был «в цепочке» (ход запущен handoff'ом), но
-      // завершил ход без route_to_agent. Зовём оркестратора на автопроверку.
+      // завершил ход без route_to_agent.
       // Исключение: агент ждёт ответа пользователя (ask_user) — это не прерывание.
       if (ctx.inChain && agentId !== ORCHESTRATOR_ID && !ctx.awaitingUser && !ctx.aborted) {
         const recoveries = ctx.recoveryCount ?? 0;
         if (recoveries < MAX_RECOVERIES) {
           const task = ctx.handoffs[ctx.handoffs.length - 1];
           const lastMsg = this.lastAssistantMessage(ctxId, agentId);
+
+          // Маршрутизатор завершил ход без route_to_agent — fallback:
+          // принудительно передаём оркестратору, чтобы не зациклиться.
+          if (agentId === CHAIN_ROUTER_ID) {
+            const handoff: Handoff = {
+              from: agentId,
+              to: ORCHESTRATOR_ID,
+              reason: "⚠️ Маршрутизатор не принял решение — автопередача",
+              context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)",
+              ts: Date.now(),
+            };
+            ctx.recoveryCount = recoveries + 1;
+            this.doHandoff(ctxId, ctx, handoff, this.buildRouterFallbackPrompt(task, lastMsg));
+            return;
+          }
+
+          // Новый режим: запуск агента-маршрутизатора для разбора обрыва.
+          if (RECOVERY_MODE === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
+            const handoff: Handoff = {
+              from: agentId,
+              to: CHAIN_ROUTER_ID,
+              reason: "⚠️ Цепочка прервалась — разбор маршрута",
+              context: lastMsg ?? "(агент не оставил завершённого сообщения)",
+              ts: Date.now(),
+            };
+            ctx.recoveryCount = recoveries + 1;
+            this.doHandoff(ctxId, ctx, handoff, this.buildRouterPrompt(ctx, agentId, task, lastMsg));
+            return;
+          }
+
+          // Старый режим: оркестратор сам делает автопроверку.
           const handoff: Handoff = {
             from: agentId,
             to: ORCHESTRATOR_ID,
@@ -430,6 +470,56 @@ export class AgentRunner {
       `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ. Проверь фактическое состояние (разреши себе использовать read/bash):\n` +
       `1. Если работа полностью завершена — передай дальше по цепочке через route_to_agent (если есть следующий шаг) или кратко сообщи пользователю итог, если цепочка закончена.\n` +
       `2. Если работа НЕ завершена — составь корректирующий промпт с учётом изначального задания и уже сделанного, и перезапусти агента ${agentId} через route_to_agent.`
+    );
+  }
+
+  /** Промпт для агента-маршрутизатора при обрыве цепочки (recoveryMode="router_agent"). */
+  private buildRouterPrompt(ctx: ContextMeta, brokenAgent: string, task: Handoff | undefined, lastMsg: string | undefined): string {
+    const ctxDir = this.store.dir(ctx.id);
+    const history = ctx.handoffs
+      .map((h, i) =>
+        `${i + 1}. [${new Date(h.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}] ${h.from} → ${h.to} — ${h.reason}`
+      )
+      .join("\n");
+    const listMd = (sub: string): string[] => {
+      try {
+        return fs.readdirSync(path.join(ctxDir, sub)).filter((f) => f.endsWith(".md")).sort();
+      } catch {
+        return [];
+      }
+    };
+    const taskFiles = listMd("tasks").map((f) => path.join(ctxDir, "tasks", f));
+    const resultFiles = listMd("results").map((f) => path.join(ctxDir, "results", f));
+    const files = [
+      taskFiles.length ? `Задания (tasks/):\n${taskFiles.map((p) => `- ${p}`).join("\n")}` : "",
+      resultFiles.length ? `Результаты (results/):\n${resultFiles.map((p) => `- ${p}`).join("\n")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return (
+      `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ. Агент ${brokenAgent} завершил ход, не вызвав route_to_agent.\n\n` +
+      `## История маршрутизации\n${history || "(передач ещё не было)"}\n\n` +
+      `## Файлы контекста\n${files || "(файлов заданий и результатов нет)"}\n\n` +
+      `## Задание, которое было передано агенту ${brokenAgent}\n` +
+      `— Причина: ${task?.reason ?? "неизвестно"}\n` +
+      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
+      `## Последнее сообщение агента ${brokenAgent}\n${lastMsg ?? "(нет)"}\n\n` +
+      `Действуй по алгоритму из системного промпта: 1) list_agents, 2) прочитай файлы, 3) route_to_agent.`
+    );
+  }
+
+  /** Fallback-промпт для оркестратора: маршрутизатор не смог принять решение. */
+  private buildRouterFallbackPrompt(task: Handoff | undefined, lastMsg: string | undefined): string {
+    return (
+      `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ, и агент-маршрутизатор (chain-router) не смог принять решение о передаче.\n\n` +
+      `Задание, которое было передано предыдущему агенту:\n` +
+      `— Причина: ${task?.reason ?? "неизвестно"}\n` +
+      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
+      `Последнее сообщение маршрутизатора:\n${lastMsg ?? "(нет)"}\n\n` +
+      `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ (разреши себе использовать read/bash для проверки состояния).\n` +
+      `1. Если работа полностью завершена — кратко сообщи пользователю итог.\n` +
+      `2. Если работа НЕ завершена — передай дальше по цепочке через route_to_agent с корректирующим промптом.`
     );
   }
 

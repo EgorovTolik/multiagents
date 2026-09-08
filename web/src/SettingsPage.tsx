@@ -14,6 +14,7 @@ interface SystemConfig {
   maxRecoveries?: number;
   stallTimeoutMs?: number;
   maxUploadSizeMb?: number;
+  recoveryMode?: "router_agent" | "orchestrator_check";
 }
 
 interface ProviderEntry {
@@ -99,7 +100,8 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
       (cfg.maxHandoffs ?? 200) !== (original.maxHandoffs ?? 200) ||
       (cfg.maxRecoveries ?? 2) !== (original.maxRecoveries ?? 2) ||
       (cfg.stallTimeoutMs ?? 180000) !== (original.stallTimeoutMs ?? 180000) ||
-      (cfg.maxUploadSizeMb ?? 50) !== (original.maxUploadSizeMb ?? 50);
+      (cfg.maxUploadSizeMb ?? 50) !== (original.maxUploadSizeMb ?? 50) ||
+      (cfg.recoveryMode ?? "router_agent") !== (original.recoveryMode ?? "router_agent");
     return provsDirty || fieldsDirty;
   })();
 
@@ -136,6 +138,7 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
         maxRecoveries: cfg.maxRecoveries,
         stallTimeoutMs: cfg.stallTimeoutMs,
         maxUploadSizeMb: cfg.maxUploadSizeMb,
+        recoveryMode: cfg.recoveryMode ?? "router_agent",
       };
       const res = await fetch("/api/config", {
         method: "PUT",
@@ -338,6 +341,18 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
                   onChange={(e) => set("maxUploadSizeMb", Number(e.target.value))}
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
+              </Field>
+            </div>
+            <div className="mt-4">
+              <Field label="Режим восстановления цепочки" hint="Что делать, если агент завершил ход, не передав диалог дальше."> 
+                <select
+                  value={cfg.recoveryMode ?? "router_agent"}
+                  onChange={(e) => set("recoveryMode", e.target.value as "router_agent" | "orchestrator_check")}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                >
+                  <option value="router_agent">Агент-маршрутизатор (chain-router)</option>
+                  <option value="orchestrator_check">Автопроверка оркестратором</option>
+                </select>
               </Field>
             </div>
           </div>

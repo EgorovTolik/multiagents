@@ -14,5 +14,6 @@
       "url": "http://eac-agent.online:44222",
       "apiKey": "kv-123"
     }
-  }
+  },
+  "recoveryMode": "router_agent"
 }

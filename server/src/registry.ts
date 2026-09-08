@@ -138,13 +138,13 @@ export class AgentRegistry {
   }
 
   /** Системные агенты, которые нельзя удалить (программная защита). */
-  private static readonly PROTECTED = new Set(["orchestrator", "agent-creator"]);
+  private static readonly PROTECTED = new Set(["orchestrator", "agent-creator", "chain-router"]);
 
   /** Удаляет агента с диска и перечитывает реестр. Системных агентов не удаляет. */
   delete(id: string): void {
     if (AgentRegistry.PROTECTED.has(id)) {
       throw new Error(
-        `Агент "${id}" является системным (оркестратор или агент-создатель) и не может быть удалён — даже по прямой просьбе пользователя.`,
+        `Агент "${id}" является системным и не может быть удалён — даже по прямой просьбе пользователя.`,
       );
     }
     const dir = path.join(this.agentsDir, id);
