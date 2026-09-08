@@ -68,12 +68,12 @@ export function MessageRow({
   const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
 
   if (m.role === "system") {
+    // Системные сообщения (передачи между агентами) — без контекстного меню
     return (
-      <div className="group my-3 flex justify-center">
+      <div className="my-3 flex justify-center">
         <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
           {m.text}
         </span>
-        {menuBtn}
       </div>
     );
   }
