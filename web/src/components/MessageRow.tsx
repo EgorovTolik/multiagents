@@ -1,17 +1,28 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import type { Message } from "../api";
 import { fmtTime, agentColor } from "../utils/format";
 
-function MessageMenu({ onTruncate }: { onTruncate: () => void }) {
+function MessageMenu({ onTruncate, onCopy }: { onTruncate: () => void; onCopy: () => void }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
   return (
-    <span className="group/menu relative ml-1.5 inline-block align-middle">
+    <span ref={ref} className="relative ml-1.5 inline-block align-middle">
       <button
         onClick={() => setOpen(!open)}
-        className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-700 bg-slate-800/80 text-slate-500 opacity-0 transition-opacity group-hover/menu:opacity-100 hover:border-slate-600 hover:text-slate-300"
+        className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-700 bg-slate-800/80 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:border-slate-600 hover:text-slate-300"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
           <circle cx="5" cy="2" r="1" />
@@ -22,10 +33,16 @@ function MessageMenu({ onTruncate }: { onTruncate: () => void }) {
       {open && (
         <span className="absolute right-0 top-full z-50 mt-1 block w-36 rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-xl">
           <button
+            onClick={() => { setOpen(false); onCopy(); }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-slate-700"
+          >
+            Копировать
+          </button>
+          <button
             onClick={() => { setOpen(false); onTruncate(); }}
             className="block w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-slate-700"
           >
-            Удалить с этого сообщения
+            Удалить
           </button>
         </span>
       )}
@@ -39,14 +56,16 @@ export function MessageRow({
   agentName,
   onImageClick,
   onTruncate,
+  notify,
 }: {
   m: Message;
   index: number;
   agentName: (id: string) => string;
   onImageClick: (url: string) => void;
   onTruncate: (index: number) => void;
+  notify: (text: string) => void;
 }) {
-  const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} />;
+  const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
 
   if (m.role === "system") {
     return (

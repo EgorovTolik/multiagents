@@ -216,6 +216,38 @@ app.put("/api/agents/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── System config API ─────────────────────────────────────────────────────────
+const CONFIG_PATH = path.join(root, "config.json");
+
+app.get("/api/config", (_req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    res.json(cfg);
+  } catch {
+    res.json({});
+  }
+});
+
+app.put("/api/config", (req, res) => {
+  try {
+    const current = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    const { model, port, apiKeys, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb } = req.body;
+    if (model !== undefined) current.model = model;
+    if (port !== undefined) current.port = port;
+    if (apiKeys !== undefined) current.apiKeys = apiKeys;
+    if (maxHandoffs !== undefined) current.maxHandoffs = maxHandoffs;
+    if (maxRecoveries !== undefined) current.maxRecoveries = maxRecoveries;
+    if (stallTimeoutMs !== undefined) current.stallTimeoutMs = stallTimeoutMs;
+    if (maxUploadSizeMb !== undefined) current.maxUploadSizeMb = maxUploadSizeMb;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2));
+    // Пересинхронизировать API-ключи
+    syncAuthKeys();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Статика фронтенда (сборка web) + SPA fallback
 const webDist = path.join(root, "web", "dist");
 if (fs.existsSync(webDist)) {

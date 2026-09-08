@@ -3,11 +3,13 @@ import "highlight.js/styles/atom-one-dark.css";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg } from "./api";
 import { useServer } from "./api";
 import AgentEditor from "./AgentEditor";
+import SettingsPage from "./SettingsPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatHeader } from "./components/ChatHeader";
 import { MessageRow } from "./components/MessageRow";
 import { InputArea, type AttachedFile } from "./components/InputArea";
 import { Lightbox } from "./components/Lightbox";
+import { ToastContainer, useToasts } from "./components/Toast";
 
 // ─── Hash routing ────────────────────────────────────────────────────────────────
 function useHashRoute(): string {
@@ -42,6 +44,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { toasts, notify } = useToasts();
 
   // Refs
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -214,9 +217,12 @@ export default function App() {
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
 
-  // ─── Agent Editor route (after all hooks — Rules of Hooks) ─────────────────────
+  // ─── Agent Editor / Settings routes (after all hooks — Rules of Hooks) ─────────
   if (route === "#/agents") {
     return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
+  }
+  if (route === "#/settings") {
+    return <SettingsPage onBack={() => { window.location.hash = ""; }} />;
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────────
@@ -290,6 +296,7 @@ export default function App() {
                       if (!confirm("Удалить историю начиная с этого сообщения?")) return;
                       apiRef.current?.send({ type: "truncate_history", ctxId: activeCtx!.id, fromIndex: idx });
                     }}
+                    notify={notify}
                   />
                 ))}
                 {messages.length === 0 && (
@@ -350,6 +357,9 @@ export default function App() {
 
       {/* Lightbox */}
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
+
+      {/* Toasts */}
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }

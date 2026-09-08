@@ -53,7 +53,13 @@ export function Sidebar({
             href="#/agents"
             className="mt-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
           >
-            ⚙️ Редактор агентов
+            🤖 Редактор агентов
+          </a>
+          <a
+            href="#/settings"
+            className="mt-2 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
+          >
+            ⚙️ Настройки
           </a>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -91,6 +97,7 @@ export function Sidebar({
                 <button
                   onClick={() => onSelectContext(c.id)}
                   onDoubleClick={() => onRenameStart(c.id)}
+                  title={`contexts/${c.id}`}
                   className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
                     activeCtx?.id === c.id ? "text-white" : "text-slate-400"
                   }`}

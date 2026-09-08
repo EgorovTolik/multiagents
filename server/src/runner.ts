@@ -38,20 +38,29 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
-/** Лимит передач в одной цепочке — защита от циклов. */
-const MAX_HANDOFFS = 200;
+/** Читаем системные настройки из config.json (с дефолтами). */
+function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stallTimeoutMs: number; maxUploadSizeMb: number } {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, "config.json"), "utf8"));
+    return {
+      maxHandoffs: cfg.maxHandoffs ?? 200,
+      maxRecoveries: cfg.maxRecoveries ?? 2,
+      stallTimeoutMs: cfg.stallTimeoutMs ?? 3 * 60 * 1000,
+      maxUploadSizeMb: cfg.maxUploadSizeMb ?? 50,
+    };
+  } catch {
+    return { maxHandoffs: 200, maxRecoveries: 2, stallTimeoutMs: 3 * 60 * 1000, maxUploadSizeMb: 50 };
+  }
+}
 
-/**
- * Лимит автоматических восстановлений прерванной цепочки.
- * После него система перестаёт сама звать оркестратора и просит пользователя.
- */
-const MAX_RECOVERIES = 2;
+const sysCfg = loadSystemConfig();
+const MAX_HANDOFFS = sysCfg.maxHandoffs;
+const MAX_RECOVERIES = sysCfg.maxRecoveries;
+const STALL_TIMEOUT_MS = sysCfg.stallTimeoutMs;
+const MAX_UPLOAD_SIZE_MB = sysCfg.maxUploadSizeMb;
 
 /** ID оркестратора — хаб цепочки; его «обрыв» (ответ пользователю) не считается прерыванием. */
 const ORCHESTRATOR_ID = "orchestrator";
-
-/** Таймаут без событий (дельта/сообщение/инструмент) — сессия считается зависшей. */
-const STALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 function extractText(msg: unknown): string {
   const c = (msg as any)?.content;
