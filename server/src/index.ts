@@ -25,17 +25,27 @@ const CONTEXTS_DIR = path.join(root, "contexts");
 const SYSTEM_DIR = path.join(root, "system");
 
 // Записываем API-ключи из config.json в agents/auth.json (pi SDK ищет их там)
+// Поддерживает обе структуры: legacy apiKeys и новую providers
 function syncAuthKeys(): void {
-  const apiKeys: Record<string, string> = config.apiKeys ?? {};
-  if (Object.keys(apiKeys).length === 0) return;
   const authPath = path.join(AGENTS_DIR, "auth.json");
   let existing: Record<string, unknown> = {};
   try {
     existing = JSON.parse(fs.readFileSync(authPath, "utf8"));
   } catch { /* файл пуст или не существует */ }
+
+  // Новая структура: providers: { id: { url, apiKey } }
+  const providers: Record<string, { url?: string; apiKey?: string }> = config.providers ?? {};
+  for (const [provider, cfg] of Object.entries(providers)) {
+    if (cfg.apiKey) {
+      existing[provider] = { type: "api_key", key: cfg.apiKey };
+    }
+  }
+  // Legacy: apiKeys: { id: "key" }
+  const apiKeys: Record<string, string> = config.apiKeys ?? {};
   for (const [provider, key] of Object.entries(apiKeys)) {
     existing[provider] = { type: "api_key", key };
   }
+
   fs.mkdirSync(AGENTS_DIR, { recursive: true });
   fs.writeFileSync(authPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
 }
@@ -219,6 +229,10 @@ app.put("/api/agents/:id", (req, res) => {
 // ─── System config API ─────────────────────────────────────────────────────────
 const CONFIG_PATH = path.join(root, "config.json");
 
+/** Кеш моделей провайдеров: { providerId: { models: string[], fetchedAt: number } } */
+const modelsCache: Record<string, { models: string[]; fetchedAt: number }> = {};
+const MODELS_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
 app.get("/api/config", (_req, res) => {
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
@@ -231,10 +245,14 @@ app.get("/api/config", (_req, res) => {
 app.put("/api/config", (req, res) => {
   try {
     const current = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    const { model, port, apiKeys, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb } = req.body;
+    const { model, port, providers, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb } = req.body;
     if (model !== undefined) current.model = model;
     if (port !== undefined) current.port = port;
-    if (apiKeys !== undefined) current.apiKeys = apiKeys;
+    if (providers !== undefined) {
+      current.providers = providers;
+      // Удаляем legacy apiKeys если есть новая структура
+      delete current.apiKeys;
+    }
     if (maxHandoffs !== undefined) current.maxHandoffs = maxHandoffs;
     if (maxRecoveries !== undefined) current.maxRecoveries = maxRecoveries;
     if (stallTimeoutMs !== undefined) current.stallTimeoutMs = stallTimeoutMs;
@@ -242,9 +260,79 @@ app.put("/api/config", (req, res) => {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2));
     // Пересинхронизировать API-ключи
     syncAuthKeys();
+    // Очистить кеш моделей при изменении провайдеров
+    if (providers) {
+      for (const key of Object.keys(modelsCache)) delete modelsCache[key];
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e) });
+  }
+});
+
+/** GET /api/providers/:id/models — список моделей провайдера (с кешем) */
+app.get("/api/providers/:id/models", async (req, res) => {
+  const providerId = String(req.params.id ?? "");
+  if (!providerId || providerId.includes("..") || providerId.includes("/")) {
+    res.status(400).json({ error: "invalid provider id" });
+    return;
+  }
+
+  // Читаем config
+  let cfg: Record<string, unknown> = {};
+  try {
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch { /* empty */ }
+
+  const providers = (cfg.providers ?? {}) as Record<string, { url?: string; apiKey?: string }>;
+  const provider = providers[providerId];
+  if (!provider?.url) {
+    res.status(404).json({ error: `provider "${providerId}" not found or has no url` });
+    return;
+  }
+
+  // Кеш: если свежий — возвращаем
+  const cached = modelsCache[providerId];
+  if (cached && Date.now() - cached.fetchedAt < MODELS_CACHE_TTL) {
+    res.json({ models: cached.models, cached: true, fetchedAt: cached.fetchedAt });
+    return;
+  }
+
+  // Fetch моделей с провайдера
+  const modelsUrl = `${provider.url.replace(/\/$/, "")}/v1/models`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const resp = await fetch(modelsUrl, {
+      headers: {
+        "Authorization": `Bearer ${provider.apiKey ?? ""}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      // Если API недоступно — возвращаем кеш (даже старый)
+      if (cached) {
+        res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: `HTTP ${resp.status}` });
+      } else {
+        res.status(502).json({ error: `Provider returned HTTP ${resp.status}` });
+      }
+      return;
+    }
+
+    const data = await resp.json() as { data?: { id: string }[] };
+    const models = (data.data ?? []).map((m) => m.id).sort();
+    modelsCache[providerId] = { models, fetchedAt: Date.now() };
+    res.json({ models, cached: false, fetchedAt: Date.now() });
+  } catch (e) {
+    // Сеть недоступна — возвращаем кеш
+    if (cached) {
+      res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: String(e) });
+    } else {
+      res.status(502).json({ error: `Cannot reach provider: ${String(e)}` });
+    }
   }
 });
 

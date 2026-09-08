@@ -45,6 +45,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Список моделей всех провайдеров для dropdown
+  const [allModels, setAllModels] = useState<string[]>([]);
+  const [globalModel, setGlobalModel] = useState<string>("");
 
   // Загрузка списка агентов
   useEffect(() => {
@@ -55,6 +58,31 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
         if (d.length > 0) setSelectedId(d[0].id);
       })
       .catch(() => setError("Не удалось загрузить список агентов"));
+  }, []);
+
+  // Загрузка моделей всех провайдеров + глобальная модель
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg: { model?: string; providers?: Record<string, { url: string; apiKey: string }> }) => {
+        setGlobalModel(cfg.model ?? "");
+        const provs = cfg.providers ?? {};
+        const ids = Object.keys(provs);
+        if (ids.length === 0) return;
+        Promise.all(
+          ids.map((id) =>
+            fetch(`/api/providers/${encodeURIComponent(id)}/models`)
+              .then((r) => r.json())
+              .then((d: { models: string[] }) =>
+                (d.models ?? []).map((m) => `${id}/${m}`)
+              )
+              .catch(() => [] as string[])
+          )
+        ).then((results) => {
+          setAllModels(results.flat().sort());
+        });
+      })
+      .catch(() => { /* ignore */ });
   }, []);
 
   // Загрузка деталей выбранного агента
@@ -278,14 +306,18 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               <Field
                 label="Модель (опционально, override)"
                 dirty={isDirty("model")}
-                help={'Идентификатор модели: провайдер/модель (напр. eac-mac-ai/Qwen3.6-35B-A3B-UD-Q6_K.gguf). Если пусто — используется глобальная модель из config.json.'}
+                help={'По умолчанию используется глобальная модель из config.json. Выберите конкретную модель для override.'}
               >
-                <input
+                <select
                   value={data.model ?? ""}
                   onChange={(e) => updateField("model", e.target.value || null)}
-                  placeholder="(использовать глобальную из config.json)"
                   className={`w-full rounded-lg border bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 ${borderClass(isDirty("model"))}`}
-                />
+                >
+                  <option value="">{globalModel ? `(глобальная: ${globalModel})` : "(использовать глобальную)"}</option>
+                  {allModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
               </Field>
 
               {/* Thinking level */}
