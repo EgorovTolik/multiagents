@@ -135,6 +135,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [anyDirty]);
 
+  // Мобильный drawer со списком агентов
+  const [listOpen, setListOpen] = useState(false);
+
 
 
   const save = async () => {
@@ -203,21 +206,32 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-dvh flex-col bg-slate-950 text-slate-100">
       {/* Верхняя панель */}
-      <header className="flex items-center gap-3 border-b border-slate-800 px-4 py-3 sm:px-6">
+      <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3 sm:gap-3 sm:px-6">
+        <button
+          onClick={() => setListOpen(true)}
+          className="rounded-lg border border-slate-700 bg-slate-800 p-2 text-slate-300 hover:bg-slate-700 md:hidden"
+          aria-label="Список агентов"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <line x1="2" y1="4" x2="14" y2="4" />
+            <line x1="2" y1="8" x2="14" y2="8" />
+            <line x1="2" y1="12" x2="14" y2="12" />
+          </svg>
+        </button>
         <button
           onClick={() => guardedAction(onBack)}
           className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
         >
           ← Чат
         </button>
-        <h1 className="text-lg font-semibold">Редактор агентов</h1>
+        <h1 className="hidden text-lg font-semibold sm:block">Редактор агентов</h1>
         {error && <span className="text-sm text-red-400">{error}</span>}
         <div className="ml-auto flex items-center gap-3">
-          {saved && <span className="text-sm text-emerald-400">✓ Сохранено</span>}
+          {saved && <span className="hidden text-sm text-emerald-400 sm:inline">✓ Сохранено</span>}
           <button
             onClick={save}
             disabled={!anyDirty || saving}
-            className="rounded-lg bg-indigo-600 px-5 py-1.5 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 sm:px-5"
           >
             {saving ? "Сохранение…" : "Сохранить"}
           </button>
@@ -225,18 +239,29 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Левая панель: список агентов */}
-        <aside className="w-56 shrink-0 border-r border-slate-800 bg-slate-900/50 sm:w-64">
-          <div className="p-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+        {/* Мобильный overlay для drawer */}
+        {listOpen && (
+          <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setListOpen(false)} />
+        )}
+        {/* Левая панель: список агентов (drawer на мобильных, статичная на md+) */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-slate-800 bg-slate-950 transition-transform duration-200 md:static md:w-64 md:translate-x-0 md:bg-slate-900/50 ${
+            listOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="border-b border-slate-800 p-3 text-xs font-medium uppercase tracking-wide text-slate-500">
             Агенты ({agents.length})
           </div>
-          <nav className="overflow-y-auto pb-3">
+          <nav className="flex-1 overflow-y-auto pb-3">
             {agents.map((a) => (
               <button
                 key={a.id}
                 onClick={() => {
                   if (a.id === selectedId) return;
-                  guardedAction(() => setSelectedId(a.id));
+                  guardedAction(() => {
+                    setSelectedId(a.id);
+                    setListOpen(false);
+                  });
                 }}
                 className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
                   selectedId === a.id
