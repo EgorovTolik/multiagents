@@ -121,9 +121,11 @@ export class AgentRegistry {
     fs.mkdirSync(path.join(dir, "rules"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
     fs.writeFileSync(path.join(dir, "AGENT.md"), params.systemPrompt);
+    // mcp + mcpScript включены по умолчанию (документация: docs/mcp-access-for-agents.md):
+    // без них в allowlist агент не видит MCP-серверы из ~/.pi/agent/mcp.json
     fs.writeFileSync(
       path.join(dir, "config.json"),
-      JSON.stringify({ name: id, description: params.description }, null, 2),
+      JSON.stringify({ name: id, description: params.description, tools: ["read", "write", "edit", "bash", "mcp", "mcpScript"] }, null, 2),
     );
     for (const rule of params.rules ?? []) {
       const rf = path.join(dir, "rules", `${rule.name ?? "rule"}.md`);
