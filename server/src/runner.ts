@@ -565,6 +565,26 @@ export class AgentRunner {
     this.store.appendMessage(ctxId, sysMsg);
     this.emit({ type: "handoff", ctxId, handoff });
     this.emit({ type: "message", ctxId, message: sysMsg });
+
+    // «Забывать сессию после завершения шага»: исходный агент завершил свой ход,
+    // чат уходит другому — выбрасываем его pi-сессию (естественное сжатие контекста).
+    // История остаётся в messages.json; при возврате строится новая сессия из неё.
+    if (handoff.to !== handoff.from) {
+      const fromDef = this.registry.get(handoff.from);
+      if (fromDef?.forgetSessionAfterStep) {
+        const k = this.key(ctxId, handoff.from);
+        const s = this.sessions.get(k);
+        if (s) {
+          try {
+            s.dispose();
+          } catch {
+            // ignore
+          }
+          this.sessions.delete(k);
+        }
+      }
+    }
+
     void this.run(ctxId, prompt);
   }
 

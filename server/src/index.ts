@@ -295,7 +295,7 @@ app.get("/api/agents/:id/detail", (req, res) => {
     effectiveTools.push("create_agent", "delete_agent");
   }
 
-  res.json({ id, name: cfg.name ?? id, description: cfg.description ?? "", tools: effectiveTools, model: cfg.model ?? null, thinkingLevel: cfg.thinkingLevel ?? null, systemPrompt, rules, skills });
+  res.json({ id, name: cfg.name ?? id, description: cfg.description ?? "", tools: effectiveTools, model: cfg.model ?? null, thinkingLevel: cfg.thinkingLevel ?? null, forgetSessionAfterStep: cfg.forgetSessionAfterStep === true, systemPrompt, rules, skills });
 });
 
 app.put("/api/agents/:id", (req, res) => {
@@ -305,7 +305,7 @@ app.put("/api/agents/:id", (req, res) => {
     res.status(404).json({ error: "agent not found" });
     return;
   }
-  const { name, description, tools, model, thinkingLevel, systemPrompt, rules, skills } = req.body;
+  const { name, description, tools, model, thinkingLevel, forgetSessionAfterStep, systemPrompt, rules, skills } = req.body;
 
   // config.json
   const cfg: Record<string, unknown> = {};
@@ -314,6 +314,8 @@ app.put("/api/agents/:id", (req, res) => {
   if (tools) cfg.tools = tools;
   if (model) cfg.model = model;
   if (thinkingLevel) cfg.thinkingLevel = thinkingLevel;
+  // boolean: записываем и false (иначе нельзя было бы снять галочку)
+  cfg.forgetSessionAfterStep = forgetSessionAfterStep === true;
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(cfg, null, 2));
 
   // AGENT.md

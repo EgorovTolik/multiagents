@@ -17,6 +17,8 @@ export interface AgentDef {
   model?: string;
   tools?: string[];
   thinkingLevel?: string;
+  /** Забывать pi-сессию после завершения шага (при передаче чата другому агенту). */
+  forgetSessionAfterStep?: boolean;
 }
 
 export interface NewAgentParams {
@@ -93,6 +95,7 @@ export class AgentRegistry {
         model: cfg.model,
         tools: cfg.tools,
         thinkingLevel: cfg.thinkingLevel,
+        forgetSessionAfterStep: cfg.forgetSessionAfterStep === true,
       });
     }
   }

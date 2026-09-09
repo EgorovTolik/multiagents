@@ -13,6 +13,7 @@ interface AgentDetail {
   tools: string[];
   model: string | null;
   thinkingLevel: string | null;
+  forgetSessionAfterStep: boolean;
   systemPrompt: string;
   rules: AgentFileEntry[];
   skills: AgentFileEntry[];
@@ -109,7 +110,8 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
 
   const anyDirty = !!(data && original && (
     isDirty("name") || isDirty("description") || isDirty("tools") ||
-    isDirty("model") || isDirty("thinkingLevel") || isDirty("systemPrompt") ||
+    isDirty("model") || isDirty("thinkingLevel") || isDirty("forgetSessionAfterStep") ||
+    isDirty("systemPrompt") ||
     isDirty("rules") || isDirty("skills")
   ));
 
@@ -358,6 +360,23 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                     <option key={l} value={l}>{l}</option>
                   ))}
                 </select>
+              </Field>
+
+              {/* Forget session after step */}
+              <Field
+                label="Забывать сессию после завершения шага"
+                dirty={isDirty("forgetSessionAfterStep")}
+                help={'Когда этот агент завершает свой шаг и чат передаётся другому агенту, его pi-сессия удаляется (остаётся только история сообщений в чате). При возврате строится новая сессия из истории — естественное «сжатие» контекста агента.'}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={data.forgetSessionAfterStep === true}
+                    onChange={(e) => updateField("forgetSessionAfterStep", e.target.checked)}
+                    className="h-4 w-4 accent-indigo-500"
+                  />
+                  <span>Удалять pi-сессию агента после передачи чата другому агенту</span>
+                </label>
               </Field>
 
               {/* System Prompt */}
