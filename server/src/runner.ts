@@ -33,6 +33,14 @@ function isImage(att: FileAttachment): boolean {
   return att.mediaType.startsWith("image/");
 }
 
+/** Расширение файла по MIME для сохраняемых изображений инструментов. */
+const IMAGE_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
@@ -374,6 +382,7 @@ export class AgentRunner {
       this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
     } finally {
       this.active = null;
+      this.flushPendingImages(ctxId, agentId);
       this.emit({ type: "run_end", ctxId, agentId });
 
       // Перечитываем контекст с диска: route_to_agent мог запланировать
@@ -656,20 +665,78 @@ export class AgentRunner {
     return session;
   }
 
+  /** Изображения из результатов инструментов (например, MCP-скриншоты), ожидающие привязки к сообщению. */
+  private pendingImages = new Map<string, string[]>();
+
+  private keyFor(ctxId: string, agentId: string) {
+    return `${ctxId}/${agentId}`;
+  }
+
+  /** Сохраняет image-блоки из результата инструмента в contexts/<id>/attachments/ и возвращает markdown-ссылки. */
+  private saveToolImages(ctxId: string, result: any): string[] {
+    const content = Array.isArray(result?.content) ? result.content : [];
+    const images = content.filter((b: any) => b?.type === "image" && typeof b.data === "string" && b.data.length > 0);
+    if (images.length === 0) return [];
+    const dir = path.join(this.store.dir(ctxId), "attachments");
+    fs.mkdirSync(dir, { recursive: true });
+    const ts = Date.now();
+    return images.map((b: any, i: number) => {
+      const ext = IMAGE_EXT[b.mimeType] ?? "png";
+      const fname = `img-${ts}-${i}.${ext}`;
+      fs.writeFileSync(path.join(dir, fname), Buffer.from(b.data, "base64"));
+      // markdown-ссылка: фронтенд рендерит как миниатюру, клик — Lightbox (полный размер).
+      // Кодируем только query-параметр, а не весь URL — иначе браузер запросит %2Fapi...
+      const url = `/api/files?ctx=${ctxId}&path=attachments/${encodeURIComponent(fname)}`;
+      return `![скриншот](${url})`;
+    });
+  }
+
+  /** Проставляет накопленные изображения в сообщение ассистента (при пустом буфере возвращает text как есть). */
+  private withPendingImages(ctxId: string, agentId: string, text: string): string {
+    const key = this.keyFor(ctxId, agentId);
+    const imgs = this.pendingImages.get(key) ?? [];
+    if (imgs.length === 0) return text;
+    this.pendingImages.delete(key);
+    return text + "\n\n" + imgs.join("\n");
+  }
+
   private forward(ctxId: string, agentId: string, ev: any) {
     if (ev.type === "message_update" || ev.type === "message_start" || ev.type === "message_end" || ev.type === "tool_execution_start" || ev.type === "tool_execution_end") {
       this.lastEventAt = Date.now();
     }
+    // Изображения из результатов инструментов (take_screenshot и т.п.) — сохраняем
+    // в контекст, чтобы прикрепить к следующему сообщению этого агента
+    if (ev.type === "tool_execution_end" && !ev.isError) {
+      const md = this.saveToolImages(ctxId, ev.result);
+      if (md.length > 0) {
+        const key = this.keyFor(ctxId, agentId);
+        this.pendingImages.set(key, [...(this.pendingImages.get(key) ?? []), ...md]);
+      }
+    }
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
       this.emit({ type: "delta", ctxId, agentId, text: ev.assistantMessageEvent.delta });
     } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
-      const text = extractText(ev.message);
+      let text = extractText(ev.message);
+      if (!text) text = "";
+      // прикладываем накопленные изображения к этому сообщению
+      text = this.withPendingImages(ctxId, agentId, text);
       if (!text) return;
       const msg: Message = { role: "assistant", agentId, text, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
       // клиенту — без локальных путей, со ссылками на скачивание
       this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text) });
     }
+  }
+
+  /** Остаток изображений без завершающего сообщения (ход оборвался) — отправляем отдельным сообщением. */
+  private flushPendingImages(ctxId: string, agentId: string) {
+    const key = this.keyFor(ctxId, agentId);
+    const imgs = this.pendingImages.get(key);
+    if (!imgs || imgs.length === 0) return;
+    this.pendingImages.delete(key);
+    const msg: Message = { role: "assistant", agentId, text: imgs.join("\n"), ts: Date.now() };
+    this.store.appendMessage(ctxId, msg);
+    this.emit({ type: "assistant_end", ctxId, agentId, text: msg.text });
   }
 
   // ─── Инструменты агентов ───────────────────────────────────────────────
