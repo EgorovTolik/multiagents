@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentInfo, ContextMeta } from "../api";
-import { agentColor, formatBytes } from "../utils/format";
+import { agentColor, fmtClock, fmtDay, formatBytes } from "../utils/format";
 
 export interface ArchiveInfo {
   state: "queued" | "preparing" | "ready" | "error";
@@ -114,11 +114,22 @@ export function Sidebar({
               +
             </button>
           </div>
-          {contexts.map((c) => {
+          {(() => {
+            let lastDay = "";
+            return contexts.map((c) => {
             const arch = archiveStatus[c.id];
+            // Группировка по дате создания: заголовок дня перед первым элементом этого дня
+            const dayKey = new Date(c.createdAt).toDateString();
+            const dayHeader = dayKey !== lastDay;
+            lastDay = dayKey;
             return (
+              <Fragment key={c.id}>
+              {dayHeader && (
+                <div className="my-3 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  {fmtDay(c.createdAt)}
+                </div>
+              )}
               <div
-                key={c.id}
                 className={`group mb-1 flex items-center rounded-md pr-1 ${
                   activeCtx?.id === c.id ? "bg-slate-800" : "hover:bg-slate-900"
                 }`}
@@ -154,10 +165,14 @@ export function Sidebar({
                           activeCtx?.id === c.id && running?.ctxId === c.id ? "animate-pulse bg-emerald-400" : "bg-slate-600"
                         }`}
                       />
-                      {agentName(c.activeAgentId)}
+                      <span className="min-w-0 truncate">{agentName(c.activeAgentId)}</span>
                       {c.handoffs.length > 0 && (
-                        <span className="text-slate-600">· {c.handoffs.length} передач</span>
+                        <span className="shrink-0 text-slate-600">· {c.handoffs.length} передач</span>
                       )}
+                    </div>
+                    {/* Время создания — отдельной строкой, прижато к левому краю (дата — в заголовке группы) */}
+                    <div className="mt-0.5 text-left text-[11px] leading-none text-slate-600">
+                      {fmtClock(c.createdAt)}
                     </div>
                   </button>
                 )}
@@ -189,8 +204,10 @@ export function Sidebar({
                   ⋮
                 </button>
               </div>
+              </Fragment>
             );
-          })}
+            });
+          })()}
           {contexts.length === 0 && (
             <p className="px-2 py-4 text-xs text-slate-600">
               Нет контекстов — создай первый, чтобы начать
