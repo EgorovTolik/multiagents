@@ -720,12 +720,35 @@ export class AgentRunner {
       if (!text) text = "";
       // прикладываем накопленные изображения к этому сообщению
       text = this.withPendingImages(ctxId, agentId, text);
+      // убираем ссылки на несуществующие файлы (модель могла их выдумать)
+      text = this.sanitizeFileLinks(ctxId, text);
       if (!text) return;
       const msg: Message = { role: "assistant", agentId, text, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
       // клиенту — без локальных путей, со ссылками на скачивание
       this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text) });
     }
+  }
+
+  /**
+   * Удаляет markdown-ссылки на несуществующие файлы текущего контекста.
+   * Модель подглядывает формат /api/files из истории и иногда выдумывает имена файлов
+   * (файла нет → битая картинка/ссылка в чате). Проверяем каждый такой линк по диску:
+   * существует — оставляем, нет — убираем (картинку целиком, обычную ссылку — с сохранением текста).
+   */
+  private sanitizeFileLinks(ctxId: string, text: string): string {
+    const dir = this.store.dir(ctxId);
+    return text.replace(
+      /(!?)(\[[^\]]*\]\()\/api\/files\?ctx=[^&]+&path=([^)\s]+)(\))/g,
+      (m: string, bang: string, label: string, encodedRel: string) => {
+        let rel: string;
+        try { rel = decodeURIComponent(encodedRel); } catch { return m; }
+        const full = path.resolve(dir, rel);
+        if (full.startsWith(dir + path.sep) && fs.existsSync(full)) return m;
+        // битая ссылка: картинку убираем целиком, текст ссылки — оставляем
+        return bang ? "" : label.slice(1, -2).replace(/\)$/, "");
+      },
+    );
   }
 
   /** Остаток изображений без завершающего сообщения (ход оборвался) — отправляем отдельным сообщением. */

@@ -141,6 +141,18 @@ export class ContextStore {
     const dir = this.dir(ctxId);
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+    // Проход 0: image-ссылки ![alt](<префикс>:/path/in/ctx/dir/file.png), где цель — локальный путь
+    // (модель часто вставляет пути из tool results, иногда с префиксом sandbox:).
+    // Заменяем ВСЁ содержимое скобок на api_url: если заменить только путь (проход 2),
+    // получится вложенная ссылка ![alt](sandbox:[file.png](url)), которую ReactMarkdown ломает.
+    const imgRe = new RegExp(
+      "(!\\[[^\\]]*\\]\\()([^)]*?" + esc(dir) + path.sep + "([^)\\s]+))(\\))",
+      "g",
+    );
+    text = text.replace(imgRe, (_m, p1: string, _full: string, rel: string, p4: string) => {
+      return `${p1}/api/files?ctx=${ctxId}&path=${encodeURIComponent(rel)}${p4}`;
+    });
+
     // Проход 1: пути внутри markdown-ссылок [text](full_path) → [text](api_url)
     const mdLinkRe = new RegExp(
       "(\\[[^\\]]*\\]\\()(" + esc(dir) + path.sep + "([^\\s`\")\\]]+))(\\))",
