@@ -1,5 +1,15 @@
 {
   "name": "Веб-исследователь",
   "description": "Ищет информацию в интернете через браузер (Chrome), проводит исследование и пишет отчёт. Использовать для задач, требующих поиска в сети, анализа источников и подготовки отчёта.",
-  "tools": ["read", "write", "bash", "mcp", "mcpScript"]
+  "tools": [
+    "read",
+    "write",
+    "bash",
+    "mcp",
+    "mcpScript",
+    "route_to_agent",
+    "list_agents",
+    "ask_user"
+  ],
+  "forgetSessionAfterStep": true
 }

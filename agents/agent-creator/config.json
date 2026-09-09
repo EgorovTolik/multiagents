@@ -10,21 +10,7 @@
     "ask_user",
     "create_agent",
     "delete_agent",
-    "route_to_agent",
-    "list_agents",
-    "ask_user",
-    "create_agent",
-    "delete_agent",
-    "read",
-    "route_to_agent",
-    "list_agents",
-    "ask_user",
-    "create_agent",
-    "delete_agent",
-    "route_to_agent",
-    "list_agents",
-    "ask_user",
-    "create_agent",
-    "delete_agent"
-  ]
+    "read"
+  ],
+  "forgetSessionAfterStep": true
 }

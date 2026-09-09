@@ -288,9 +288,10 @@ app.get("/api/agents/:id/detail", (req, res) => {
       if (f.endsWith(".md")) skills.push({ filename: f, content: fs.readFileSync(path.join(skillsDir, f), "utf8") });
     }
   }
-  // Эффективный набор инструментов (как его видит раннер)
+  // Эффективный набор инструментов (как его видит раннер), без дублей:
+  // системные инструменты добавляются раннером всегда, UI их же показывает как доступные
   const baseTools = cfg.tools ?? ["read", "bash", "edit", "write"];
-  const effectiveTools = [...baseTools, "route_to_agent", "list_agents", "ask_user"];
+  const effectiveTools = [...new Set([...baseTools, "route_to_agent", "list_agents", "ask_user"])];
   if (id === "agent-creator") {
     effectiveTools.push("create_agent", "delete_agent");
   }
@@ -311,7 +312,9 @@ app.put("/api/agents/:id", (req, res) => {
   const cfg: Record<string, unknown> = {};
   if (name) cfg.name = name;
   if (description !== undefined) cfg.description = description;
-  if (tools) cfg.tools = tools;
+  // Дедупликация: UI присылает эффективный список (с системными инструментами),
+  // без дедупа при каждом сохранении набор копился бы
+  if (tools) cfg.tools = [...new Set(tools)];
   if (model) cfg.model = model;
   if (thinkingLevel) cfg.thinkingLevel = thinkingLevel;
   // boolean: записываем и false (иначе нельзя было бы снять галочку)

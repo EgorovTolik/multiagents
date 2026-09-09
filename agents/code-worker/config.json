@@ -8,12 +8,7 @@
     "write",
     "route_to_agent",
     "list_agents",
-    "ask_user",
-    "route_to_agent",
-    "list_agents",
-    "ask_user",
-    "route_to_agent",
-    "list_agents",
     "ask_user"
-  ]
+  ],
+  "forgetSessionAfterStep": false
 }

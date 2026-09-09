@@ -4,6 +4,8 @@
   "tools": [
     "read",
     "route_to_agent",
-    "list_agents"
-  ]
+    "list_agents",
+    "ask_user"
+  ],
+  "forgetSessionAfterStep": true
 }
