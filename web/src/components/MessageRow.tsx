@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -50,9 +50,12 @@ function MessageMenu({ onTruncate, onCopy }: { onTruncate: () => void; onCopy: (
   );
 }
 
-export function MessageRow({
+// memo: во время стриминга messages обновляется на каждый delta — без мемо
+// пере-рендерятся ВСЕ строки (и ReactMarkdown перепарсит весь текст), отсюда «дрожание» чата.
+function MessageRowInner({
   m,
   index,
+  streaming = false,
   agentName,
   onImageClick,
   onTruncate,
@@ -60,6 +63,8 @@ export function MessageRow({
 }: {
   m: Message;
   index: number;
+  /** Стримится прямо сейчас: рисуем plain-text без markdown, чтобы не «дышало» на каждый токен. */
+  streaming?: boolean;
   agentName: (id: string) => string;
   onImageClick: (url: string) => void;
   onTruncate: (index: number) => void;
@@ -81,19 +86,23 @@ export function MessageRow({
     return (
       <div className="group mb-2 flex items-start justify-end sm:mb-3">
         <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600/80 px-3 py-2 text-sm sm:max-w-[75%] sm:px-4">
-          <div className="md-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-              components={{
-                img: ({ src, alt }) => (
-                  <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
-                ),
-              }}
-            >
-              {m.text}
-            </ReactMarkdown>
-          </div>
+          {streaming ? (
+            <div className="whitespace-pre-wrap break-words">{m.text}</div>
+          ) : (
+            <div className="md-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={{
+                  img: ({ src, alt }) => (
+                    <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
+                  ),
+                }}
+              >
+                {m.text}
+              </ReactMarkdown>
+            </div>
+          )}
           <div className="mt-1 text-right text-[10px] text-indigo-200/70">{fmtTime(m.ts)}</div>
         </div>
         {menuBtn}
@@ -110,18 +119,24 @@ export function MessageRow({
         >
           {m.agentId ? agentName(m.agentId) : "система"}
         </span>
-        <div className="md-content rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={{
-              img: ({ src, alt }) => (
-                <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
-              ),
-            }}
-          >
-            {m.text}
-          </ReactMarkdown>
+        <div className="rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
+          {streaming ? (
+            <div className="whitespace-pre-wrap break-words">{m.text}</div>
+          ) : (
+            <div className="md-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={{
+                  img: ({ src, alt }) => (
+                    <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
+                  ),
+                }}
+              >
+                {m.text}
+              </ReactMarkdown>
+            </div>
+          )}
           <div className="mt-1 text-left text-[10px] text-slate-500">{fmtTime(m.ts)}</div>
         </div>
       </div>
@@ -129,3 +144,5 @@ export function MessageRow({
     </div>
   );
 }
+
+export const MessageRow = memo(MessageRowInner);

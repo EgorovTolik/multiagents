@@ -58,6 +58,8 @@ export default function App() {
   const apiRef = useRef<ClientApi | null>(null);
   const contextsRef = useRef<ContextMeta[]>([]);
   contextsRef.current = contexts;
+  const activeCtxIdRef = useRef<string | null>(null);
+  activeCtxIdRef.current = activeCtx?.id ?? null;
 
   // ─── WS message handler ────────────────────────────────────────────────────────
   const handle = useCallback(
@@ -229,6 +231,22 @@ export default function App() {
     setIsAtBottom(true);
   }, []);
 
+  const handleTruncate = useCallback((idx: number) => {
+    const ctxId = activeCtxIdRef.current;
+    if (!ctxId) return;
+    if (!confirm("Удалить историю начиная с этого сообщения?")) return;
+    apiRef.current?.send({ type: "truncate_history", ctxId, fromIndex: idx });
+  }, []);
+
+  // Строка, которая стримится прямо сейчас — рендерится plain-text (без markdown),
+  // чтобы пузырь не «дышал» на каждый токен; по assistant_end превратится в markdown
+  const lastMsg = messages[messages.length - 1];
+  const streamingIdx =
+    running && activeCtx && running.ctxId === activeCtx.id &&
+    lastMsg?.role === "assistant" && lastMsg.text.endsWith("…")
+      ? messages.length - 1
+      : -1;
+
   // ─── Actions ───────────────────────────────────────────────────────────────────
   const loadContext = (ctxId: string) => {
     api.send({ type: "load_context", ctxId });
@@ -262,7 +280,8 @@ export default function App() {
     setRenamingCtx(null);
   };
 
-  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
+  // useCallback — чтобы memo(MessageRow) работал: идентичность колбэков стабильна
+  const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
 
   // ─── Навыки ─────────────────────────────────────────────────────────────
   const applySkills = (ids: string[]) => {
@@ -376,12 +395,10 @@ export default function App() {
                     key={i}
                     m={m}
                     index={i}
+                    streaming={i === streamingIdx}
                     agentName={agentName}
                     onImageClick={setLightbox}
-                    onTruncate={(idx) => {
-                      if (!confirm("Удалить историю начиная с этого сообщения?")) return;
-                      apiRef.current?.send({ type: "truncate_history", ctxId: activeCtx!.id, fromIndex: idx });
-                    }}
+                    onTruncate={handleTruncate}
                     notify={notify}
                   />
                 ))}
