@@ -117,6 +117,17 @@ export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
   };
 }
 
+/** Запрос размеров директорий контекстов в байтах: { [ctxId]: number } */
+export async function fetchContextSizes(): Promise<Record<string, number>> {
+  try {
+    const r = await fetch("/api/context-sizes");
+    if (!r.ok) return {};
+    return (await r.json()) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
 const AGENT_COLORS = [
   "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
   "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",

@@ -197,6 +197,17 @@ app.get("/api/files", (req, res) => {
   res.download(full);
 });
 
+// Размеры директорий контекстов в байтах: { [ctxId]: number } — для тултипов в UI
+app.get("/api/context-sizes", (_req, res) => {
+  const sizes: Record<string, number> = {};
+  if (fs.existsSync(CONTEXTS_DIR)) {
+    for (const e of fs.readdirSync(CONTEXTS_DIR, { withFileTypes: true })) {
+      if (e.isDirectory()) sizes[e.name] = store.dirSize(e.name);
+    }
+  }
+  res.json(sizes);
+});
+
 // Скачивание готового архива контекста
 app.get("/api/archive", (req, res) => {
   const ctxId = String(req.query.ctx ?? "");

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "highlight.js/styles/atom-one-dark.css";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
-import { useServer } from "./api";
+import { useServer, fetchContextSizes } from "./api";
 import AgentEditor from "./AgentEditor";
 import SettingsPage from "./SettingsPage";
 import SkillsPage from "./SkillsPage";
@@ -49,6 +49,7 @@ export default function App() {
   const [archiveStatus, setArchiveStatus] = useState<Record<string, ArchiveInfo>>({});
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [appliedSkills, setAppliedSkills] = useState<string[]>([]);
+  const [contextSizes, setContextSizes] = useState<Record<string, number>>({});
   const { toasts, notify, dismiss } = useToasts();
 
   // Refs
@@ -195,6 +196,17 @@ export default function App() {
   const api = useServer(handle);
   apiRef.current = api;
 
+  // ─── Размеры директорий контекстов (для тултипов в сайдбаре) ─────────────
+  const ctxIdsKey = contexts.map((c) => c.id).join(",");
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => fetchContextSizes().then((s) => { if (!cancelled) setContextSizes(s); });
+    refresh();
+    // файлы в контекстах растут во время работы агентов — обновляем раз в 10 сек
+    const t = setInterval(refresh, 10000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [ctxIdsKey]);
+
   // ─── Scroll logic ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (autoScroll && isAtBottom) {
@@ -308,6 +320,7 @@ export default function App() {
         renameValue={renameValue}
         sidebarOpen={sidebarOpen}
         archiveStatus={archiveStatus}
+        contextSizes={contextSizes}
         onSidebarClose={() => setSidebarOpen(false)}
         onCreateContext={() => api.send({ type: "create_context", name: "Новый чат" })}
         onSelectContext={loadContext}

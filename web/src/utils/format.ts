@@ -11,6 +11,24 @@ export function fmtTime(ts: number): string {
   return `${dd}.${mo}.${yyyy} ${hh}:${mm}`;
 }
 
+/**
+ * Размер в байтах → человекочитаемая строка с авто-единицей:
+ * 512 Б, 1.48 КБ, 3.02 МБ, … (до двух знаков после запятой).
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || Number.isNaN(bytes) || bytes < 0) return "";
+  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  // «#.##»: до двух знаков после запятой, без хвостовых нулей
+  const s = v.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return `${s} ${units[i]}`;
+}
+
 /** Цвет бейджа агента */
 export function agentColor(id: string): string {
   const map: Record<string, string> = {

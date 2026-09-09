@@ -13,6 +13,10 @@
     "eac-work-ai": {
       "url": "http://eac-agent.online:44222",
       "apiKey": "kv-123"
+    },
+    "gl-hub": {
+      "url": "https://litellm-master.dev2.k8s.eltc.ru",
+      "apiKey": "sk-koS7p4o42Rx5uocstFLrKw"
     }
   },
   "recoveryMode": "router_agent"

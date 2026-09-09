@@ -113,6 +113,25 @@ export class ContextStore {
     fs.rmSync(this.dir(ctxId), { recursive: true, force: true });
   }
 
+  /** Рекурсивный размер директории контекста в байтах (0, если не существует). */
+  dirSize(ctxId: string): number {
+    const dir = this.dir(ctxId);
+    let total = 0;
+    const walk = (p: string) => {
+      for (const e of fs.readdirSync(p, { withFileTypes: true })) {
+        const full = path.join(p, e.name);
+        try {
+          if (e.isDirectory()) walk(full);
+          else if (e.isFile()) total += fs.statSync(full).size;
+        } catch { /* ignore */ }
+      }
+    };
+    try {
+      walk(dir);
+    } catch { /* нет директории */ }
+    return total;
+  }
+
   /**
    * Подменяет абсолютные пути внутри директории контекста на markdown-ссылки
    * на скачивание: /…/contexts/<id>/poem.txt → [poem.txt](/api/files?…)

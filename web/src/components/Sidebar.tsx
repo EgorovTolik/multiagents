@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentInfo, ContextMeta } from "../api";
-import { agentColor } from "../utils/format";
+import { agentColor, formatBytes } from "../utils/format";
 
 export interface ArchiveInfo {
   state: "queued" | "preparing" | "ready" | "error";
@@ -21,6 +21,7 @@ export function Sidebar({
   renameValue,
   sidebarOpen,
   archiveStatus,
+  contextSizes,
   onSidebarClose,
   onCreateContext,
   onSelectContext,
@@ -41,6 +42,8 @@ export function Sidebar({
   renameValue: string;
   sidebarOpen: boolean;
   archiveStatus: Record<string, ArchiveInfo>;
+  /** Размер директории контекста в байтах: { [ctxId]: number } */
+  contextSizes: Record<string, number>;
   onSidebarClose: () => void;
   onCreateContext: () => void;
   onSelectContext: (id: string) => void;
@@ -137,7 +140,9 @@ export function Sidebar({
                     onClick={() => onSelectContext(c.id)}
                     onDoubleClick={() => onRenameStart(c.id)}
                     onContextMenu={(e) => openMenu(c.id, e)}
-                    title={`contexts/${c.id}`}
+                    title={contextSizes[c.id] != null
+                      ? `contexts/${c.id} (${formatBytes(contextSizes[c.id])})`
+                      : `contexts/${c.id}`}
                     className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
                       activeCtx?.id === c.id ? "text-white" : "text-slate-400"
                     }`}
