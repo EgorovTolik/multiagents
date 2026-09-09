@@ -1,4 +1,6 @@
 import { useRef } from "react";
+import type { SkillInfo } from "../api";
+import { SkillPicker } from "./SkillPicker";
 
 export interface AttachedFile {
   name: string;
@@ -17,6 +19,10 @@ export function InputArea({
   placeholder,
   disabled,
   sentText,
+  skills,
+  appliedSkills,
+  onApplySkills,
+  skillsDisabled = false,
 }: {
   input: string;
   onInputChange: (v: string) => void;
@@ -27,6 +33,11 @@ export function InputArea({
   placeholder: string;
   disabled: boolean;
   sentText: string | null;
+  skills: SkillInfo[];
+  appliedSkills: string[];
+  onApplySkills: (ids: string[]) => void;
+  /** Навыки применяются независимо от отправки сообщения — блокируем только при разрыве WS. */
+  skillsDisabled?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -40,6 +51,10 @@ export function InputArea({
 
   return (
     <div className="border-t border-slate-800 p-3 sm:p-4">
+      {/* Панель инструментов над полем ввода */}
+      <div className="mb-2 flex items-center gap-2">
+        <SkillPicker skills={skills} applied={appliedSkills} onApply={onApplySkills} disabled={skillsDisabled} />
+      </div>
       {attachedFiles.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {attachedFiles.map((f, i) => (

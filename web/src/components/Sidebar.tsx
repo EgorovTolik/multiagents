@@ -87,6 +87,12 @@ export function Sidebar({
             🤖 Редактор агентов
           </a>
           <a
+            href="#/skills"
+            className="mt-2 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
+          >
+            ⚡ Навыки
+          </a>
+          <a
             href="#/settings"
             className="mt-2 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
           >

@@ -43,6 +43,10 @@ export interface ContextMeta {
   lastMessageAt?: number;
   /** Пользователь нажал «Остановить» — не запускать recovery после abort. */
   aborted?: boolean;
+  /** Навыки (skills/), применённые к этому чату. */
+  skills?: string[];
+  /** Какие навыки уже переданы какому агенту (agentId → id навыков). */
+  deliveredSkills?: Record<string, string[]>;
 }
 
 /**
@@ -150,6 +154,19 @@ export class ContextStore {
       meta.lastMessageAt = msg.ts;
       this.save(meta);
     }
+  }
+
+  /** Добавить навыки в контекст. Возвращает обновлённые метаданные. */
+  applySkills(ctxId: string, ids: string[]): ContextMeta {
+    const meta = this.get(ctxId);
+    if (!meta) throw new Error("Контекст не найден: " + ctxId);
+    const cur = meta.skills ?? [];
+    for (const id of ids) {
+      if (id && !cur.includes(id)) cur.push(id);
+    }
+    meta.skills = cur;
+    this.save(meta);
+    return meta;
   }
 
   /** Удалить сообщения начиная с индекса fromIndex (включительно). */

@@ -22,6 +22,8 @@ export interface ContextMeta {
   activeAgentId: string;
   handoffs: Handoff[];
   lastMessageAt?: number;
+  /** Навыки, применённые к этому чату. */
+  skills?: string[];
 }
 
 export interface AgentInfo {
@@ -30,8 +32,16 @@ export interface AgentInfo {
   description: string;
 }
 
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export type ServerMsg =
   | { type: "agents"; agents: AgentInfo[] }
+  | { type: "skills"; skills: SkillInfo[] }
+  | { type: "skills_applied"; ctxId: string; skills: string[] }
   | { type: "contexts"; contexts: ContextMeta[] }
   | { type: "context_created"; context: ContextMeta }
   | { type: "context_loaded"; context: ContextMeta | undefined; messages: Message[] }

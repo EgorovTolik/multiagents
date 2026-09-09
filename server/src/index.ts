@@ -6,6 +6,7 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import * as archiver from "archiver";
 import { AgentRegistry } from "./registry";
+import { SkillRegistry } from "./skill-registry";
 import { ContextStore } from "./context-store";
 import { AgentRunner } from "./runner";
 
@@ -22,6 +23,7 @@ const config = (() => {
 
 const PORT = config.port ?? 3000;
 const AGENTS_DIR = path.join(root, "agents");
+const SKILLS_DIR = path.join(root, "skills");
 const CONTEXTS_DIR = path.join(root, "contexts");
 const SYSTEM_DIR = path.join(root, "system");
 const ARCHIVES_DIR = path.join(root, "archives");
@@ -55,6 +57,7 @@ function syncAuthKeys(): void {
 syncAuthKeys();
 
 const registry = new AgentRegistry(AGENTS_DIR);
+const skillRegistry = new SkillRegistry(SKILLS_DIR);
 const store = new ContextStore(CONTEXTS_DIR, "orchestrator");
 
 const broadcast = (msg: unknown) => {
@@ -161,6 +164,7 @@ setInterval(cleanupArchives, 3600 * 1000).unref();
 const runner = new AgentRunner(
   registry,
   store,
+  skillRegistry,
   AGENTS_DIR,
   SYSTEM_DIR,
   config.model || undefined,
@@ -344,6 +348,62 @@ app.put("/api/agents/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Skills API (глобальные навыки) ─────────────────────────────────────────────
+app.get("/api/skills", (_req, res) => {
+  res.json(skillRegistry.list().map((s) => ({ id: s.id, name: s.name, description: s.description })));
+});
+
+app.get("/api/skills/:id/detail", (req, res) => {
+  const sk = skillRegistry.get(String(req.params.id ?? ""));
+  if (!sk) {
+    res.status(404).json({ error: "skill not found" });
+    return;
+  }
+  res.json(sk);
+});
+
+app.post("/api/skills", (req, res) => {
+  try {
+    const { id, name, description, body } = req.body ?? {};
+    if (!name?.trim()) throw new Error("Укажите название навыка");
+    const sk = skillRegistry.create(String(id ?? ""), {
+      name: String(name).trim(),
+      description: String(description ?? "").trim(),
+      body: String(body ?? ""),
+    });
+    broadcast({ type: "skills", skills: skillRegistry.list() });
+    res.json(sk);
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
+app.put("/api/skills/:id", (req, res) => {
+  try {
+    const { name, description, body } = req.body ?? {};
+    if (!name?.trim()) throw new Error("Укажите название навыка");
+    const sk = skillRegistry.update(String(req.params.id ?? ""), {
+      name: String(name).trim(),
+      description: String(description ?? "").trim(),
+      body: String(body ?? ""),
+    });
+    broadcast({ type: "skills", skills: skillRegistry.list() });
+    res.json(sk);
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
+app.delete("/api/skills/:id", (req, res) => {
+  try {
+    skillRegistry.delete(String(req.params.id ?? ""));
+    broadcast({ type: "skills", skills: skillRegistry.list() });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
 // ─── System config API ─────────────────────────────────────────────────────────
 const CONFIG_PATH = path.join(root, "config.json");
 
@@ -471,6 +531,7 @@ wss.on("connection", (ws) => {
   };
 
   send({ type: "agents", agents: registry.list() });
+  send({ type: "skills", skills: skillRegistry.list() });
   send({ type: "contexts", contexts: store.list() });
   send({ type: "run_state", running: runner.getActive() });
 
@@ -555,6 +616,12 @@ wss.on("connection", (ws) => {
         case "cancel_handoff":
           runner.cancelHandoff(msg.ctxId);
           break;
+        case "apply_skills": {
+          const ids = Array.isArray(msg.skills) ? msg.skills.map((s: unknown) => String(s)) : [];
+          const meta = store.applySkills(String(msg.ctxId ?? ""), ids);
+          send({ type: "skills_applied", ctxId: meta.id, skills: meta.skills ?? [] });
+          break;
+        }
         default:
           send({ type: "error", message: "Неизвестный тип: " + msg.type });
       }

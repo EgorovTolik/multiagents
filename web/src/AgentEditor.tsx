@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { HelpTip } from "./components/HelpTip";
 
 interface AgentFileEntry {
   filename: string;
@@ -411,27 +412,6 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
 }
 
 // --- Вспомогательные компоненты ---
-
-function HelpTip({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative ml-2 inline-block">
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}
-        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 text-[10px] text-slate-500 hover:border-indigo-400 hover:text-indigo-300"
-      >
-        ?
-      </button>
-      {open && (
-        <span className="absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-800 p-3 text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-300 shadow-xl">
-          {text}
-          <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-700" />
-        </span>
-      )}
-    </span>
-  );
-}
 
 function Field({ label, dirty, help, children }: { label: string; dirty: boolean; help?: string; children: React.ReactNode }) {
   return (

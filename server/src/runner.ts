@@ -16,6 +16,7 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { AgentRegistry, type AgentDef } from "./registry";
+import { SkillRegistry } from "./skill-registry";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
 
 export type Emit = (msg: unknown) => void;
@@ -140,6 +141,7 @@ export class AgentRunner {
   constructor(
     private registry: AgentRegistry,
     private store: ContextStore,
+    private skillRegistry: SkillRegistry,
     private agentsDir: string,
     private systemDir: string,
     private defaultModel: string | undefined,
@@ -190,6 +192,13 @@ export class AgentRunner {
         s.abort();
         this.sessions.delete(k);
       }
+    }
+    // Инжектированные навыки жили только в старых сессиях — после сброса
+    // помечаем их как непереданные, чтобы они попали в новые сессии снова.
+    const ctx = this.store.get(ctxId);
+    if (ctx?.deliveredSkills) {
+      ctx.deliveredSkills = {};
+      this.store.save(ctx);
     }
   }
 
@@ -333,6 +342,25 @@ export class AgentRunner {
     }
     this.active = { ctxId, agentId };
     this.emit({ type: "run_start", ctxId, agentId });
+    // Навыки, применённые к контексту, но ещё не переданные этому агенту —
+    // инжектим в промпт (останутся в истории pi-сессии на весь разговор)
+    const delivered = ctx.deliveredSkills?.[agentId] ?? [];
+    const pendingSkills = (ctx.skills ?? []).filter((id) => !delivered.includes(id) && this.skillRegistry.get(id));
+    if (pendingSkills.length > 0) {
+      const blocks = pendingSkills
+        .map((id) => {
+          const sk = this.skillRegistry.get(id)!;
+          return `### ${sk.name}\n\n${sk.body.trim()}`;
+        })
+        .join("\n\n---\n\n");
+      text = `⚡ Новые навыки. Запомни их и применяй в работе:\n\n${blocks}\n\n---\n\n${text}`;
+      ctx.deliveredSkills = { ...(ctx.deliveredSkills ?? {}), [agentId]: [...delivered, ...pendingSkills] };
+      this.store.save(ctx);
+      const names = pendingSkills.map((id) => `«${this.skillRegistry.get(id)!.name}»`).join(", ");
+      const sysMsg: Message = { role: "system", text: `⚡ Навык ${names} передан агенту «${def.name}»`, ts: Date.now() };
+      this.store.appendMessage(ctxId, sysMsg);
+      this.emit({ type: "message", ctxId, message: sysMsg });
+    }
     try {
       const session = await this.getSession(ctxId, agentId, def);
       // Только изображения передаём как мультимодальный ввод; файлы — через путь в тексте

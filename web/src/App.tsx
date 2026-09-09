@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "highlight.js/styles/atom-one-dark.css";
-import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg } from "./api";
+import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
 import { useServer } from "./api";
 import AgentEditor from "./AgentEditor";
 import SettingsPage from "./SettingsPage";
+import SkillsPage from "./SkillsPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatHeader } from "./components/ChatHeader";
 import { MessageRow } from "./components/MessageRow";
@@ -46,6 +47,8 @@ export default function App() {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [archiveStatus, setArchiveStatus] = useState<Record<string, ArchiveInfo>>({});
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [appliedSkills, setAppliedSkills] = useState<string[]>([]);
   const { toasts, notify, dismiss } = useToasts();
 
   // Refs
@@ -62,6 +65,12 @@ export default function App() {
         case "agents":
           setAgents(msg.agents);
           break;
+        case "skills":
+          setSkills(msg.skills);
+          break;
+        case "skills_applied":
+          if (msg.ctxId === activeCtx?.id) setAppliedSkills(msg.skills);
+          break;
         case "contexts":
           setContexts(msg.contexts);
           if (!activeCtx && msg.contexts.length > 0) {
@@ -77,6 +86,7 @@ export default function App() {
           setContexts((c) => [msg.context, ...c]);
           setActiveCtx(msg.context);
           setMessages([]);
+          setAppliedSkills(msg.context.skills ?? []);
           break;
         case "context_renamed":
           setContexts((cs) => cs.map((c) => (c.id === msg.ctxId ? { ...c, name: msg.name } : c)));
@@ -86,7 +96,13 @@ export default function App() {
           apiRef.current?.send({ type: "load_context", ctxId: msg.ctxId });
           break;
         case "context_loaded":
-          if (msg.context) { setActiveCtx(msg.context); setMessages(msg.messages); }
+          if (msg.context) {
+            setActiveCtx(msg.context);
+            setMessages(msg.messages);
+            setAppliedSkills(msg.context.skills ?? []);
+          } else {
+            setAppliedSkills([]);
+          }
           break;
         case "message":
           if (msg.ctxId !== activeCtx?.id) break;
@@ -236,6 +252,12 @@ export default function App() {
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
 
+  // ─── Навыки ─────────────────────────────────────────────────────────────
+  const applySkills = (ids: string[]) => {
+    if (!activeCtx || ids.length === 0) return;
+    api.send({ type: "apply_skills", ctxId: activeCtx.id, skills: ids });
+  };
+
   // ─── Archive download ─────────────────────────────────────────────────────────
   const downloadArchiveUrl = (url: string) => {
     const a = document.createElement("a");
@@ -268,6 +290,9 @@ export default function App() {
   }
   if (route === "#/settings") {
     return <SettingsPage onBack={() => { window.location.hash = ""; }} />;
+  }
+  if (route === "#/skills") {
+    return <SkillsPage onBack={() => { window.location.hash = ""; }} />;
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────────
@@ -382,6 +407,10 @@ export default function App() {
               placeholder={`Сообщение для: ${agentName(activeCtx.activeAgentId)}`}
               disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
               sentText={sentText}
+              skills={skills}
+              appliedSkills={appliedSkills}
+              onApplySkills={applySkills}
+              skillsDisabled={api.status !== "connected"}
             />
           </>
         ) : (
