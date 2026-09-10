@@ -36,6 +36,8 @@ export interface SkillInfo {
   id: string;
   name: string;
   description: string;
+  /** Агент может применить навык к себе сам (инструмент use_skill). */
+  autoApply?: boolean;
 }
 
 export type ServerMsg =

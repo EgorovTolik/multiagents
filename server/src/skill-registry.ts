@@ -5,12 +5,15 @@ export interface SkillDef {
   id: string;
   name: string;
   description: string;
+  /** Агент может применить навык к себе сам (инструмент use_skill), без участия пользователя. */
+  autoApply: boolean;
   body: string;
 }
 
 export interface SkillParams {
   name: string;
   description: string;
+  autoApply?: boolean;
   body: string;
 }
 
@@ -38,7 +41,7 @@ export class SkillRegistry {
       const bodyPath = path.join(dir, "SKILL.md");
       if (!fs.existsSync(bodyPath)) continue;
       const cfgPath = path.join(dir, "config.json");
-      let cfg: { name?: string; description?: string } = {};
+      let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
       try {
         cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
       } catch { /* config.json отсутствует или повреждён — используем id */ }
@@ -46,6 +49,7 @@ export class SkillRegistry {
         id,
         name: cfg.name ?? id,
         description: cfg.description ?? "",
+        autoApply: cfg.autoApply === true,
         body: fs.readFileSync(bodyPath, "utf8"),
       });
     }
@@ -103,7 +107,7 @@ export class SkillRegistry {
     fs.writeFileSync(path.join(dir, "SKILL.md"), params.body ?? "");
     fs.writeFileSync(
       path.join(dir, "config.json"),
-      JSON.stringify({ name: params.name, description: params.description }, null, 2),
+      JSON.stringify({ name: params.name, description: params.description, autoApply: params.autoApply === true }, null, 2),
     );
   }
 }

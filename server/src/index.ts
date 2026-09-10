@@ -376,7 +376,7 @@ app.put("/api/agents/:id", (req, res) => {
 
 // ─── Skills API (глобальные навыки) ─────────────────────────────────────────────
 app.get("/api/skills", (_req, res) => {
-  res.json(skillRegistry.list().map((s) => ({ id: s.id, name: s.name, description: s.description })));
+  res.json(skillRegistry.list().map((s) => ({ id: s.id, name: s.name, description: s.description, autoApply: s.autoApply })));
 });
 
 app.get("/api/skills/:id/detail", (req, res) => {
@@ -390,11 +390,12 @@ app.get("/api/skills/:id/detail", (req, res) => {
 
 app.post("/api/skills", (req, res) => {
   try {
-    const { id, name, description, body } = req.body ?? {};
+    const { id, name, description, autoApply, body } = req.body ?? {};
     if (!name?.trim()) throw new Error("Укажите название навыка");
     const sk = skillRegistry.create(String(id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
+      autoApply: autoApply === true,
       body: String(body ?? ""),
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });
@@ -406,11 +407,12 @@ app.post("/api/skills", (req, res) => {
 
 app.put("/api/skills/:id", (req, res) => {
   try {
-    const { name, description, body } = req.body ?? {};
+    const { name, description, autoApply, body } = req.body ?? {};
     if (!name?.trim()) throw new Error("Укажите название навыка");
     const sk = skillRegistry.update(String(req.params.id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
+      autoApply: autoApply === true,
       body: String(body ?? ""),
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });

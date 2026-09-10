@@ -622,8 +622,10 @@ export class AgentRunner {
       this.makeRouteTool(ctxId, agentId),
       this.makeAskUserTool(ctxId, agentId),
       this.makeHandoffFileTool(ctxId),
+      this.makeListSkillsTool(),
+      this.makeUseSkillTool(ctxId, agentId),
     ];
-    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file"];
+    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file", "list_skills", "use_skill"];
     if (agentId === "agent-creator") {
       customTools.push(this.makeCreateAgentTool());
       customTools.push(this.makeDeleteAgentTool());
@@ -924,6 +926,69 @@ export class AgentRunner {
           `Файл создан: ${filePath}\n` +
           `Используй этот путь в route_to_agent (параметр context) и в сообщениях пользователю.`,
         );
+      },
+    });
+  }
+
+  private makeListSkillsTool() {
+    return defineTool({
+      name: "list_skills",
+      label: "Список навыков",
+      description:
+        "Показывает все навыки, созданные в системе, с описаниями и флагом автоприменения (autoApply). " +
+        "Применить навык к себе можно инструментом use_skill — только если у него autoApply разрешено.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const skills = this.skillRegistry.list();
+        if (skills.length === 0) return okText("В системе пока нет навыков.");
+        const lines = skills.map(
+          (s) => `- ${s.id}: «${s.name}» — ${s.description || "без описания"} [автоприменение: ${s.autoApply ? "разрешено" : "запрещено"}]`,
+        );
+        return okText("Навыки системы:\n" + lines.join("\n"));
+      },
+    });
+  }
+
+  private makeUseSkillTool(ctxId: string, agentId: string) {
+    return defineTool({
+      name: "use_skill",
+      label: "Применить навык",
+      description:
+        "Применяет навык к текущему контексту и к твоей работе в рамках сессии. Доступны только навыки, у которых разрешено автоприменение (autoApply). " +
+        "В результате вернётся полный текст навыка — применяй его правила дальше.",
+      parameters: Type.Object({
+        skillId: Type.String({ description: "ID навыка из list_skills" }),
+      }),
+      execute: async (_id, params: { skillId: string }) => {
+        const sk = this.skillRegistry.get(params.skillId);
+        if (!sk) return errText(`Навык не найден: ${params.skillId}. Посмотри доступные через list_skills.`);
+        if (!sk.autoApply) {
+          return errText(
+            `Навык «${sk.name}» не разрешает самоприменение агентом (автоприменение выключено). Попроси пользователя подключить его к чату вручную.`,
+          );
+        }
+        const ctx = this.store.get(ctxId);
+        if (!ctx) return errText("Контекст задачи недоступен.");
+        // Подключаем навык к контексту, если он ещё не подключён
+        if (!(ctx.skills ?? []).includes(sk.id)) {
+          ctx.skills = [...(ctx.skills ?? []), sk.id];
+        }
+        // Сбрасываем доставку для этого агента: при следующем запуске (новая сессия)
+        // тело навыка инжектится автоматически — как навыки, подключённые пользователем.
+        const delivered = ctx.deliveredSkills?.[agentId] ?? [];
+        if (delivered.includes(sk.id)) {
+          ctx.deliveredSkills = { ...(ctx.deliveredSkills ?? {}), [agentId]: delivered.filter((x) => x !== sk.id) };
+        }
+        this.store.save(ctx);
+        const def = this.registry.get(agentId);
+        const sysMsg: Message = {
+          role: "system",
+          text: `⚡ Агент «${def?.name ?? agentId}» применил навык «${sk.name}»`,
+          ts: Date.now(),
+        };
+        this.store.appendMessage(ctxId, sysMsg);
+        this.emit({ type: "message", ctxId, message: sysMsg });
+        return okText(`Навык «${sk.name}» применён к контексту и к твоей работе в этой сессии. Правила навыка:\n\n${sk.body.trim()}`);
       },
     });
   }

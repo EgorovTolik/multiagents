@@ -5,6 +5,8 @@ interface SkillListItem {
   id: string;
   name: string;
   description: string;
+  /** Агент может применить навык к себе сам (инструмент use_skill). */
+  autoApply?: boolean;
 }
 
 interface SkillDetail extends SkillListItem {
@@ -68,7 +70,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
     [data, original],
   );
 
-  const anyDirty = !!(data && original && (isDirty("name") || isDirty("description") || isDirty("body")));
+  const anyDirty = !!(data && original && (isDirty("name") || isDirty("description") || isDirty("autoApply") || isDirty("body")));
 
   /** Запустить действие с защитой от потери изменений. */
   const guardedAction = (action: () => void) => {
@@ -103,7 +105,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   const createNew = () => {
     guardedAction(() => {
       const id = genId();
-      const fresh: SkillDetail = { id, name: "", description: "", body: "" };
+      const fresh: SkillDetail = { id, name: "", description: "", autoApply: false, body: "" };
       setData(fresh);
       setOriginal(JSON.parse(JSON.stringify(fresh)));
       setSelectedId(null);
@@ -132,7 +134,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
         : await fetch(`/api/skills/${encodeURIComponent(data.id)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: data.name, description: data.description, body: data.body }),
+            body: JSON.stringify({ name: data.name, description: data.description, autoApply: !!data.autoApply, body: data.body }),
           });
       const d: SkillDetail = await res.json();
       if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
@@ -291,6 +293,23 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                   className={`w-full resize-none rounded-lg border bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 ${borderClass(isDirty("description"))}`}
                 />
               </Field>
+
+              {/* Auto-apply */}
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={!!data.autoApply}
+                  onChange={(e) => updateField("autoApply", e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-indigo-500"
+                />
+                <span className="text-sm">
+                  <span className={`block ${data.autoApply ? "text-slate-200" : "text-slate-400"}`}>Разрешить автоприменение агентом</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-slate-500">
+                    Любой агент может сам применить этот навык к себе в рамках чата (инструмент use_skill) —
+                    без вашего участия. В чате появится системное сообщение о применении.
+                  </span>
+                </span>
+              </label>
 
               {/* Body */}
               <Field
