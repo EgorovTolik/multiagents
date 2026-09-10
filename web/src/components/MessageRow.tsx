@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -50,6 +51,13 @@ function MessageMenu({ onTruncate, onCopy }: { onTruncate: () => void; onCopy: (
   );
 }
 
+// Ссылки в ответах открываются в новой вкладке, чтобы не уходить со страницы приложения.
+const mdLink = ({ href, children }: { href?: string; children?: ReactNode }) => (
+  <a href={href} target="_blank" rel="noopener noreferrer">
+    {children}
+  </a>
+);
+
 // memo: во время стриминга messages обновляется на каждый delta — без мемо
 // пере-рендерятся ВСЕ строки (и ReactMarkdown перепарсит весь текст), отсюда «дрожание» чата.
 function MessageRowInner({
@@ -94,6 +102,7 @@ function MessageRowInner({
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
                 components={{
+                  a: mdLink,
                   img: ({ src, alt }) => (
                     <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
                   ),
@@ -128,6 +137,7 @@ function MessageRowInner({
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
                 components={{
+                  a: mdLink,
                   img: ({ src, alt }) => (
                     <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
                   ),

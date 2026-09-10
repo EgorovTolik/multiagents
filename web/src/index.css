@@ -23,6 +23,8 @@
   border-radius: 4px;
   font-size: 0.85em;
 }
+.md-content a { color: #818cf8; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.md-content a:hover { color: #a5b4fc; }
 .md-content ul, .md-content ol { padding-left: 1.4em; margin: 0.4em 0; }
 .md-content li { margin: 0.15em 0; }
 .md-content h1, .md-content h2, .md-content h3, .md-content h4 {
