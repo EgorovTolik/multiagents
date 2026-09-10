@@ -60,6 +60,16 @@ const registry = new AgentRegistry(AGENTS_DIR);
 const skillRegistry = new SkillRegistry(SKILLS_DIR);
 const store = new ContextStore(CONTEXTS_DIR, "orchestrator");
 
+// Pi-сессии живут только в памяти — при старте сервера их нет ни у одного агента,
+// а тела навыков в messages.jsonl не сохраняются. Сбрасываем флаги «навык передан»:
+// при следующем обращении каждый агент получит навыки своего контекста заново.
+for (const c of store.list()) {
+  if (c.deliveredSkills && Object.keys(c.deliveredSkills).length > 0) {
+    c.deliveredSkills = {};
+    store.save(c);
+  }
+}
+
 const broadcast = (msg: unknown) => {
   const data = JSON.stringify(msg);
   for (const client of wss.clients) {

@@ -1,0 +1,16 @@
+{
+  "name": "Публикатор",
+  "description": "",
+  "tools": [
+    "read",
+    "write",
+    "edit",
+    "bash",
+    "mcp",
+    "mcpScript",
+    "route_to_agent",
+    "list_agents",
+    "ask_user"
+  ],
+  "forgetSessionAfterStep": true
+}

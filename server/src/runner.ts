@@ -591,6 +591,13 @@ export class AgentRunner {
           }
           this.sessions.delete(k);
         }
+        // Сессия сброшена — новая будет строиться из messages.jsonl, где тела
+        // навыков нет. Сбрасываем запись о передаче: при следующем запуске
+        // агента навыки контекста инжектятся заново (как в новом чате).
+        if (ctx.deliveredSkills && ctx.deliveredSkills[handoff.from]?.length) {
+          delete ctx.deliveredSkills[handoff.from];
+          this.store.save(ctx);
+        }
       }
     }
 
