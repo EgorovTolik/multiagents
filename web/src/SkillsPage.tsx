@@ -136,7 +136,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: data.name, description: data.description, autoApply: !!data.autoApply, body: data.body }),
           });
-      const d: SkillDetail = await res.json();
+      const d = (await res.json()) as SkillDetail & { error?: string };
       if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
       setOriginal(JSON.parse(JSON.stringify(d)));
       setData(d);

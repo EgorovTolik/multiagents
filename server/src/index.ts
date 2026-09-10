@@ -425,6 +425,23 @@ app.put("/api/skills/:id", (req, res) => {
   }
 });
 
+// Статус сессий: заняты ли агенты прямо сейчас (для кнопки сброса в настройках)
+app.get("/api/sessions", (_req, res) => {
+  const active = runner.getActive();
+  res.json({ busy: !!active, agentId: active?.agentId ?? null });
+});
+
+// Полный сброс всех сессий — доступен только когда никто не работает
+app.post("/api/sessions/reset", (_req, res) => {
+  if (runner.getActive()) {
+    res.status(409).json({ error: "Агенты прямо сейчас работают — сброс недоступен. Попробуйте позже." });
+    return;
+  }
+  const n = runner.resetAllSessions();
+  broadcast({ type: "system_notice", text: `Сессии сброшены (${n})` });
+  res.json({ ok: true, sessions: n });
+});
+
 app.delete("/api/skills/:id", (req, res) => {
   try {
     skillRegistry.delete(String(req.params.id ?? ""));

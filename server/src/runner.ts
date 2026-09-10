@@ -211,6 +211,27 @@ export class AgentRunner {
     }
   }
 
+  /** Полный сброс: закрыть все сессии всех контекстов. Только когда никто не работает (проверяет вызывающий). */
+  resetAllSessions(): number {
+    let n = 0;
+    for (const [k, s] of [...this.sessions]) {
+      try {
+        s.abort();
+        s.dispose();
+      } catch { /* ignore */ }
+      this.sessions.delete(k);
+      n++;
+    }
+    // Тела навыков живут только в сессиях — после сброса они должны переинжектиться
+    for (const ctx of this.store.list()) {
+      if (ctx.deliveredSkills && Object.keys(ctx.deliveredSkills).length > 0) {
+        ctx.deliveredSkills = {};
+        this.store.save(ctx);
+      }
+    }
+    return n;
+  }
+
   private resolveModel(id?: string) {
     if (!this.modelRuntime) return undefined;
     const spec = id ?? this.defaultModel;

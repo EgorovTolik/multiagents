@@ -33,12 +33,56 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-export default function SettingsPage({ onBack }: { onBack: () => void }) {
+export default function SettingsPage({ onBack, busyAgentId }: { onBack: () => void; /** Занятый агент по WS-событиям (run_start/run_end) — мгновенная реакция кнопки. */ busyAgentId?: string | null }) {
   const [cfg, setCfg] = useState<SystemConfig | null>(null);
   const [original, setOriginal] = useState<SystemConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Сброс сессий: занятость — из WS-событий (мгновенно) + опрос каждые 5с как фоллбэк
+  const [polledBusy, setPolledBusy] = useState<string | null>(null);
+  const busyAgent = busyAgentId ?? polledBusy;
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stopped = false;
+    const poll = () =>
+      fetch("/api/sessions")
+        .then((r) => r.json())
+        .then((d: { busy: boolean; agentId: string | null }) => {
+          if (!stopped) setPolledBusy(d.busy ? d.agentId : null);
+        })
+        .catch(() => {});
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => { stopped = true; clearInterval(t); };
+  }, []);
+
+  const resetSessions = async () => {
+    const ok = window.confirm(
+      "Сбросить все сессии агентов?\n\n" +
+      "Последствия:\n" +
+      "• Закроются ВСЕ в-памяти сессии всех чатов.\n" +
+      "• При следующем сообщении история перечитается из файлов — всё, что модель знала, но не записала в чат, будет потеряно для неё.\n" +
+      "• Навыки контекстов будут переданы агентам заново.\n\n" +
+      "Сама история чатов на диске не меняется. Продолжить?",
+    );
+    if (!ok) return;
+    setResetting(true);
+    setResetMsg(null);
+    try {
+      const res = await fetch("/api/sessions/reset", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
+      setResetMsg(`✓ Сброшено сессий: ${d.sessions}`);
+    } catch (e: any) {
+      setResetMsg("Ошибка: " + String(e?.message ?? e));
+    } finally {
+      setResetting(false);
+    }
+  };
 
   // Providers as flat list
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
@@ -207,6 +251,27 @@ export default function SettingsPage({ onBack }: { onBack: () => void }) {
       {/* Content */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-2xl space-y-5">
+
+          {/* Session reset */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500">Сессии агентов</h2>
+            <p className="mt-1.5 text-sm text-slate-400">
+              {busyAgent
+                ? `Занят агент: ${busyAgent}. Сброс станет доступен, когда все агенты завершат работу.`
+                : "Все агенты свободны."}
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={resetSessions}
+                disabled={!!busyAgent || resetting}
+                title={busyAgent ? "Агенты работают — сброс недоступен" : "Закрыть все в-памяти сессии агентов"}
+                className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {resetting ? "Сброс…" : "Сбросить сессии"}
+              </button>
+              {resetMsg && <span className={resetMsg.startsWith("✓") ? "text-sm text-emerald-400" : "text-sm text-red-400"}>{resetMsg}</span>}
+            </div>
+          </div>
 
           {/* Model */}
           <div className="space-y-3">

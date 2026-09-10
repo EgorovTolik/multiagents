@@ -320,7 +320,7 @@ export default function App() {
     return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
   }
   if (route === "#/settings") {
-    return <SettingsPage onBack={() => { window.location.hash = ""; }} />;
+    return <SettingsPage onBack={() => { window.location.hash = ""; }} busyAgentId={running?.agentId ?? null} />;
   }
   if (route === "#/skills") {
     return <SkillsPage onBack={() => { window.location.hash = ""; }} />;
