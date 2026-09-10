@@ -152,6 +152,7 @@ export class AgentRunner {
     private skillRegistry: SkillRegistry,
     private agentsDir: string,
     private systemDir: string,
+    private sharedDir: string,
     private defaultModel: string | undefined,
     private emit: Emit,
   ) {
@@ -624,8 +625,9 @@ export class AgentRunner {
       this.makeHandoffFileTool(ctxId),
       this.makeListSkillsTool(),
       this.makeUseSkillTool(ctxId, agentId),
+      this.makeSharedStoreTool(),
     ];
-    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file", "list_skills", "use_skill"];
+    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file", "list_skills", "use_skill", "artifact_store"];
     if (agentId === "agent-creator") {
       customTools.push(this.makeCreateAgentTool());
       customTools.push(this.makeDeleteAgentTool());
@@ -989,6 +991,40 @@ export class AgentRunner {
         this.store.appendMessage(ctxId, sysMsg);
         this.emit({ type: "message", ctxId, message: sysMsg });
         return okText(`Навык «${sk.name}» применён к контексту и к твоей работе в этой сессии. Правила навыка:\n\n${sk.body.trim()}`);
+      },
+    });
+  }
+
+  /** Общее хранилище артефактов (shared/): возврат адреса + авто-создание индексного файла. */
+  private makeSharedStoreTool() {
+    return defineTool({
+      name: "artifact_store",
+      label: "Общее хранилище артефактов",
+      description:
+        "Возвращает путь к общему хранилищу артефактов — «долговременной памяти», доступной всем агентам во всех чатах. " +
+        "Использование не обязательно: применяй, когда хочешь сохранить результат работы (отчёты, данные, фрагменты кода, материалы) " +
+        "для других контекстов или для будущего обращения.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        fs.mkdirSync(this.sharedDir, { recursive: true });
+        const indexPath = path.join(this.sharedDir, "INDEX.md");
+        if (!fs.existsSync(indexPath)) {
+          fs.writeFileSync(
+            indexPath,
+            "# Индекс хранилища артефактов\n\n" +
+              "Короткие пояснения к разделам. Начинай с этого файла — он быстрее, чем обход всего хранилища.\n\n" +
+              "Формат записи: `- <каталог>` — что внутри (контекст/задача, дата)\n\n---\n",
+            "utf8",
+          );
+        }
+        return okText(
+          `Общее хранилище артефактов: ${this.sharedDir}\n` +
+            `Индекс: ${indexPath}\n\n` +
+            `Протокол работы:\n` +
+            `1. Сначала прочитай INDEX.md — возможно, нужное уже лежит в хранилище (своё или чужое).\n` +
+            `2. Свои артефакты клади в отдельный подкаталог: строчные буквы, дефисы (например jira-456-push-fix/).\n` +
+            `3. После записи добавь в INDEX.md запись о своём каталоге — только дописывай, не правь чужие записи.`,
+        );
       },
     });
   }

@@ -3,6 +3,7 @@ dist/
 contexts/
 previews/
 archives/
+shared/
 .pi/
 *.log
 .DS_Store

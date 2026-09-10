@@ -25,6 +25,8 @@ const PORT = config.port ?? 3000;
 const AGENTS_DIR = path.join(root, "agents");
 const SKILLS_DIR = path.join(root, "skills");
 const CONTEXTS_DIR = path.join(root, "contexts");
+/** Общее хранилище артефактов — «долговременная память», доступная всем агентам и контекстам. */
+const SHARED_DIR = path.join(root, "shared");
 const SYSTEM_DIR = path.join(root, "system");
 const ARCHIVES_DIR = path.join(root, "archives");
 fs.mkdirSync(ARCHIVES_DIR, { recursive: true });
@@ -177,6 +179,7 @@ const runner = new AgentRunner(
   skillRegistry,
   AGENTS_DIR,
   SYSTEM_DIR,
+  SHARED_DIR,
   config.model || undefined,
   broadcast,
 );
