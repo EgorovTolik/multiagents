@@ -33,7 +33,7 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-export default function SettingsPage({ onBack, busyAgentId }: { onBack: () => void; /** Занятый агент по WS-событиям (run_start/run_end) — мгновенная реакция кнопки. */ busyAgentId?: string | null }) {
+export default function SettingsPage({ onBack, busyCount }: { onBack: () => void; /** Сколько цепочек активно прямо сейчас (по WS-событиям) — мгновенная реакция кнопки. */ busyCount?: number | null }) {
   const [cfg, setCfg] = useState<SystemConfig | null>(null);
   const [original, setOriginal] = useState<SystemConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,8 +41,8 @@ export default function SettingsPage({ onBack, busyAgentId }: { onBack: () => vo
   const [error, setError] = useState<string | null>(null);
 
   // Сброс сессий: занятость — из WS-событий (мгновенно) + опрос каждые 5с как фоллбэк
-  const [polledBusy, setPolledBusy] = useState<string | null>(null);
-  const busyAgent = busyAgentId ?? polledBusy;
+  const [polledBusy, setPolledBusy] = useState(0);
+  const busy = Math.max(busyCount ?? 0, polledBusy);
   const [resetting, setResetting] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
 
@@ -51,8 +51,8 @@ export default function SettingsPage({ onBack, busyAgentId }: { onBack: () => vo
     const poll = () =>
       fetch("/api/sessions")
         .then((r) => r.json())
-        .then((d: { busy: boolean; agentId: string | null }) => {
-          if (!stopped) setPolledBusy(d.busy ? d.agentId : null);
+        .then((d: { busy: boolean; active: { ctxId: string; agentId: string }[] }) => {
+          if (!stopped) setPolledBusy(d.active?.length ?? 0);
         })
         .catch(() => {});
     poll();
@@ -256,15 +256,15 @@ export default function SettingsPage({ onBack, busyAgentId }: { onBack: () => vo
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500">Сессии агентов</h2>
             <p className="mt-1.5 text-sm text-slate-400">
-              {busyAgent
-                ? `Занят агент: ${busyAgent}. Сброс станет доступен, когда все агенты завершат работу.`
+              {busy > 0
+                ? `Активных цепочек: ${busy}. Сброс станет доступен, когда все агенты завершат работу.`
                 : "Все агенты свободны."}
             </p>
             <div className="mt-3 flex items-center gap-3">
               <button
                 onClick={resetSessions}
-                disabled={!!busyAgent || resetting}
-                title={busyAgent ? "Агенты работают — сброс недоступен" : "Закрыть все в-памяти сессии агентов"}
+                disabled={busy > 0 || resetting}
+                title={busy > 0 ? "Агенты работают — сброс недоступен" : "Закрыть все в-памяти сессии агентов"}
                 className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {resetting ? "Сброс…" : "Сбросить сессии"}

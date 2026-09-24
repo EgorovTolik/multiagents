@@ -80,14 +80,19 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   }, []);
 
   // Загрузка моделей всех провайдеров + глобальная модель
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState(false);
   useEffect(() => {
+    let stopped = false;
+    const done = () => { if (!stopped) setModelsLoading(false); };
     fetch("/api/config")
       .then((r) => r.json())
       .then((cfg: { model?: string; providers?: Record<string, { url: string; apiKey: string }> }) => {
+        if (stopped) return;
         setGlobalModel(cfg.model ?? "");
         const provs = cfg.providers ?? {};
         const ids = Object.keys(provs);
-        if (ids.length === 0) return;
+        if (ids.length === 0) { done(); return; }
         Promise.all(
           ids.map((id) =>
             fetch(`/api/providers/${encodeURIComponent(id)}/models`)
@@ -95,13 +100,17 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               .then((d: { models: string[] }) =>
                 (d.models ?? []).map((m) => `${id}/${m}`)
               )
-              .catch(() => [] as string[])
+              .catch(() => null as string[] | null)
           )
         ).then((results) => {
-          setAllModels(results.flat().sort());
-        });
+          if (stopped) return;
+          const ok = results.filter(Boolean) as string[][];
+          setAllModels(ok.flat().sort());
+          setModelsError(ok.length === 0);
+        }).finally(done);
       })
-      .catch(() => { /* ignore */ });
+      .catch(done);
+    return () => { stopped = true; };
   }, []);
 
   // Загрузка деталей выбранного агента
@@ -440,9 +449,23 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               <Field
                 label="Модель (опционально, override)"
                 dirty={isDirty("model")}
-                help={'По умолчанию используется глобальная модель из config.json. Выберите конкретную модель для override.'}
+                help={modelsLoading
+                  ? undefined
+                  : modelsError
+                    ? "⚠️ Не удалось получить список моделей — проверьте доступность серверов. Можно ввести модель вручную." + " По умолчанию используется глобальная модель из config.json."
+                    : 'По умолчанию используется глобальная модель из config.json. Выберите конкретную модель для override.'}
               >
+                {modelsLoading && (
+                  <div className="mb-2 flex items-center gap-2 text-xs text-indigo-300">
+                    <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Обновляем список моделей с серверов…
+                  </div>
+                )}
                 <select
+                  disabled={modelsLoading}
                   value={data.model ?? ""}
                   onChange={(e) => updateField("model", e.target.value || null)}
                   className={`w-full rounded-lg border bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 ${borderClass(isDirty("model"))}`}

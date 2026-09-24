@@ -16,7 +16,7 @@ export function Sidebar({
   contexts,
   agents,
   activeCtx,
-  running,
+  runningCtxIds,
   renamingCtx,
   renameValue,
   sidebarOpen,
@@ -37,7 +37,8 @@ export function Sidebar({
   contexts: ContextMeta[];
   agents: AgentInfo[];
   activeCtx: ContextMeta | null;
-  running: { ctxId: string; agentId: string } | null;
+  /** Чаты с активной цепочкой (параллельные). */
+  runningCtxIds: string[];
   renamingCtx: string | null;
   renameValue: string;
   sidebarOpen: boolean;
@@ -162,7 +163,7 @@ export function Sidebar({
                     <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
                       <span
                         className={`inline-block h-1.5 w-1.5 rounded-full ${
-                          activeCtx?.id === c.id && running?.ctxId === c.id ? "animate-pulse bg-emerald-400" : "bg-slate-600"
+                          activeCtx?.id === c.id && runningCtxIds.includes(c.id) ? "animate-pulse bg-emerald-400" : "bg-slate-600"
                         }`}
                       />
                       <span className="min-w-0 truncate">{agentName(c.activeAgentId)}</span>

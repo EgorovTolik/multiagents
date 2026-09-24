@@ -152,9 +152,14 @@ export interface PiToolGroup {
 
 export class AgentRunner {
   private sessions = new Map<string, AgentSession>();
-  private active: { ctxId: string; agentId: string } | null = null;
+  /** Чат → текущий агент. Цепочки из разных чатов идут параллельно. */
+  private activeByCtx = new Map<string, string>();
+  /** Агент → чат: агент выполняет ход (жёсткий лимит 1 на агента по всем чатам). */
+  private agentBusy = new Map<string, string>();
+  private agentWaiters = new Map<string, { ctxId: string; resolve: () => void }[]>();
   private queue: { ctxId: string; text: string; files?: FileAttachment[] }[] = [];
-  private lastEventAt = 0;
+  /** Последнее событие по чату (watchdog) — параллельные цепочки не маскируют друг друга. */
+  private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
   /** Глобальные правила окружения (system/*.md) — подставляются каждому агенту. */
   private globalRules: string[] = [];
@@ -168,6 +173,8 @@ export class AgentRunner {
     private sharedDir: string,
     private defaultModel: string | undefined,
     private emit: Emit,
+    /** Провайдеры проекта (config.json → providers) — регистрируются в pi SDK. */
+    private providers: Record<string, { url?: string; apiKey?: string }> = {},
   ) {
     this.loadGlobalRules();
   }
@@ -184,6 +191,10 @@ export class AgentRunner {
 
   async init() {
     this.modelRuntime = await ModelRuntime.create();
+    // Регистрируем провайдеры проекта в pi SDK: иначе модели, которых нет в
+    // глобальном реестре pi (~/.pi/agent/models.json), резолвятся как undefined,
+    // и сессия молча падает на модель по умолчанию (чужой сервер).
+    await this.registerProjectProviders();
     // Одноразовая миграция конфигов агентов: allowlist (tools) → denylist (disabledTools)
     try {
       const n = await this.migrateToolConfigs();
@@ -194,19 +205,30 @@ export class AgentRunner {
     // Watchdog: если активная сессия не генерирует событий дольше STALL_TIMEOUT_MS —
     // прерываем её (зависший запрос к модели, SDK-зацикливание и т.п.)
     setInterval(() => {
-      if (!this.active) return;
-      if (Date.now() - this.lastEventAt < STALL_TIMEOUT_MS) return;
-      const { ctxId, agentId } = this.active;
-      console.error(`[runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
-      this.emit({ type: "error", ctxId, message: `Агент ${agentId} завис — ход прерван watchdog'ом. Отправьте сообщение ещё раз.` });
-      this.lastEventAt = Date.now(); // не спамим, пока сессия реально не завершится
-      const session = this.sessions.get(this.key(ctxId, agentId));
-      void session?.abort();
+      for (const [ctxId, agentId] of this.activeByCtx) {
+        const last = this.lastEventByCtx.get(ctxId);
+        if (last === undefined || Date.now() - last < STALL_TIMEOUT_MS) continue;
+        console.error(`[runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
+        this.emit({ type: "error", ctxId, message: `Агент ${agentId} завис — ход прерван watchdog'ом. Отправьте сообщение ещё раз.` });
+        this.lastEventByCtx.set(ctxId, Date.now()); // не спамим, пока сессия реально не завершится
+        const session = this.sessions.get(this.key(ctxId, agentId));
+        void session?.abort();
+      }
     }, 15000).unref();
   }
 
-  getActive() {
-    return this.active;
+  /** Все активные цепочки: { ctxId → agentId }. */
+  getActives(): { ctxId: string; agentId: string }[] {
+    return [...this.activeByCtx.entries()].map(([ctxId, agentId]) => ({ ctxId, agentId }));
+  }
+
+  getActiveAgent(ctxId: string): string | undefined {
+    return this.activeByCtx.get(ctxId);
+  }
+
+  /** Есть ли сообщения в очереди на выполнение. */
+  hasQueued(): boolean {
+    return this.queue.length > 0;
   }
 
   private key(ctxId: string, agentId: string) {
@@ -351,6 +373,58 @@ export class AgentRunner {
     return n;
   }
 
+  /** Запросить список моделей провайдера (OpenAI- и llama.cpp-native форматы). */
+  private async fetchProviderModels(baseUrl: string, apiKey?: string): Promise<string[]> {
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(`${baseUrl}/v1/models`, {
+        headers: { Authorization: `Bearer ${apiKey ?? ""}` },
+        signal: controller.signal,
+      });
+      clearTimeout(t);
+      if (!resp.ok) return [];
+      const data: any = await resp.json();
+      const arr: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+      return [...new Set(arr.map((m) => m.id ?? m.model ?? m.name).filter(Boolean))];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Register провайдеры config.json в ModelRuntime со списком моделей с сервера. */
+  private async registerProjectProviders(): Promise<void> {
+    if (!this.modelRuntime) return;
+    for (const [id, cfg] of Object.entries(this.providers)) {
+      if (!cfg?.url) continue;
+      const baseUrl = cfg.url.replace(/\/$/, "");
+      // Живой список с сервера + fallback: модели, упомянутые в config.json
+      // (глобальная default и per-agent), чтобы резолв работал даже при недоступном сервере.
+      const live = await this.fetchProviderModels(baseUrl, cfg.apiKey);
+      const referenced = [this.defaultModel, ...this.registry.list().map((a) => a.model)]
+        .filter((s): s is string => !!s && s.startsWith(id + "/"))
+        .map((s) => s.slice(id.length + 1));
+      const ids = [...new Set([...live, ...referenced])];
+      if (ids.length === 0) continue;
+      this.modelRuntime.registerProvider(id, {
+        name: id,
+        baseUrl,
+        apiKey: cfg.apiKey,
+        api: "openai-completions",
+        models: ids.map((mid) => ({
+          id: mid,
+          name: mid.replace(/\.gguf$/, ""),
+          reasoning: false,
+          input: ["text", "image"] as ("text" | "image")[],
+          contextWindow: 262144,
+          maxTokens: 32768,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        })),
+      });
+      console.log(`[runner] провайдер ${id} зарегистрирован в pi SDK: ${ids.length} моделей${live.length === 0 ? " (сервер недоступен — из config.json)" : ""}`);
+    }
+  }
+
   private resolveModel(id?: string) {
     if (!this.modelRuntime) return undefined;
     const spec = id ?? this.defaultModel;
@@ -404,8 +478,9 @@ export class AgentRunner {
       const msg: Message = { role: "user", agentId, text: fullText, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
       this.emit({ type: "message", ctxId, message: msg });
-      if (this.active) {
+      if (this.activeByCtx.has(ctxId)) {
         this.queue.push({ ctxId, text: fullText, files });
+        this.emitQueued(ctxId);
       } else {
         void this.run(ctxId, fullText, files);
       }
@@ -426,11 +501,55 @@ export class AgentRunner {
     };
     this.store.appendMessage(ctxId, msg);
     this.emit({ type: "message", ctxId, message: msg });
-    if (this.active) {
+    if (this.activeByCtx.has(ctxId)) {
       this.queue.push({ ctxId, text: fullText, files });
+      this.emitQueued(ctxId);
     } else {
       void this.run(ctxId, fullText, files);
     }
+  }
+
+  /** Счётчик сообщений чата в очереди (для UI: «N в очереди»). */
+  private emitQueued(ctxId: string): void {
+    const count = this.queue.filter((q) => q.ctxId === ctxId).length;
+    this.emit({ type: "queued", ctxId, count });
+  }
+
+  /** Забрать очередь на агента. Если агент занят в другом чате — ждём (FIFO на агента). */
+  private async acquireAgent(agentId: string, ctxId: string): Promise<void> {
+    if (!this.agentBusy.has(agentId)) {
+      this.agentBusy.set(agentId, ctxId);
+      return;
+    }
+    const waiters = this.agentWaiters.get(agentId) ?? [];
+    this.agentWaiters.set(agentId, waiters);
+    await new Promise<void>((resolve) => {
+      // Цепочка стоит: агент занят в другом чате — показываем ожидание в UI
+      this.emit({ type: "chain_waiting", ctxId, agentId });
+      waiters.push({ ctxId, resolve });
+    });
+    this.agentBusy.set(agentId, ctxId);
+  }
+
+  /** Освободить агента: передать владение следующему ждущему или снять полностью. */
+  private releaseAgent(agentId: string): void {
+    const waiters = this.agentWaiters.get(agentId) ?? [];
+    if (waiters.length > 0) {
+      const next = waiters.shift()!;
+      this.agentBusy.set(agentId, next.ctxId);
+      next.resolve();
+    } else {
+      this.agentBusy.delete(agentId);
+    }
+  }
+
+  /** Запустить следующее сообщение из очереди: первое, чей чат свободен. */
+  private dispatchQueue(): void {
+    const idx = this.queue.findIndex((q) => !this.activeByCtx.has(q.ctxId));
+    if (idx === -1) return;
+    const [next] = this.queue.splice(idx, 1);
+    this.emitQueued(next.ctxId);
+    void this.run(next.ctxId, next.text, next.files);
   }
 
   /** Уничтожить сессии агентов контекста (при удалении контекста). */
@@ -447,10 +566,10 @@ export class AgentRunner {
     }
   }
 
-  /** Прервать текущий ход (и отменить запланированную передачу). */
-  abort() {
-    if (!this.active) return;
-    const { ctxId, agentId } = this.active;
+  /** Прервать текущий ход в конкретном чате (и отменить запланированную передачу). */
+  abort(ctxId: string) {
+    const agentId = this.activeByCtx.get(ctxId);
+    if (!agentId) return;
     const ctx = this.store.get(ctxId);
     if (ctx) {
       ctx.pendingHandoff = undefined;
@@ -489,7 +608,11 @@ export class AgentRunner {
       this.emit({ type: "error", ctxId, message: `Агент не найден: ${agentId}` });
       return;
     }
-    this.active = { ctxId, agentId };
+    // Чат занят этой цепочкой (даже пока ждём освобождения агента)
+    this.activeByCtx.set(ctxId, agentId);
+    // Жёсткий лимит: агент не выполняет ходы в двух чатах одновременно.
+    // Если он занят — цепочка ждёт здесь, другие чаты с другими агентами идут параллельно.
+    await this.acquireAgent(agentId, ctxId);
     this.emit({ type: "run_start", ctxId, agentId });
     // Навыки, применённые к контексту, но ещё не переданные этому агенту —
     // инжектим в промпт (останутся в истории pi-сессии на весь разговор)
@@ -522,7 +645,9 @@ export class AgentRunner {
       console.error("[runner] run error:", e);
       this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
     } finally {
-      this.active = null;
+      // Ход завершён — агент свободен (возможно, сразу забирает его другой чат).
+      // activeByCtx при передаче НЕ снимаем: новая run() уже пометила чат новым агентом.
+      this.releaseAgent(agentId);
       this.flushPendingImages(ctxId, agentId);
       this.emit({ type: "run_end", ctxId, agentId });
 
@@ -610,8 +735,10 @@ export class AgentRunner {
         ctx.inChain = false;
       }
       this.store.save(ctx);
-      const next = this.queue.shift();
-      if (next) void this.run(next.ctxId, next.text, next.files);
+      // Чат свободен — запускаем следующее сообщение из очереди (свой или другого чата)
+      this.activeByCtx.delete(ctxId);
+      this.lastEventByCtx.delete(ctxId);
+      this.dispatchQueue();
     }
   }
 
@@ -858,7 +985,7 @@ export class AgentRunner {
 
   private forward(ctxId: string, agentId: string, ev: any) {
     if (ev.type === "message_update" || ev.type === "message_start" || ev.type === "message_end" || ev.type === "tool_execution_start" || ev.type === "tool_execution_end") {
-      this.lastEventAt = Date.now();
+      this.lastEventByCtx.set(ctxId, Date.now());
     }
     // Изображения из результатов инструментов (take_screenshot и т.п.) — сохраняем
     // в контекст, чтобы прикрепить к следующему сообщению этого агента

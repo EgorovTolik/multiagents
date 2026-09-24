@@ -33,7 +33,14 @@ export default function App() {
   const [contexts, setContexts] = useState<ContextMeta[]>([]);
   const [activeCtx, setActiveCtx] = useState<ContextMeta | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [running, setRunning] = useState<{ ctxId: string; agentId: string } | null>(null);
+  /** Активные цепочки: chatId → agentId. Разные чаты работают параллельно. */
+  const [runnings, setRunnings] = useState<Record<string, string>>({});
+  /** Чаты, ожидающие освобождения занятого агента: chatId → agentId. */
+  const [waitingAgents, setWaitingAgents] = useState<Record<string, string>>({});
+  /** Для компонентов, ожидающих «текущий» статус активного чата. */
+  const running = activeCtx && runnings[activeCtx.id]
+    ? { ctxId: activeCtx.id, agentId: runnings[activeCtx.id] }
+    : null;
   const [pending, setPending] = useState<Handoff | null>(null);
   const [input, setInput] = useState("");
   const [renamingCtx, setRenamingCtx] = useState<string | null>(null);
@@ -138,13 +145,28 @@ export default function App() {
           });
           break;
         case "run_start":
-          setRunning({ ctxId: msg.ctxId, agentId: msg.agentId });
+          setRunnings((r) => ({ ...r, [msg.ctxId]: msg.agentId }));
+          setWaitingAgents((w) => {
+            if (!(msg.ctxId in w)) return w;
+            const c = { ...w }; delete c[msg.ctxId]; return c;
+          });
           break;
         case "run_end":
-          setRunning(null);
+          setRunnings((r) => {
+            if (!(msg.ctxId in r)) return r;
+            const c = { ...r }; delete c[msg.ctxId]; return c;
+          });
+          setWaitingAgents((w) => {
+            if (!(msg.ctxId in w)) return w;
+            const c = { ...w }; delete c[msg.ctxId]; return c;
+          });
           break;
         case "run_state":
-          setRunning(msg.running);
+          setRunnings(Object.fromEntries((msg.actives ?? []).map((a: any) => [a.ctxId, a.agentId])));
+          break;
+        case "chain_waiting":
+          // Цепочка стоит: агент занят в другом чате
+          setWaitingAgents((w) => ({ ...w, [msg.ctxId]: msg.agentId }));
           break;
         case "context_deleted":
           setContexts((c) => c.filter((x) => x.id !== msg.ctxId));
@@ -320,7 +342,7 @@ export default function App() {
     return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
   }
   if (route === "#/settings") {
-    return <SettingsPage onBack={() => { window.location.hash = ""; }} busyAgentId={running?.agentId ?? null} />;
+    return <SettingsPage onBack={() => { window.location.hash = ""; }} busyCount={Object.keys(runnings).length} />;
   }
   if (route === "#/skills") {
     return <SkillsPage onBack={() => { window.location.hash = ""; }} />;
@@ -334,7 +356,7 @@ export default function App() {
         contexts={contexts}
         agents={agents}
         activeCtx={activeCtx}
-        running={running}
+        runningCtxIds={Object.keys(runnings)}
         renamingCtx={renamingCtx}
         renameValue={renameValue}
         sidebarOpen={sidebarOpen}
@@ -378,7 +400,7 @@ export default function App() {
               wsStatus={api.status}
               onOpenSidebar={() => setSidebarOpen(true)}
               onCancelHandoff={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
-              onAbort={() => api.send({ type: "abort" })}
+              onAbort={() => api.send({ type: "abort", ctxId: activeCtx.id })}
               agentName={agentName}
             />
 
@@ -422,6 +444,13 @@ export default function App() {
                 </svg>
               </button>
             </div>
+
+            {/* Ожидание освобождения занятого агента (он работает в другом чате) */}
+            {waitingAgents[activeCtx.id] && (
+              <div className="border-t border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-300">
+                ⏳ {agentName(waitingAgents[activeCtx.id])} занят в другом чате — ход начнётся после освобождения…
+              </div>
+            )}
 
             {/* Input */}
             {errors.length > 0 && (

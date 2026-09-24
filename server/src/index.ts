@@ -182,6 +182,7 @@ const runner = new AgentRunner(
   SHARED_DIR,
   config.model || undefined,
   broadcast,
+  (config.providers ?? {}) as Record<string, { url?: string; apiKey?: string }>,
 );
 
 const app = express();
@@ -432,15 +433,15 @@ app.get("/api/tools", async (_req, res) => {
   }
 });
 
-// Статус сессий: заняты ли агенты прямо сейчас (для кнопки сброса в настройках)
+// Статус сессий: какие цепочки активны прямо сейчас (для кнопки сброса в настройках)
 app.get("/api/sessions", (_req, res) => {
-  const active = runner.getActive();
-  res.json({ busy: !!active, agentId: active?.agentId ?? null });
+  const actives = runner.getActives();
+  res.json({ busy: actives.length > 0, active: actives });
 });
 
-// Полный сброс всех сессий — доступен только когда никто не работает
+// Полный сброс всех сессий — доступен только когда никто не работает и очередь пуста
 app.post("/api/sessions/reset", (_req, res) => {
-  if (runner.getActive()) {
+  if (runner.getActives().length > 0 || runner.hasQueued()) {
     res.status(409).json({ error: "Агенты прямо сейчас работают — сброс недоступен. Попробуйте позже." });
     return;
   }
@@ -556,8 +557,10 @@ app.get("/api/providers/:id/models", async (req, res) => {
       return;
     }
 
-    const data = await resp.json() as { data?: { id: string }[] };
-    const models = (data.data ?? []).map((m) => m.id).sort();
+    // Поддерживаем оба формата: OpenAI ({data:[{id}]}) и llama.cpp native ({models:[{name|model}]})
+    const data = await resp.json() as any;
+    const arr: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+    const models = [...new Set(arr.map((m) => m.id ?? m.model ?? m.name).filter(Boolean))].sort();
     modelsCache[providerId] = { models, fetchedAt: Date.now() };
     res.json({ models, cached: false, fetchedAt: Date.now() });
   } catch (e) {
@@ -588,7 +591,7 @@ wss.on("connection", (ws) => {
   send({ type: "agents", agents: registry.list() });
   send({ type: "skills", skills: skillRegistry.list() });
   send({ type: "contexts", contexts: store.list() });
-  send({ type: "run_state", running: runner.getActive() });
+  send({ type: "run_state", actives: runner.getActives() });
 
   ws.on("message", async (raw) => {
     let msg: any;
@@ -610,7 +613,7 @@ wss.on("connection", (ws) => {
         case "delete_context": {
           const ctx = store.get(msg.ctxId);
           if (!ctx) break;
-          if (runner.getActive()?.ctxId === msg.ctxId) runner.abort();
+          runner.abort(msg.ctxId);
           runner.disposeContext(msg.ctxId);
           store.delete(msg.ctxId);
           broadcast({ type: "context_deleted", ctxId: msg.ctxId });
@@ -666,7 +669,7 @@ wss.on("connection", (ws) => {
           break;
         }
         case "abort":
-          runner.abort();
+          runner.abort(String(msg.ctxId ?? ""));
           break;
         case "cancel_handoff":
           runner.cancelHandoff(msg.ctxId);

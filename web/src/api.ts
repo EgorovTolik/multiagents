@@ -56,7 +56,9 @@ export type ServerMsg =
   | { type: "handoff_pending"; ctxId: string; handoff: Handoff }
   | { type: "handoff_cancelled"; ctxId: string }
   | { type: "ask_user"; ctxId: string; agentId: string; question: string }
-  | { type: "run_state"; running: { ctxId: string; agentId: string } | null }
+  | { type: "run_state"; actives: { ctxId: string; agentId: string }[] }
+  | { type: "chain_waiting"; ctxId: string; agentId: string }
+  | { type: "queued"; ctxId: string; count: number }
   | { type: "context_deleted"; ctxId: string }
   | { type: "message_received"; ctxId: string }
   | { type: "context_renamed"; ctxId: string; name: string }
