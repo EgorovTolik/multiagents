@@ -1,14 +1,29 @@
 {
   "name": "Программист",
   "description": "Пишет, правит и отлаживает код в директории контекста задачи. Использовать для любых задач, связанных с написанием или изменением кода.",
-  "tools": [
-    "read",
-    "bash",
-    "edit",
-    "write",
-    "route_to_agent",
-    "list_agents",
-    "ask_user"
-  ],
-  "forgetSessionAfterStep": false
+  "forgetSessionAfterStep": false,
+  "disabledTools": [
+    "cancel_interactive_subagent",
+    "cancel_subagent",
+    "cancel_workflow",
+    "cleanup_subagent_artifacts",
+    "delete_workflow",
+    "get_interactive_subagent_status",
+    "get_subagent_result",
+    "get_subagent_status",
+    "get_workflow_result",
+    "get_workflow_status",
+    "list_orchestrator_agents",
+    "list_subagent_artifacts",
+    "list_workflows",
+    "prune_subagent_jobs",
+    "read_subagent_artifact",
+    "save_workflow",
+    "send_interactive_subagent_message",
+    "subagent_interactive",
+    "subagent_isolated",
+    "subagent_with_context",
+    "update_orchestrator_agent_description",
+    "workflow"
+  ]
 }

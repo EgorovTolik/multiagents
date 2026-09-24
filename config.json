@@ -1,5 +1,5 @@
 {
-  "model": "eac-mac-ai/Qwen3.6-35B-A3B-UD-Q6_K.gguf",
+  "model": "eac-mac-ai/Ornith-1.5-35B-A3B-APEX-MTP-Quality.gguf",
   "port": 3000,
   "providers": {
     "eac-mac-ai": {

@@ -301,15 +301,11 @@ app.get("/api/agents/:id/detail", (req, res) => {
       if (f.endsWith(".md")) skills.push({ filename: f, content: fs.readFileSync(path.join(skillsDir, f), "utf8") });
     }
   }
-  // Эффективный набор инструментов (как его видит раннер), без дублей:
-  // системные инструменты добавляются раннером всегда, UI их же показывает как доступные
-  const baseTools = cfg.tools ?? ["read", "bash", "edit", "write"];
-  const effectiveTools = [...new Set([...baseTools, "route_to_agent", "list_agents", "ask_user"])];
-  if (id === "agent-creator") {
-    effectiveTools.push("create_agent", "delete_agent");
-  }
+  // Обратная логика выдачи инструментов: все pi-инструменты включены по умолчанию,
+  // в конфиге хранится только список отключённых (denylist)
+  const disabledTools = Array.isArray(cfg.disabledTools) ? cfg.disabledTools : [];
 
-  res.json({ id, name: cfg.name ?? id, description: cfg.description ?? "", tools: effectiveTools, model: cfg.model ?? null, thinkingLevel: cfg.thinkingLevel ?? null, forgetSessionAfterStep: cfg.forgetSessionAfterStep === true, systemPrompt, rules, skills });
+  res.json({ id, name: cfg.name ?? id, description: cfg.description ?? "", disabledTools, model: cfg.model ?? null, thinkingLevel: cfg.thinkingLevel ?? null, forgetSessionAfterStep: cfg.forgetSessionAfterStep === true, systemPrompt, rules, skills });
 });
 
 app.put("/api/agents/:id", (req, res) => {
@@ -319,15 +315,15 @@ app.put("/api/agents/:id", (req, res) => {
     res.status(404).json({ error: "agent not found" });
     return;
   }
-  const { name, description, tools, model, thinkingLevel, forgetSessionAfterStep, systemPrompt, rules, skills } = req.body;
+  const { name, description, disabledTools, model, thinkingLevel, forgetSessionAfterStep, systemPrompt, rules, skills } = req.body;
 
   // config.json
   const cfg: Record<string, unknown> = {};
   if (name) cfg.name = name;
   if (description !== undefined) cfg.description = description;
-  // Дедупликация: UI присылает эффективный список (с системными инструментами),
-  // без дедупа при каждом сохранении набор копился бы
-  if (tools) cfg.tools = [...new Set(tools)];
+  // Denylist отключённых pi-инструментов (всё остальное включено по умолчанию)
+  cfg.disabledTools = Array.isArray(disabledTools) ? [...new Set(disabledTools)] : [];
+  delete cfg.tools; // legacy allowlist — больше не используется
   if (model) cfg.model = model;
   if (thinkingLevel) cfg.thinkingLevel = thinkingLevel;
   // boolean: записываем и false (иначе нельзя было бы снять галочку)
@@ -422,6 +418,17 @@ app.put("/api/skills/:id", (req, res) => {
     res.json(sk);
   } catch (e: any) {
     res.status(400).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Полный список инструментов pi (встроенные + пакеты из `pi install`), сгруппированный —
+// для раздела «Инструменты» в редакторе агентов. Кэшируется до рестарта сервера.
+app.get("/api/tools", async (_req, res) => {
+  try {
+    const groups = await runner.listPiTools();
+    res.json({ groups });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
   }
 });
 

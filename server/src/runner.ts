@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -137,6 +138,18 @@ function buildSystemPrompt(def: AgentDef, workdir: string, globalRules: string[]
  * Она выполняется после завершения текущего хода: сервер переключает
  * активного агента контекста и шлёт новому агенту промпт с контекстом.
  */
+/** Инструмент pi и группы инструментов (для UI редактора агентов и миграции). */
+export interface PiTool {
+  name: string;
+  description?: string;
+}
+
+export interface PiToolGroup {
+  id: string;
+  title: string;
+  tools: PiTool[];
+}
+
 export class AgentRunner {
   private sessions = new Map<string, AgentSession>();
   private active: { ctxId: string; agentId: string } | null = null;
@@ -171,6 +184,13 @@ export class AgentRunner {
 
   async init() {
     this.modelRuntime = await ModelRuntime.create();
+    // Одноразовая миграция конфигов агентов: allowlist (tools) → denylist (disabledTools)
+    try {
+      const n = await this.migrateToolConfigs();
+      if (n > 0) console.log(`[runner] мигрировано конфигов инструментов: ${n}`);
+    } catch (e) {
+      console.error("[runner] миграция конфигов инструментов не удалась:", e);
+    }
     // Watchdog: если активная сессия не генерирует событий дольше STALL_TIMEOUT_MS —
     // прерываем её (зависший запрос к модели, SDK-зацикливание и т.п.)
     setInterval(() => {
@@ -209,6 +229,105 @@ export class AgentRunner {
       ctx.deliveredSkills = {};
       this.store.save(ctx);
     }
+  }
+
+  private piToolGroupsCache: PiToolGroup[] | null = null;
+
+  /** Полный список инструментов pi (встроенные + установленные через `pi install`), сгруппированный.
+   * Получается один раз из «пробной» сессии без allowlist'а и кэшируется до рестарта сервера. */
+  async listPiTools(): Promise<PiToolGroup[]> {
+    if (this.piToolGroupsCache) return this.piToolGroupsCache;
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
+    try {
+      const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });
+      await loader.reload();
+      const { session } = await createAgentSession({
+        cwd: probeDir,
+        resourceLoader: loader,
+        sessionManager: SessionManager.inMemory(probeDir),
+      });
+      try {
+        await session.bindExtensions({});
+      } catch { /* без MCP-инициализации список всё равно доступен */ }
+      const all = (session as any).getAllTools?.() ?? [];
+      this.piToolGroupsCache = this.groupPiTools(
+        all.map((t: any) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })),
+      );
+      try {
+        (session as any).dispose?.();
+      } catch { /* ignore */ }
+    } finally {
+      fs.rmSync(probeDir, { recursive: true, force: true });
+    }
+    return this.piToolGroupsCache!;
+  }
+
+  /** Группировка инструментов для UI: по пакетам/префиксам, без хардкода имён. */
+  private groupPiTools(tools: PiTool[]): PiToolGroup[] {
+    const groups = new Map<string, PiToolGroup>();
+    const ensure = (id: string, title: string): PiToolGroup => {
+      let g = groups.get(id);
+      if (!g) {
+        g = { id, title, tools: [] };
+        groups.set(id, g);
+      }
+      return g;
+    };
+    for (const t of tools) {
+      let g: PiToolGroup;
+      if (/^gitlab_/.test(t.name)) g = ensure("gitlab", "GitLab");
+      else if (t.name === "mcp" || t.name === "mcpScript" || /^mcp__/.test(t.name)) g = ensure("mcp", "MCP");
+      else if (/subagent|workflow|orchestrator/i.test(t.name)) g = ensure("subagents", "Субагенты и workflows (pi-subagentura)");
+      else if (["read", "write", "edit", "bash", "find", "grep", "ls"].includes(t.name)) g = ensure("builtin", "Встроенные pi");
+      else g = ensure("other", "Прочее");
+      g.tools.push(t);
+    }
+    const order = ["builtin", "mcp", "gitlab", "subagents", "other"];
+    return [...groups.values()]
+      .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+      .map((g) => ({ ...g, tools: g.tools.sort((a, b) => a.name.localeCompare(b.name)) }));
+  }
+
+  /** Миграция конфигов агентов на обратную логику выдачи инструментов:
+   * allowlist (tools) → denylist (disabledTools). Все pi-инструменты включены по умолчанию,
+   * группа субагентов/workflows отключена по умолчанию. Идемпотентна. */
+  async migrateToolConfigs(): Promise<number> {
+    const groups = await this.listPiTools();
+    const subNames = new Set(
+      (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name),
+    );
+    if (!fs.existsSync(this.agentsDir)) return 0;
+    let changed = 0;
+    for (const entry of fs.readdirSync(this.agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const cfgPath = path.join(this.agentsDir, entry.name, "config.json");
+      if (!fs.existsSync(cfgPath)) continue;
+      let cfg: Record<string, unknown>;
+      try {
+        cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+      } catch { continue; }
+      const hadAllowlist = Array.isArray(cfg.tools);
+      const alreadyMigrated = !hadAllowlist && Array.isArray(cfg.disabledTools);
+      if (alreadyMigrated) continue;
+      const disabled: string[] = [
+        ...new Set([
+          ...(Array.isArray(cfg.disabledTools) ? (cfg.disabledTools as string[]) : []),
+          ...subNames,
+        ]),
+      ];
+      delete cfg.tools;
+      cfg.disabledTools = disabled;
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+      changed++;
+    }
+    if (changed > 0) this.registry.reload();
+    return changed;
+  }
+
+  /** Имена инструментов группы субагентов/workflows — отключаются по умолчанию у новых агентов. */
+  async defaultDisabledToolNames(): Promise<string[]> {
+    const groups = await this.listPiTools();
+    return (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name);
   }
 
   /** Полный сброс: закрыть все сессии всех контекстов. Только когда никто не работает (проверяет вызывающий). */
@@ -639,7 +758,7 @@ export class AgentRunner {
     });
     await loader.reload();
 
-    const customTools = [
+    const allCustomTools = [
       this.makeListAgentsTool(),
       this.makeRouteTool(ctxId, agentId),
       this.makeAskUserTool(ctxId, agentId),
@@ -648,18 +767,23 @@ export class AgentRunner {
       this.makeUseSkillTool(ctxId, agentId),
       this.makeSharedStoreTool(),
     ];
-    const toolNames = [...(def.tools ?? ["read", "bash", "edit", "write"]), "route_to_agent", "list_agents", "ask_user", "handoff_file", "list_skills", "use_skill", "artifact_store"];
     if (agentId === "agent-creator") {
-      customTools.push(this.makeCreateAgentTool());
-      customTools.push(this.makeDeleteAgentTool());
-      toolNames.push("create_agent", "delete_agent");
+      allCustomTools.push(this.makeCreateAgentTool());
+      allCustomTools.push(this.makeDeleteAgentTool());
     }
+    // Системные инструменты тоже можно отключить через общий denylist
+    // (например, запретить агенту задавать вопросы пользователю — ask_user).
+    const deniedNames = new Set(def.disabledTools ?? []);
+    const customTools = allCustomTools.filter((t) => !deniedNames.has(t.name));
+
+    // Обратная логика выдачи: ВСЕ pi-инструменты включены по умолчанию,
+    // в конфиге агента хранится только список отключённых (denylist → excludeTools).
+    const excludeTools = def.disabledTools ?? [];
 
     const { session } = await createAgentSession({
       cwd: ctxDir,
       model: this.resolveModel(def.model),
-      // tools — это allowlist: кастомные инструменты нужно включить явно
-      tools: toolNames,
+      excludeTools: excludeTools.length > 0 ? excludeTools : undefined,
       customTools,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(ctxDir),
@@ -1090,6 +1214,20 @@ export class AgentRunner {
       execute: async (_id, params) => {
         try {
           const def = this.registry.create(params);
+          // По умолчанию отключаем группу субагентов/workflows (логика проекта
+          // не предполагает, что агенты запускают своих субагентов).
+          try {
+            const disabled = await this.defaultDisabledToolNames();
+            if (disabled.length > 0) {
+              const cfgPath = path.join(this.agentsDir, def.id, "config.json");
+              const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+              cfg.disabledTools = disabled;
+              fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+            }
+          } catch (e) {
+            console.error("[runner] не удалось записать denylist нового агента:", e);
+          }
+          this.registry.reload();
           // Рассылаем обновлённый список агентов, чтобы UI сразу показал нового.
           this.emit({ type: "agents", agents: this.registry.list() });
           return okText(

@@ -15,7 +15,8 @@ export interface AgentDef {
   rules: string[];
   skills: AgentSkill[];
   model?: string;
-  tools?: string[];
+  /** Отключённые инструменты pi (denylist). Всё, что не указано — включено. */
+  disabledTools?: string[];
   thinkingLevel?: string;
   /** Забывать pi-сессию после завершения шага (при передаче чата другому агенту). */
   forgetSessionAfterStep?: boolean;
@@ -93,7 +94,7 @@ export class AgentRegistry {
         rules,
         skills,
         model: cfg.model,
-        tools: cfg.tools,
+        disabledTools: Array.isArray(cfg.disabledTools) ? cfg.disabledTools : undefined,
         thinkingLevel: cfg.thinkingLevel,
         forgetSessionAfterStep: cfg.forgetSessionAfterStep === true,
       });
@@ -121,11 +122,11 @@ export class AgentRegistry {
     fs.mkdirSync(path.join(dir, "rules"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
     fs.writeFileSync(path.join(dir, "AGENT.md"), params.systemPrompt);
-    // mcp + mcpScript включены по умолчанию (документация: docs/mcp-access-for-agents.md):
-    // без них в allowlist агент не видит MCP-серверы из ~/.pi/agent/mcp.json
+    // Обратная логика выдачи инструментов: все pi-инструменты включены по умолчанию,
+    // в конфиге хранится только denylist (disabledTools) — подставит раннер/хэндлер создания.
     fs.writeFileSync(
       path.join(dir, "config.json"),
-      JSON.stringify({ name: id, description: params.description, tools: ["read", "write", "edit", "bash", "mcp", "mcpScript"] }, null, 2),
+      JSON.stringify({ name: id, description: params.description }, null, 2),
     );
     for (const rule of params.rules ?? []) {
       const rf = path.join(dir, "rules", `${rule.name ?? "rule"}.md`);

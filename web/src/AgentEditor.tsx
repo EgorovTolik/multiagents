@@ -10,7 +10,8 @@ interface AgentDetail {
   id: string;
   name: string;
   description: string;
-  tools: string[];
+  /** Отключённые pi-инструменты (denylist). Всё, что не указано — включено. */
+  disabledTools: string[];
   model: string | null;
   thinkingLevel: string | null;
   forgetSessionAfterStep: boolean;
@@ -25,12 +26,28 @@ interface AgentListItem {
   description: string;
 }
 
-const KNOWN_TOOLS = [
-  "read", "write", "edit", "bash",
-  "mcp", "mcpScript",
-  "route_to_agent", "list_agents", "ask_user",
-  "create_agent", "delete_agent",
+/** Системные инструменты проекта. locked = отключить нельзя; остальные можно
+ * выключить через тот же denylist (disabledTools), что и pi-инструменты. */
+const SYSTEM_TOOLS: { name: string; label: string; locked?: boolean }[] = [
+  { name: "route_to_agent", label: "Передача другому агенту", locked: true },
+  { name: "list_agents", label: "Список агентов", locked: true },
+  { name: "ask_user", label: "Вопрос пользователю" },
+  { name: "handoff_file", label: "Файл передачи" },
+  { name: "list_skills", label: "Список навыков" },
+  { name: "use_skill", label: "Применить навык" },
+  { name: "artifact_store", label: "Хранилище артефактов" },
 ];
+
+interface PiToolInfo {
+  name: string;
+  description?: string;
+}
+
+interface PiToolGroupInfo {
+  id: string;
+  title: string;
+  tools: PiToolInfo[];
+}
 
 function borderClass(dirty: boolean): string {
   return dirty
@@ -109,7 +126,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   );
 
   const anyDirty = !!(data && original && (
-    isDirty("name") || isDirty("description") || isDirty("tools") ||
+    isDirty("name") || isDirty("description") || isDirty("disabledTools") ||
     isDirty("model") || isDirty("thinkingLevel") || isDirty("forgetSessionAfterStep") ||
     isDirty("systemPrompt") ||
     isDirty("rules") || isDirty("skills")
@@ -198,12 +215,32 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
     updateField(listKey, arr as never);
   };
 
+  // Инструменты pi: список групп с сервера (встроенные + пакеты из `pi install`)
+  const [toolGroups, setToolGroups] = useState<PiToolGroupInfo[]>([]);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    fetch("/api/tools")
+      .then((r) => r.json())
+      .then((d: { groups: PiToolGroupInfo[] }) => {
+        setToolGroups(d.groups ?? []);
+        setOpenGroups(Object.fromEntries((d.groups ?? []).map((g) => [g.id, true])));
+      })
+      .catch(() => { /* ignore — раздел инструментов pi останется пустым */ });
+  }, []);
+
+  /** Включён ли инструмент (всё включено, кроме denylist). */
+  const isToolEnabled = useCallback(
+    (name: string): boolean => !!(data && !data.disabledTools.includes(name)),
+    [data],
+  );
+
   const toggleTool = (tool: string) => {
     if (!data) return;
-    const tools = data.tools.includes(tool)
-      ? data.tools.filter((t) => t !== tool)
-      : [...data.tools, tool];
-    updateField("tools", tools);
+    const disabled = data.disabledTools.includes(tool)
+      ? data.disabledTools.filter((t) => t !== tool)
+      : [...data.disabledTools, tool];
+    updateField("disabledTools", disabled);
   };
 
   return (
@@ -313,20 +350,89 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                 />
               </Field>
 
-              {/* Tools */}
-              <Field label="Инструменты" dirty={isDirty("tools")}>
-                <div className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(isDirty("tools"))}`}>
-                  {KNOWN_TOOLS.map((tool) => (
-                    <label key={tool} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800">
-                      <input
-                        type="checkbox"
-                        checked={data.tools.includes(tool)}
-                        onChange={() => toggleTool(tool)}
-                        className="h-3.5 w-3.5 accent-indigo-500"
-                      />
-                      <span className="font-mono">{tool}</span>
-                    </label>
-                  ))}
+              {/* System tools — always on */}
+              <Field label="Инструменты системы" dirty={isDirty("disabledTools")} help="Инструменты протокола работы проекта. Заблокированные отключить нельзя; ask_user можно выключить, чтобы запретить агенту задавать вопросы пользователю.">
+                <div className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}>
+                  {SYSTEM_TOOLS.map((tool) =>
+                    tool.locked ? (
+                      <label key={tool.name} title="Системное свойство (не отключаемое)" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs opacity-70">
+                        <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-indigo-500" />
+                        <span className="font-mono">{tool.name}</span>
+                        <span className="text-slate-500">— {tool.label}</span>
+                      </label>
+                    ) : (
+                      <label key={tool.name} title={`Отключить «${tool.label.toLowerCase()}» для этого агента`} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={isToolEnabled(tool.name)}
+                          onChange={() => toggleTool(tool.name)}
+                          className="h-3.5 w-3.5 accent-indigo-500"
+                        />
+                        <span className="font-mono">{tool.name}</span>
+                        <span className="text-slate-500">— {tool.label}</span>
+                      </label>
+                    ),
+                  )}
+                </div>
+              </Field>
+
+              {/* PI tools — grouped, master checkbox per group */}
+              <Field label="Инструменты PI" dirty={isDirty("disabledTools")} help="Всё, что установлено через `pi install`, включено по умолчанию. Снимите галочку, чтобы отключить инструмент или группу целиком.">
+                <div className={`space-y-2 rounded-lg border bg-slate-900 p-3 ${borderClass(isDirty("disabledTools"))}`}>
+                  {toolGroups.length === 0 && (
+                    <p className="text-xs text-slate-500">Список инструментов загружается…</p>
+                  )}
+                  {toolGroups.map((group) => {
+                    const enabledCount = group.tools.filter((t) => isToolEnabled(t.name)).length;
+                    const allEnabled = enabledCount === group.tools.length;
+                    const open = openGroups[group.id] !== false;
+                    return (
+                      <div key={group.id} className="rounded-md border border-slate-800">
+                        {/* Group header + master checkbox */}
+                        <div
+                          className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-slate-800/60"
+                          onClick={() => setOpenGroups((s) => ({ ...s, [group.id]: !open }))}
+                        >
+                          <span className={`text-xs text-slate-500 transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+                          <input
+                            type="checkbox"
+                            checked={allEnabled}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => {
+                              if (!data) return;
+                              const names = new Set(group.tools.map((t) => t.name));
+                              const disabled = allEnabled
+                                ? [...new Set([...data.disabledTools, ...group.tools.map((t) => t.name)])]
+                                : data.disabledTools.filter((t) => !names.has(t));
+                              updateField("disabledTools", disabled);
+                            }}
+                            title={allEnabled ? "Отключить всю группу" : "Включить всю группу"}
+                            className="h-4 w-4 accent-indigo-500"
+                          />
+                          <span className="text-sm font-medium text-slate-200">{group.title}</span>
+                          <span className="ml-auto text-xs text-slate-500">
+                            {enabledCount}/{group.tools.length}
+                          </span>
+                        </div>
+                        {/* Individual tools */}
+                        {open && (
+                          <div className="grid gap-1 border-t border-slate-800 px-3 py-2 sm:grid-cols-2">
+                            {group.tools.map((tool) => (
+                              <label key={tool.name} title={tool.description || undefined} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800/60">
+                                <input
+                                  type="checkbox"
+                                  checked={isToolEnabled(tool.name)}
+                                  onChange={() => toggleTool(tool.name)}
+                                  className="h-3.5 w-3.5 accent-indigo-500"
+                                />
+                                <span className="font-mono">{tool.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Field>
 
