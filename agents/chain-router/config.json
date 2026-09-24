@@ -1,7 +1,6 @@
 {
   "name": "Маршрутизатор",
   "description": "Системный агент: разбирает обрывы цепочки и решает, кому передать диалог дальше",
-  "forgetSessionAfterStep": true,
   "disabledTools": [
     "cancel_interactive_subagent",
     "cancel_subagent",
@@ -25,5 +24,7 @@
     "subagent_with_context",
     "update_orchestrator_agent_description",
     "workflow"
-  ]
+  ],
+  "model": "eac-work-ai/gemma-4-E4B-it-ultra-uncensored-heretic-Q6_K.gguf",
+  "forgetSessionAfterStep": true
 }
