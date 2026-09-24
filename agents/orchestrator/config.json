@@ -1,7 +1,6 @@
 {
   "name": "Оркестратор",
   "description": "Первый агент в диалоге. Понимает запрос пользователя и решает: ответить самому или передать диалог специалисту. По умолчанию активен.",
-  "forgetSessionAfterStep": false,
   "disabledTools": [
     "cancel_interactive_subagent",
     "cancel_subagent",
@@ -25,5 +24,7 @@
     "subagent_with_context",
     "update_orchestrator_agent_description",
     "workflow"
-  ]
+  ],
+  "model": "eac-work-ai/gemma-4-E4B-it-ultra-uncensored-heretic-Q6_K.gguf",
+  "forgetSessionAfterStep": false
 }
