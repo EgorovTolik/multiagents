@@ -642,8 +642,12 @@ export class AgentRunner {
         : undefined;
       await session.prompt(text, promptOpts);
     } catch (e: any) {
-      console.error("[runner] run error:", e);
-      this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
+      // Прерывание из-за ask_user или по кнопке — штатное завершение, не ошибка.
+      const ctxNow = this.store.get(ctxId);
+      if (!ctxNow?.awaitingUser && !ctxNow?.aborted) {
+        console.error("[runner] run error:", e);
+        this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
+      }
     } finally {
       // Ход завершён — агент свободен (возможно, сразу забирает его другой чат).
       // activeByCtx при передаче НЕ снимаем: новая run() уже пометила чат новым агентом.
@@ -1162,8 +1166,15 @@ export class AgentRunner {
         };
         this.store.appendMessage(ctxId, sysMsg);
         this.emit({ type: "message", ctxId, message: sysMsg });
+        // Жёсткая остановка хода: слабые модели могут игнорировать «заверши ход»
+        // и продолжить работу в том же run, выдумав ответ пользователя.
+        // Поэтому через микротаск прерываем сессию — следующий LLM-шаг не начнётся.
+        setTimeout(() => {
+          const s = this.sessions.get(this.key(ctxId, agentId));
+          if (s) void s.abort();
+        }, 0);
         return okText(
-          `Вопрос отправлен пользователю: «${params.question}». ЗАВЕРШИ ХОД — не продолжай работу и не вызывай другие инструменты. Ответ пользователя придёт в следующем сообщении.`,
+          `Вопрос отправлен пользователю: «${params.question}». ХОД ЗАВЕРШЁН — ответ пользователя придёт в следующем сообщении.`,
         );
       },
     });
