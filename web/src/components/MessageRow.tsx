@@ -129,7 +129,18 @@ function MessageRowInner({
           {m.agentId ? agentName(m.agentId) : "система"}
         </span>
         <div className="rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
-          {streaming ? (
+          {/* Рассуждения модели: стримятся в реальном времени, после завершения хода сворачиваются */}
+          {m.thinking && (
+            <details className="mb-2 rounded-lg border border-slate-800 bg-slate-950/60 text-xs" open={streaming}>
+              <summary className="cursor-pointer select-none px-3 py-1.5 font-medium text-violet-400/90 hover:text-violet-300">
+                💭 Размышления{streaming ? " (идут…)" : ""}
+              </summary>
+              <div className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-800 px-3 py-2 italic leading-relaxed text-slate-400">
+                {m.thinking}
+              </div>
+            </details>
+          )}
+          {m.text && (streaming ? (
             <div className="whitespace-pre-wrap break-words">{m.text}</div>
           ) : (
             <div className="md-content">
@@ -146,7 +157,7 @@ function MessageRowInner({
                 {m.text}
               </ReactMarkdown>
             </div>
-          )}
+          ))}
           <div className="mt-1 text-left text-[10px] text-slate-500">{fmtTime(m.ts)}</div>
         </div>
       </div>

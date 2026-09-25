@@ -125,12 +125,25 @@ export default function App() {
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
             const last = m[m.length - 1];
-            if (last?.role === "assistant" && last.agentId === msg.agentId && last.text.endsWith("…")) {
+            // временный пузырь: текст с «…» или пустой текст с идущими размышлениями
+            if (last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || (last.text === "" && !!last.thinking))) {
               const copy = [...m];
-              copy[m.length - 1] = { ...last, text: last.text.slice(0, -1) + msg.text + "…" };
+              copy[m.length - 1] = { ...last, text: last.text === "" ? msg.text + "…" : last.text.slice(0, -1) + msg.text + "…" };
               return copy;
             }
             return [...m, { role: "assistant", agentId: msg.agentId, text: msg.text + "…", ts: Date.now() }];
+          });
+          break;
+        case "thinking_delta":
+          if (msg.ctxId !== activeCtx?.id) break;
+          setMessages((m) => {
+            const last = m[m.length - 1];
+            if (last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || (last.text === "" && !!last.thinking))) {
+              const copy = [...m];
+              copy[m.length - 1] = { ...last, thinking: (last.thinking ?? "") + msg.text };
+              return copy;
+            }
+            return [...m, { role: "assistant", agentId: msg.agentId, text: "", thinking: msg.text, ts: Date.now() }];
           });
           break;
         case "assistant_end":
@@ -140,7 +153,7 @@ export default function App() {
             if (i < 0) return m;
             const idx = m.length - 1 - i;
             const copy = [...m];
-            copy[idx] = { role: "assistant", agentId: msg.agentId, text: msg.text, ts: Date.now() };
+            copy[idx] = { role: "assistant", agentId: msg.agentId, text: msg.text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
             return copy;
           });
           break;
@@ -265,7 +278,7 @@ export default function App() {
   const lastMsg = messages[messages.length - 1];
   const streamingIdx =
     running && activeCtx && running.ctxId === activeCtx.id &&
-    lastMsg?.role === "assistant" && lastMsg.text.endsWith("…")
+    lastMsg?.role === "assistant" && (lastMsg.text.endsWith("…") || (lastMsg.text === "" && !!lastMsg.thinking))
       ? messages.length - 1
       : -1;
 

@@ -950,6 +950,8 @@ export class AgentRunner {
 
   /** Изображения из результатов инструментов (например, MCP-скриншоты), ожидающие привязки к сообщению. */
   private pendingImages = new Map<string, string[]>();
+  /** Накопленные рассуждения (thinking) — прикрепляются к следующему сообщению ассистента. */
+  private pendingThinking = new Map<string, string>();
 
   private keyFor(ctxId: string, agentId: string) {
     return `${ctxId}/${agentId}`;
@@ -998,18 +1000,28 @@ export class AgentRunner {
     }
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
       this.emit({ type: "delta", ctxId, agentId, text: ev.assistantMessageEvent.delta });
+    } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
+      // Рассуждения модели — стримим в UI в реальном времени + накапливаем для истории
+      const key = this.keyFor(ctxId, agentId);
+      const d: string = ev.assistantMessageEvent.delta ?? "";
+      if (d) this.pendingThinking.set(key, (this.pendingThinking.get(key) ?? "") + d);
+      this.emit({ type: "thinking_delta", ctxId, agentId, text: d });
     } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
       let text = extractText(ev.message);
       if (!text) text = "";
       // прикладываем накопленные изображения к этому сообщению
       text = this.withPendingImages(ctxId, agentId, text);
+      // рассуждения, накопленные с начала хода (или с прошлого сообщения)
+      const key = this.keyFor(ctxId, agentId);
+      const thinking = this.pendingThinking.get(key) || "";
+      this.pendingThinking.delete(key);
       // убираем ссылки на несуществующие файлы (модель могла их выдумать)
       text = this.sanitizeFileLinks(ctxId, text);
-      if (!text) return;
-      const msg: Message = { role: "assistant", agentId, text, ts: Date.now() };
+      if (!text && !thinking) return;
+      const msg: Message = { role: "assistant", agentId, text, thinking: thinking || undefined, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
       // клиенту — без локальных путей, со ссылками на скачивание
-      this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text) });
+      this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text), thinking });
     }
   }
 

@@ -14,6 +14,8 @@ export interface Message {
   role: "user" | "assistant" | "system";
   agentId?: string;
   text: string;
+  /** Рассуждения модели (thinking-блоки) — для отображения, в сессию pi не попадают. */
+  thinking?: string;
   ts: number;
 }
 
