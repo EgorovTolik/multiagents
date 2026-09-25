@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export interface SkillFileEntry {
+  filename: string;
+  content: string;
+}
+
 export interface SkillDef {
   id: string;
   name: string;
@@ -8,6 +13,8 @@ export interface SkillDef {
   /** Агент может применить навык к себе сам (инструмент use_skill), без участия пользователя. */
   autoApply: boolean;
   body: string;
+  /** Дополнительные файлы навыка (.md) — хранятся в skills/<id>/files/. */
+  files?: SkillFileEntry[];
 }
 
 export interface SkillParams {
@@ -15,11 +22,14 @@ export interface SkillParams {
   description: string;
   autoApply?: boolean;
   body: string;
+  /** Дополнительные файлы навыка (filename + content). Сохраняются в skills/<id>/files/. */
+  files?: SkillFileEntry[];
 }
 
 /**
  * Файловый реестр глобальных навыков: каждый навык — поддиректория skills/<id>/
- * с config.json (name, description) и SKILL.md (тело навыка).
+ * с config.json (name, description), SKILL.md (тело навыка) и опционально
+ * files/*.md (дополнительные файлы).
  *
  * Навыки подключаются к чату в любой момент (см. ContextMeta.skills) и передаются
  * агентам сообщениями при их следующем запуске (см. AgentRunner.run).
@@ -45,12 +55,25 @@ export class SkillRegistry {
       try {
         cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
       } catch { /* config.json отсутствует или повреждён — используем id */ }
+
+      // Читаем дополнительные файлы из files/
+      const files: SkillFileEntry[] = [];
+      const filesDir = path.join(dir, "files");
+      if (fs.existsSync(filesDir)) {
+        for (const f of fs.readdirSync(filesDir).sort()) {
+          if (f.endsWith(".md")) {
+            files.push({ filename: f, content: fs.readFileSync(path.join(filesDir, f), "utf8") });
+          }
+        }
+      }
+
       this.skills.set(id, {
         id,
         name: cfg.name ?? id,
         description: cfg.description ?? "",
         autoApply: cfg.autoApply === true,
         body: fs.readFileSync(bodyPath, "utf8"),
+        files,
       });
     }
   }
@@ -109,5 +132,50 @@ export class SkillRegistry {
       path.join(dir, "config.json"),
       JSON.stringify({ name: params.name, description: params.description, autoApply: params.autoApply === true }, null, 2),
     );
+
+    // Запись дополнительных файлов в files/
+    const filesDir = path.join(dir, "files");
+    fs.mkdirSync(filesDir, { recursive: true });
+    if (params.files) {
+      // Удалить старые файлы которых нет в списке
+      for (const f of fs.readdirSync(filesDir)) {
+        if (!params.files.some((p: SkillFileEntry) => p.filename === f)) {
+          fs.unlinkSync(path.join(filesDir, f));
+        }
+      }
+    }
+    // Записать новые/обновлённые файлы
+    for (const file of params.files ?? []) {
+      if (file.filename && !file.filename.includes("..") && !file.filename.includes("/")) {
+        fs.writeFileSync(path.join(filesDir, file.filename), file.content);
+      }
+    }
+  }
+
+  /** Обновить только дополнительные файлы навыка. */
+  updateFiles(id: string, files?: SkillFileEntry[]): void {
+    const def = this.skills.get(id);
+    if (!def) throw new Error(`Навык "${id}" не найден`);
+    const dir = path.join(this.skillsDir, id);
+    const filesDir = path.join(dir, "files");
+    fs.mkdirSync(filesDir, { recursive: true });
+
+    // Удалить старые файлы которых нет в списке
+    if (fs.existsSync(filesDir)) {
+      for (const f of fs.readdirSync(filesDir)) {
+        if (!files?.some((p) => p.filename === f)) {
+          fs.unlinkSync(path.join(filesDir, f));
+        }
+      }
+    }
+
+    // Записать новые/обновлённые файлы
+    for (const file of files ?? []) {
+      if (file.filename && !file.filename.includes("..") && !file.filename.includes("/")) {
+        fs.writeFileSync(path.join(filesDir, file.filename), file.content);
+      }
+    }
+
+    this.reload();
   }
 }

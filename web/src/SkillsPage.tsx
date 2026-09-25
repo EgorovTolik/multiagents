@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { HelpTip } from "./components/HelpTip";
 
+interface SkillFileEntry {
+  filename: string;
+  content: string;
+}
+
 interface SkillListItem {
   id: string;
   name: string;
@@ -11,6 +16,7 @@ interface SkillListItem {
 
 interface SkillDetail extends SkillListItem {
   body: string;
+  files?: SkillFileEntry[];
 }
 
 function borderClass(dirty: boolean): string {
@@ -70,7 +76,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
     [data, original],
   );
 
-  const anyDirty = !!(data && original && (isDirty("name") || isDirty("description") || isDirty("autoApply") || isDirty("body")));
+  const anyDirty = !!(data && original && (isDirty("name") || isDirty("description") || isDirty("autoApply") || isDirty("body") || isDirty("files")));
 
   /** Запустить действие с защитой от потери изменений. */
   const guardedAction = (action: () => void) => {
@@ -100,6 +106,26 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   const updateField = <K extends keyof SkillDetail>(key: K, value: SkillDetail[K]) => {
     setData((prev) => (prev ? { ...prev, [key]: value } : prev));
     setSaved(false);
+  };
+
+  // Файлы навыка — helpers (аналогично AgentEditor rules/skills)
+  const updateFile = (index: number, field: "filename" | "content", value: string) => {
+    if (!data) return;
+    const arr = [...(data.files ?? [])];
+    arr[index] = { ...arr[index], [field]: value };
+    setData({ ...data, files: arr });
+  };
+
+  const addFile = () => {
+    if (!data) return;
+    setData({ ...data, files: [...(data.files ?? []), { filename: "new-file.md", content: "" }] });
+  };
+
+  const removeFile = (index: number) => {
+    if (!data) return;
+    const arr = data.files?.slice() ?? [];
+    arr.splice(index, 1);
+    setData({ ...data, files: arr });
   };
 
   const createNew = () => {
@@ -134,7 +160,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
         : await fetch(`/api/skills/${encodeURIComponent(data.id)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: data.name, description: data.description, autoApply: !!data.autoApply, body: data.body }),
+            body: JSON.stringify({ name: data.name, description: data.description, autoApply: !!data.autoApply, body: data.body, files: data.files }),
           });
       const d = (await res.json()) as SkillDetail & { error?: string };
       if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
@@ -313,7 +339,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
 
               {/* Body */}
               <Field
-                label="Тело навыка (инструкции)"
+                label="Тело навыка (SKILL.md)"
                 dirty={isDirty("body")}
                 help="Детальные инструкции, которые агент получит и должен выполнять. Markdown поддерживается."
               >
@@ -325,6 +351,17 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                   className={`w-full resize-y rounded-lg border bg-slate-900 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500 ${borderClass(isDirty("body"))}`}
                 />
               </Field>
+
+              {/* Дополнительные файлы */}
+              <SectionFiles
+                title="Дополнительные файлы"
+                help={"Отдельные .md-файлы навыка. Сохраняются в skills/<id>/files/ и доступны агенту через artifact_store tool."}
+                files={data.files ?? []}
+                dirty={isDirty("files")}
+                onAdd={addFile}
+                onRemove={(i) => removeFile(i)}
+                onChange={(i, field, val) => updateFile(i, field, val)}
+              />
 
               {/* Delete (только для существующих) */}
               {!isNew && (
@@ -367,5 +404,57 @@ function Field({
       </label>
       {children}
     </div>
+  );
+}
+
+function SectionFiles({
+  title, files, dirty, onAdd, onRemove, onChange, help,
+}: {
+  title: string;
+  files: SkillFileEntry[];
+  dirty: boolean;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onChange: (index: number, field: "filename" | "content", value: string) => void;
+  help?: string;
+}) {
+  return (
+    <Field label={title} dirty={dirty} help={help}>
+      <div className={`space-y-3 rounded-lg border bg-slate-900/50 p-3 ${borderClass(dirty)}`}>
+        {files.length === 0 && (
+          <p className="text-xs text-slate-500">Нет файлов</p>
+        )}
+        {files.map((f, i) => (
+          <div key={i} className="rounded-lg border border-slate-700 bg-slate-900 p-2.5">
+            <div className="mb-2 flex items-center gap-2">
+              <input
+                value={f.filename}
+                onChange={(e) => onChange(i, "filename", e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 font-mono text-xs outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={() => onRemove(i)}
+                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                title="Удалить файл"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              value={f.content}
+              onChange={(e) => onChange(i, "content", e.target.value)}
+              rows={6}
+              className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500"
+            />
+          </div>
+        ))}
+        <button
+          onClick={onAdd}
+          className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-xs text-slate-400 hover:border-indigo-500 hover:text-indigo-300"
+        >
+          + Добавить файл
+        </button>
+      </div>
+    </Field>
   );
 }

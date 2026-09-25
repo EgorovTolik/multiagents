@@ -1,5 +1,5 @@
 {
-  "name": "Анализ задачи из JIRA",
-  "description": "Навигатор по задачам: определяет продукты, собирает артефакт и передаёт в цепочку работ. Карта продуктов и сценарии — в shared/jira-analysis/",
+  "name": "test",
+  "description": "desc",
   "autoApply": true
 }

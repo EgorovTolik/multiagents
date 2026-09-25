@@ -390,13 +390,14 @@ app.get("/api/skills/:id/detail", (req, res) => {
 
 app.post("/api/skills", (req, res) => {
   try {
-    const { id, name, description, autoApply, body } = req.body ?? {};
+    const { id, name, description, autoApply, body, files } = req.body ?? {};
     if (!name?.trim()) throw new Error("Укажите название навыка");
     const sk = skillRegistry.create(String(id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
       autoApply: autoApply === true,
       body: String(body ?? ""),
+      files,
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });
     res.json(sk);
@@ -407,13 +408,14 @@ app.post("/api/skills", (req, res) => {
 
 app.put("/api/skills/:id", (req, res) => {
   try {
-    const { name, description, autoApply, body } = req.body ?? {};
+    const { name, description, autoApply, body, files } = req.body ?? {};
     if (!name?.trim()) throw new Error("Укажите название навыка");
     const sk = skillRegistry.update(String(req.params.id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
       autoApply: autoApply === true,
       body: String(body ?? ""),
+      files,
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });
     res.json(sk);
