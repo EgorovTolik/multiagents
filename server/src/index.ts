@@ -423,11 +423,22 @@ app.put("/api/skills/:id", (req, res) => {
 });
 
 // Полный список инструментов pi (встроенные + пакеты из `pi install`), сгруппированный —
-// для раздела «Инструменты» в редакторе агентов. Кэшируется до рестарта сервера.
+// для раздела «Инструменты» в редакторе агентов. Кэшируется до перезапроса.
 app.get("/api/tools", async (_req, res) => {
   try {
     const groups = await runner.listPiTools();
-    res.json({ groups });
+    res.json({ groups, fetchedAt: runner.piToolsFetchedAtValue });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Перезапрос списка инструментов pi — сбрасывает кеш и пересобирает из пробной сессии.
+// Нужно после изменения ~/.pi/agent/mcp.json или `pi install` (без рестарта сервера).
+app.post("/api/tools/refresh", async (_req, res) => {
+  try {
+    const groups = await runner.listPiTools(true);
+    res.json({ groups, fetchedAt: runner.piToolsFetchedAtValue });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }

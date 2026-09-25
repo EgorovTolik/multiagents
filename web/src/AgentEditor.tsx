@@ -227,15 +227,35 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   // Инструменты pi: список групп с сервера (встроенные + пакеты из `pi install`)
   const [toolGroups, setToolGroups] = useState<PiToolGroupInfo[]>([]);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [toolsRefreshing, setToolsRefreshing] = useState(false);
+  const [toolsFetchedAt, setToolsFetchedAt] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/tools")
       .then((r) => r.json())
-      .then((d: { groups: PiToolGroupInfo[] }) => {
+      .then((d: { groups: PiToolGroupInfo[]; fetchedAt?: number }) => {
         setToolGroups(d.groups ?? []);
         setOpenGroups(Object.fromEntries((d.groups ?? []).map((g) => [g.id, true])));
+        setToolsFetchedAt(d.fetchedAt ?? null);
       })
       .catch(() => { /* ignore — раздел инструментов pi останется пустым */ });
+  }, []);
+
+  /** Перезапрос списка инструментов pi (после изменения mcp.json / `pi install`). */
+  const refreshTools = useCallback(async () => {
+    setToolsRefreshing(true);
+    try {
+      const r = await fetch("/api/tools/refresh", { method: "POST" });
+      const d = (await r.json()) as { groups?: PiToolGroupInfo[]; fetchedAt?: number };
+      if (r.ok && d.groups) {
+        setToolGroups(d.groups);
+        // Сохраняем свёрнутость известных групп, новые открываем
+        setOpenGroups((s) => Object.fromEntries(d.groups!.map((g) => [g.id, s[g.id] ?? true])));
+        setToolsFetchedAt(d.fetchedAt ?? null);
+      }
+    } catch { /* ignore */ } finally {
+      setToolsRefreshing(false);
+    }
   }, []);
 
   /** Включён ли инструмент (всё включено, кроме denylist). */
@@ -388,7 +408,23 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               {/* PI tools — grouped, master checkbox per group */}
               <Field label="Инструменты PI" dirty={isDirty("disabledTools")} help="Всё, что установлено через `pi install`, включено по умолчанию. Снимите галочку, чтобы отключить инструмент или группу целиком.">
                 <div className={`space-y-2 rounded-lg border bg-slate-900 p-3 ${borderClass(isDirty("disabledTools"))}`}>
-                  {toolGroups.length === 0 && (
+                  <div className="flex items-center justify-between px-1 pb-1">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                      {toolsFetchedAt
+                        ? `Обновлено ${new Date(toolsFetchedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
+                        : "Список инструментов загружается…"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={refreshTools}
+                      disabled={toolsRefreshing}
+                      title="Перезапросить список (после изменения mcp.json или `pi install`), без рестарта сервера"
+                      className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+                    >
+                      {toolsRefreshing ? "⟳ Обновляем…" : "⟳ Обновить"}
+                    </button>
+                  </div>
+                  {toolGroups.length === 0 && !toolsRefreshing && (
                     <p className="text-xs text-slate-500">Список инструментов загружается…</p>
                   )}
                   {toolGroups.map((group) => {

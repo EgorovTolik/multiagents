@@ -25,5 +25,7 @@
     "update_orchestrator_agent_description",
     "workflow"
   ],
+  "model": "eac-work-ai/gemma-4-E4B-it-ultra-uncensored-heretic-Q6_K.gguf",
+  "thinkingLevel": "medium",
   "forgetSessionAfterStep": false
 }

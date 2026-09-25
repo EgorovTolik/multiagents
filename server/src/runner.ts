@@ -161,6 +161,8 @@ export class AgentRunner {
   /** Последнее событие по чату (watchdog) — параллельные цепочки не маскируют друг друга. */
   private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
+  /** Какие модели каждого провайдера зарегистрированы в ModelRuntime (для до-регистрации новых). */
+  private knownModelIds = new Map<string, Set<string>>();
   /** Глобальные правила окружения (system/*.md) — подставляются каждому агенту. */
   private globalRules: string[] = [];
 
@@ -254,11 +256,18 @@ export class AgentRunner {
   }
 
   private piToolGroupsCache: PiToolGroup[] | null = null;
+  private piToolsFetchedAt = 0;
+
+  /** Метка времени последней сборки списка (для UI). */
+  get piToolsFetchedAtValue(): number {
+    return this.piToolsFetchedAt;
+  }
 
   /** Полный список инструментов pi (встроенные + установленные через `pi install`), сгруппированный.
-   * Получается один раз из «пробной» сессии без allowlist'а и кэшируется до рестарта сервера. */
-  async listPiTools(): Promise<PiToolGroup[]> {
-    if (this.piToolGroupsCache) return this.piToolGroupsCache;
+   * Получается из «пробной» сессии без allowlist'а и кэшируется до перезапроса (force=true).
+   * Перезапрос нужен после изменения ~/.pi/agent/mcp.json или `pi install`. */
+  async listPiTools(force = false): Promise<PiToolGroup[]> {
+    if (!force && this.piToolGroupsCache) return this.piToolGroupsCache;
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
     try {
       const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });
@@ -275,6 +284,7 @@ export class AgentRunner {
       this.piToolGroupsCache = this.groupPiTools(
         all.map((t: any) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })),
       );
+      this.piToolsFetchedAt = Date.now();
       try {
         (session as any).dispose?.();
       } catch { /* ignore */ }
@@ -406,23 +416,54 @@ export class AgentRunner {
         .map((s) => s.slice(id.length + 1));
       const ids = [...new Set([...live, ...referenced])];
       if (ids.length === 0) continue;
-      this.modelRuntime.registerProvider(id, {
-        name: id,
-        baseUrl,
-        apiKey: cfg.apiKey,
-        api: "openai-completions",
-        models: ids.map((mid) => ({
-          id: mid,
-          name: mid.replace(/\.gguf$/, ""),
-          reasoning: false,
-          input: ["text", "image"] as ("text" | "image")[],
-          contextWindow: 262144,
-          maxTokens: 32768,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        })),
-      });
+      this.registerProviderModels(id, ids);
       console.log(`[runner] провайдер ${id} зарегистрирован в pi SDK: ${ids.length} моделей${live.length === 0 ? " (сервер недоступен — из config.json)" : ""}`);
     }
+  }
+
+  /** Регистрирует провайдера в ModelRuntime с указанным списком моделей. */
+  private registerProviderModels(providerId: string, ids: string[]): void {
+    const cfg = this.providers[providerId];
+    if (!this.modelRuntime || !cfg?.url) return;
+    const baseUrl = cfg.url.replace(/\/$/, "");
+    this.modelRuntime.registerProvider(providerId, {
+      name: providerId,
+      baseUrl,
+      apiKey: cfg.apiKey,
+      api: "openai-completions",
+      models: ids.map((mid) => ({
+        id: mid,
+        name: mid.replace(/\.gguf$/, ""),
+        reasoning: false,
+        input: ["text", "image"] as ("text" | "image")[],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      })),
+    });
+    this.knownModelIds.set(providerId, new Set(ids));
+  }
+
+  /** Гарантирует, что модель из конфига агента есть в ModelRuntime.
+   * Если её нет (конфиг меняли после старта сервера) — переспрашивает живой список
+   * у провайдера и до-регистрирует. Без этого SDK молча возьмёт модель по умолчанию. */
+  private async ensureModelRegistered(spec: string): Promise<boolean> {
+    const slash = spec.indexOf("/");
+    if (slash < 0) return false;
+    const providerId = spec.slice(0, slash);
+    const modelId = spec.slice(slash + 1);
+    if (this.modelRuntime?.getModel(providerId, modelId)) return true;
+    const pcfg = this.providers[providerId];
+    if (!pcfg?.url) {
+      console.warn(`[runner] провайдер «${providerId}» не найден в config.json — модель ${spec} недоступна`);
+      return false;
+    }
+    const live = await this.fetchProviderModels(pcfg.url.replace(/\/$/, ""), pcfg.apiKey);
+    const known = this.knownModelIds.get(providerId) ?? new Set<string>();
+    const ids = [...new Set([...known, ...live, modelId])];
+    this.registerProviderModels(providerId, ids);
+    console.log(`[runner] провайдер ${providerId} обновлён: ${ids.length} моделей (добавлена «${modelId}»)`);
+    return !!this.modelRuntime?.getModel(providerId, modelId);
   }
 
   private resolveModel(id?: string) {
@@ -911,9 +952,21 @@ export class AgentRunner {
     // в конфиге агента хранится только список отключённых (denylist → excludeTools).
     const excludeTools = def.disabledTools ?? [];
 
+    // Модель агента: если её ещё нет в ModelRuntime (настройку меняли после старта
+    // сервера), до-регистрируем — иначе SDK молча возьмёт модель по умолчанию.
+    let model = this.resolveModel(def.model);
+    if (def.model && !model) {
+      await this.ensureModelRegistered(def.model);
+      model = this.resolveModel(def.model);
+    }
+    if (def.model && !model) {
+      console.warn(`[runner] ⚠️ модель «${def.model}» не найдена — агент «${agentId}» будет работать с моделью по умолчанию`);
+    }
+
     const { session } = await createAgentSession({
       cwd: ctxDir,
-      model: this.resolveModel(def.model),
+      model,
+      thinkingLevel: def.thinkingLevel as never,
       excludeTools: excludeTools.length > 0 ? excludeTools : undefined,
       customTools,
       resourceLoader: loader,
@@ -949,6 +1002,7 @@ export class AgentRunner {
 
     session.subscribe((ev: any) => this.forward(ctxId, agentId, ev));
     this.sessions.set(k, session);
+    console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${(model as any).provider ?? "?"}/${(model as any).id ?? "?"}` : "default (fallback)"} thinking=${def.thinkingLevel ?? "-"}`);
     return session;
   }
 
