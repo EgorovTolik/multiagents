@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { HelpTip } from "./components/HelpTip";
+import MarkdownEditor from "./components/MarkdownEditor";
 
 interface AgentFileEntry {
   filename: string;
@@ -546,11 +547,11 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
 
               {/* System Prompt */}
               <Field label="Системный промпт (AGENT.md)" dirty={isDirty("systemPrompt")}>
-                <textarea
+                <MarkdownEditor
                   value={data.systemPrompt}
-                  onChange={(e) => updateField("systemPrompt", e.target.value)}
+                  onChange={(text: string) => updateField("systemPrompt", text)}
                   rows={14}
-                  className={`w-full rounded-lg border bg-slate-900 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500 ${borderClass(isDirty("systemPrompt"))}`}
+                  placeholder="# Роль\n\nОпиши роль агента, границы ответственности…"
                 />
               </Field>
 
@@ -629,7 +630,7 @@ function SectionFiles({
         )}
         {files.map((f, i) => (
           <div key={i} className="rounded-lg border border-slate-700 bg-slate-900 p-2.5">
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-1 flex items-center gap-2">
               <input
                 value={f.filename}
                 onChange={(e) => onChange(i, "filename", e.target.value)}
@@ -643,11 +644,11 @@ function SectionFiles({
                 ✕
               </button>
             </div>
-            <textarea
+            <MarkdownEditor
               value={f.content}
-              onChange={(e) => onChange(i, "content", e.target.value)}
+              onChange={(text: string) => onChange(i, "content", text)}
               rows={6}
-              className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500"
+              placeholder="# Правило\n\nОпиши правило…"
             />
           </div>
         ))}

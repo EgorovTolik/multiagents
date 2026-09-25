@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { HelpTip } from "./components/HelpTip";
+import MarkdownEditor from "./components/MarkdownEditor";
 
 interface SkillFileEntry {
   filename: string;
@@ -39,6 +40,20 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Контекстное меню списка навыков (kebab-меню)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handler = (e: MouseEvent) => {
+      // Закрываем меню, если клик вне него
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-menu-target="skill"]')) setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openMenuId]);
 
   // Мобильный drawer со списком
   const [listOpen, setListOpen] = useState(false);
@@ -178,21 +193,22 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const removeSkill = () => {
-    if (!data || isNew) return;
-    guardedAction(() => {
-      if (!confirm(`Удалить навык «${data.name}»?`)) return;
-      fetch(`/api/skills/${encodeURIComponent(data.id)}`, { method: "DELETE" })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then(() => {
-          setData(null);
-          setOriginal(null);
-          setSelectedId(null);
-          setIsNew(false);
-          refreshList();
-        })
-        .catch((e) => setError(e instanceof Error ? e.message : "Ошибка удаления"));
-    });
+  /** Удалить навык — подтверждение по аналогии с удалением чата (Sidebar). */
+  const removeSkill = (skillName?: string) => {
+    // Если удаляем из сайдбара без открытого detail — всё равно разрешаем, если есть имя
+    if ((!data || isNew) && !skillName) return;
+    const name: string = skillName ?? data!.name;
+    if (!confirm(`Удалить навык «${name}»?`)) return;
+    fetch(`/api/skills/${encodeURIComponent(data!.id)}`, { method: "DELETE" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(() => {
+        setData(null);
+        setOriginal(null);
+        setSelectedId(null);
+        setIsNew(false);
+        refreshList();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Ошибка удаления"));
   };
 
   return (
@@ -244,27 +260,62 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
           <div className="border-b border-slate-800 p-3 text-xs font-medium uppercase tracking-wide text-slate-500">
             Навыки ({skills.length})
           </div>
-          <nav className="flex-1 overflow-y-auto pb-3">
+          <nav className="relative flex-1 overflow-y-auto pb-3">
             {skills.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => {
-                  if (s.id === selectedId && !isNew) return;
-                  guardedAction(() => {
-                    setSelectedId(s.id);
-                    setIsNew(false);
-                    setListOpen(false);
-                  });
-                }}
-                className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
-                  selectedId === s.id && !isNew
-                    ? "bg-indigo-600/20 text-indigo-300"
-                    : "text-slate-300 hover:bg-slate-800"
-                }`}
-              >
-                <div className="font-medium">⚡ {s.name}</div>
-                <div className="mt-0.5 truncate text-xs text-slate-500">{s.id}</div>
-              </button>
+              <div key={s.id} className="group relative">
+                <button
+                  onClick={() => {
+                    if (s.id === selectedId && !isNew) return;
+                    guardedAction(() => {
+                      setSelectedId(s.id);
+                      setIsNew(false);
+                      setListOpen(false);
+                    });
+                  }}
+                  className={`block w-full px-4 py-2.5 text-left text-sm transition-colors ${
+                    selectedId === s.id && !isNew
+                      ? "bg-indigo-600/20 text-indigo-300"
+                      : "text-slate-300 hover:bg-slate-800"
+                  }`}
+                >
+                  <div className="font-medium">⚡ {s.name}</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{s.id}</div>
+                </button>
+                {/* Кнопка контекстного меню (kebab) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId(openMenuId === s.id ? null : s.id);
+                  }}
+                  className="absolute right-1.5 top-2 z-10 rounded p-1 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-slate-700 hover:text-slate-300"
+                  title="Действия"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                    <circle cx="6" cy="2.5" r="1.2" />
+                    <circle cx="6" cy="6" r="1.2" />
+                    <circle cx="6" cy="9.5" r="1.2" />
+                  </svg>
+                </button>
+                {/* Контекстное меню */}
+                {openMenuId === s.id && (
+                  <div
+                    data-menu-target="skill"
+                    className="absolute right-0 top-full z-50 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-xl"
+                  >
+                    {!isNew && (
+                      <button
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          removeSkill(s.name);
+                        }}
+                        className="block w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-slate-700"
+                      >
+                        Удалить
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
           </nav>
           <div className="border-t border-slate-800 p-3">
@@ -341,14 +392,13 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
               <Field
                 label="Тело навыка (SKILL.md)"
                 dirty={isDirty("body")}
-                help="Детальные инструкции, которые агент получит и должен выполнять. Markdown поддерживается."
+                help="Детальные инструкции, которые агент получит и должен выполнять. Markdown поддерживается — переключайтесь между редактором и предпросмотром."
               >
-                <textarea
+                <MarkdownEditor
                   value={data.body}
-                  onChange={(e) => updateField("body", e.target.value)}
+                  onChange={(text) => updateField("body", text)}
                   rows={16}
-                  placeholder={"## Инструкция\n\nОпиши пошагово, что агент должен делать…"}
-                  className={`w-full resize-y rounded-lg border bg-slate-900 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500 ${borderClass(isDirty("body"))}`}
+                  placeholder="## Инструкция\n\nОпиши пошагово, что агент должен делать…"
                 />
               </Field>
 
@@ -363,17 +413,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                 onChange={(i, field, val) => updateFile(i, field, val)}
               />
 
-              {/* Delete (только для существующих) */}
-              {!isNew && (
-                <div className="pt-2">
-                  <button
-                    onClick={removeSkill}
-                    className="rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-1.5 text-sm text-red-300 hover:bg-red-900/40"
-                  >
-                    Удалить навык
-                  </button>
-                </div>
-              )}
+
             </div>
           )}
         </main>
