@@ -262,13 +262,6 @@ export default function LearningPage({ onBack }: Props) {
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
             Сессии обучения ({sessions.length})
           </h2>
-          <button
-            onClick={handleCreateSession}
-            disabled={!currentAgentId}
-            className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-40"
-          >
-            + Новая сессия
-          </button>
           <div className="space-y-1 overflow-y-auto">
             {sessions.map((s) => (
               <Fragment key={s.id}>
@@ -312,6 +305,15 @@ export default function LearningPage({ onBack }: Props) {
                 </div>
               </Fragment>
             ))}
+          </div>
+          <div className="border-t border-slate-800 p-3">
+            <button
+              onClick={handleCreateSession}
+              disabled={!currentAgentId}
+              className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-40"
+            >
+              + Новая сессия
+            </button>
           </div>
 
           {/* Context menu for training sessions */}
