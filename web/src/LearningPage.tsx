@@ -276,7 +276,6 @@ export default function LearningPage({ onBack }: Props) {
                       : "text-slate-300 hover:bg-slate-800"
                   }`}
                 >
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1 truncate font-medium text-xs">
                       {s.completed && <span title="Завершённая сессия">✅</span>}
