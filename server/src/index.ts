@@ -264,6 +264,117 @@ app.get("/api/previews/:name", (req, res) => {
   res.sendFile(full);
 });
 
+/** Проверить, доступен ли агент для обучения (не в пайпе и не в другой обучающей сессии). */
+function isAgentAvailableForTraining(agentId: string): { available: boolean; reason?: string } {
+  // Проверяем, не работает ли агент сейчас в каком-то чате
+  for (const active of runner.getActives()) {
+    if (active.agentId === agentId) {
+      return { available: false, reason: `Агент «${agentId}» сейчас работает` };
+    }
+  }
+  // Проверяем, нет ли у агента уже активной обучающей сессии
+  const contexts = store.list();
+  for (const ctx of contexts) {
+    if (ctx.trainingAgentId === agentId && !ctx.handoffs.length) {
+      return { available: false, reason: `У агента «${agentId}» уже есть обучающая сессия` };
+    }
+  }
+  return { available: true };
+}
+
+// === Обучающие сессии: REST API ===
+
+app.post("/api/training/sessions/:agentId", (req, res) => {
+  const agentId = String(req.params.agentId ?? "");
+  if (!agentId || agentId.includes("..") || agentId.includes("/")) {
+    res.status(400).json({ error: "Некорректный ID агента" });
+    return;
+  }
+  // Проверить, существует ли агент
+  const def = registry.get(agentId);
+  if (!def) {
+    res.status(404).json({ error: `Агент «${agentId}» не найден` });
+    return;
+  }
+  // Если у агента уже есть обучающая сессия — вернуть её (не создавать новую)
+  const existingSessions = store.list().filter((c) => c.trainingAgentId === agentId);
+  if (existingSessions.length > 0) {
+    const existing = existingSessions[0];
+    res.status(200).json({ id: existing.id, name: existing.name });
+    return;
+  }
+  // Проверить доступность для обучения (занят в пайпе?)
+  if (runner.activeByCtx.has(agentId)) {
+    res.status(409).json({ error: `Агент «${def.name}» занят в задаче` });
+    return;
+  }
+  // Создать обучающую сессию
+  const ctx = store.create(`Обучение ${def.name}`);
+  ctx.activeAgentId = agentId;
+  ctx.trainingAgentId = agentId;
+  store.save(ctx);
+  // Применить навык обучения к контексту
+  try {
+    store.applySkills(ctx.id, ["skill-training"]);
+  } catch (e) {
+    console.warn("[training] не удалось применить skill-training:", e);
+  }
+  res.status(201).json({ id: ctx.id, name: ctx.name });
+});
+
+// Получить детали конкретной сессии обучения (для определения agentId по sessionId)
+// Должно быть ПЕРЕД GET /api/training/sessions/:agentId — иначе Express обработает это как :agentId
+app.get("/api/training/sessions/:sessionId", (req, res) => {
+  const sessionId = String(req.params.sessionId ?? "");
+  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
+    res.status(400).json({ error: "Некорректный ID сессии" });
+    return;
+  }
+  const ctx = store.get(sessionId);
+  if (!ctx) {
+    // Не найдена как сессия — пробуем трактовать как agentId (обратная совместимость)
+    const trainingSessions = store.list()
+      .filter((c) => c.trainingAgentId === sessionId)
+      .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    if (trainingSessions.length > 0 || store.list().some((c) => c.trainingAgentId === sessionId)) {
+      res.json(trainingSessions);
+      return;
+    }
+    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    return;
+  }
+  if (!ctx.trainingAgentId) {
+    res.status(404).json({ error: "Это не обучающая сессия" });
+    return;
+  }
+  res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId });
+});
+
+app.delete("/api/training/sessions/:sessionId", (req, res) => {
+  const sessionId = String(req.params.sessionId ?? "");
+  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
+    res.status(400).json({ error: "Некорректный ID сессии" });
+    return;
+  }
+  const ctx = store.get(sessionId);
+  if (!ctx) {
+    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    return;
+  }
+  // Проверить, что это обучающая сессия
+  if (!ctx.trainingAgentId) {
+    res.status(400).json({ error: "Это не обучающая сессия" });
+    return;
+  }
+  // Прервать агента, если он работает в этой сессии
+  runner.abort(sessionId);
+  runner.disposeContext(sessionId);
+  store.delete(sessionId);
+  broadcast({ type: "context_deleted", ctxId: sessionId });
+  res.json({ ok: true });
+});
+
 // === Редактор агентов: REST API ===
 
 interface AgentFileEntry { filename: string; content: string }

@@ -5,10 +5,9 @@ import { useServer, fetchContextSizes } from "./api";
 import AgentEditor from "./AgentEditor";
 import SettingsPage from "./SettingsPage";
 import SkillsPage from "./SkillsPage";
+import LearningPage from "./LearningPage";
 import { Sidebar } from "./components/Sidebar";
-import { ChatHeader } from "./components/ChatHeader";
-import { MessageRow } from "./components/MessageRow";
-import { InputArea, type AttachedFile } from "./components/InputArea";
+import { ChatComponent } from "./components/ChatComponent";
 import { Lightbox } from "./components/Lightbox";
 import { ToastContainer, useToasts } from "./components/Toast";
 import type { ArchiveInfo } from "./components/Sidebar";
@@ -47,10 +46,7 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [sentText, setSentText] = useState<string | null>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [dragOver, setDragOver] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; mediaType: string; data: string; size: number }[]>([]);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [archiveStatus, setArchiveStatus] = useState<Record<string, ArchiveInfo>>({});
@@ -60,8 +56,6 @@ export default function App() {
   const { toasts, notify, dismiss } = useToasts();
 
   // Refs
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<ClientApi | null>(null);
   const contextsRef = useRef<ContextMeta[]>([]);
   contextsRef.current = contexts;
@@ -244,58 +238,10 @@ export default function App() {
     return () => { cancelled = true; clearInterval(t); };
   }, [ctxIdsKey]);
 
-  // ─── Scroll logic ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (autoScroll && isAtBottom) {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
-  }, [messages, running, autoScroll, isAtBottom]);
-
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    setIsAtBottom(atBottom);
-    if (atBottom) setAutoScroll(true);
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    setAutoScroll(true);
-    setIsAtBottom(true);
-  }, []);
-
-  const handleTruncate = useCallback((idx: number) => {
-    const ctxId = activeCtxIdRef.current;
-    if (!ctxId) return;
-    if (!confirm("Удалить историю начиная с этого сообщения?")) return;
-    apiRef.current?.send({ type: "truncate_history", ctxId, fromIndex: idx });
-  }, []);
-
-  // Строка, которая стримится прямо сейчас — рендерится plain-text (без markdown),
-  // чтобы пузырь не «дышал» на каждый токен; по assistant_end превратится в markdown
-  const lastMsg = messages[messages.length - 1];
-  const streamingIdx =
-    running && activeCtx && running.ctxId === activeCtx.id &&
-    lastMsg?.role === "assistant" && (lastMsg.text.endsWith("…") || (lastMsg.text === "" && !!lastMsg.thinking))
-      ? messages.length - 1
-      : -1;
-
   // ─── Actions ───────────────────────────────────────────────────────────────────
   const loadContext = (ctxId: string) => {
     api.send({ type: "load_context", ctxId });
     setSidebarOpen(false);
-  };
-
-  const send = () => {
-    const text = input.trim();
-    if ((!text && attachedFiles.length === 0) || !activeCtx || sentText !== null) return;
-    if (api.status !== "connected") return;
-    setSentText(text || "(файл)");
-    api.send({ type: "message", ctxId: activeCtx.id, text: text || "Посмотри на файл", files: attachedFiles.length > 0 ? attachedFiles : undefined });
-    setInput("");
-    setAttachedFiles([]);
   };
 
   const addFiles = useCallback((files: FileList | File[]) => {
@@ -308,6 +254,8 @@ export default function App() {
       reader.readAsDataURL(file);
     });
   }, []);
+
+
 
   const renameContext = () => {
     const name = renameValue.trim();
@@ -360,6 +308,15 @@ export default function App() {
   if (route === "#/skills") {
     return <SkillsPage onBack={() => { window.location.hash = ""; }} />;
   }
+  if (route.startsWith("#/training/")) {
+    return (
+      <LearningPage
+        onBack={(agentId) => {
+          window.location.hash = "#/agents";
+        }}
+      />
+    );
+  }
 
   // ─── Render ────────────────────────────────────────────────────────────────────
   return (
@@ -389,102 +346,33 @@ export default function App() {
       />
 
       {/* Chat */}
-      <main
-        className="relative flex min-w-0 flex-1 flex-col"
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
-      >
-        {dragOver && (
-          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-indigo-500/10 backdrop-blur-sm">
-            <div className="rounded-xl border-2 border-dashed border-indigo-400 bg-slate-900/80 px-8 py-6 text-center">
-              <p className="text-2xl">📎</p>
-              <p className="mt-2 text-sm font-medium text-indigo-300">Отпустите файл</p>
-            </div>
-          </div>
-        )}
-
+      <main className="relative flex min-w-0 flex-1 flex-col">
         {activeCtx ? (
-          <>
-            <ChatHeader
-              ctx={activeCtx}
-              running={running}
-              pending={pending}
-              wsStatus={api.status}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onCancelHandoff={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
-              onAbort={() => api.send({ type: "abort", ctxId: activeCtx.id })}
-              agentName={agentName}
-            />
-
-            {pending && (
-              <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
-                ⏳ Запланирована передача: {agentName(pending.from)} → {agentName(pending.to)} — {pending.reason}
-              </div>
-            )}
-
-            <div className="relative flex-1 min-h-0">
-              <div className="h-full overflow-y-auto px-3 py-3 sm:px-5 sm:py-4" ref={scrollRef} onScroll={onScroll}>
-                {messages.map((m, i) => (
-                  <MessageRow
-                    key={i}
-                    m={m}
-                    index={i}
-                    streaming={i === streamingIdx}
-                    agentName={agentName}
-                    onImageClick={setLightbox}
-                    onTruncate={handleTruncate}
-                    notify={notify}
-                  />
-                ))}
-                {messages.length === 0 && (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-600">
-                    Напиши сообщение — диалог начнётся с оркестратора
-                  </div>
-                )}
-                <div ref={bottomRef} />
-              </div>
-              {/* Scroll-to-bottom button */}
-              <button
-                onClick={scrollToBottom}
-                className={`absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 bg-slate-800/90 text-slate-300 shadow-lg backdrop-blur transition-all duration-300 hover:bg-slate-700 hover:text-white sm:right-5 ${
-                  isAtBottom ? "pointer-events-none translate-y-2 opacity-0" : "translate-y-0 opacity-100"
-                }`}
-                title="К последнему сообщению"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M5 12l7 7 7-7" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Ожидание освобождения занятого агента (он работает в другом чате) */}
-            {waitingAgents[activeCtx.id] && (
-              <div className="border-t border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-300">
-                ⏳ {agentName(waitingAgents[activeCtx.id])} занят в другом чате — ход начнётся после освобождения…
-              </div>
-            )}
-
-            {/* Input */}
-            {errors.length > 0 && (
-              <div className="border-t border-slate-800 px-3 py-1 text-xs text-rose-400 sm:px-4">{errors[errors.length - 1]}</div>
-            )}
-            <InputArea
-              input={input}
-              onInputChange={setInput}
-              onSend={send}
-              onAddFiles={addFiles}
-              attachedFiles={attachedFiles}
-              onRemoveFile={(i) => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
-              placeholder={`Сообщение для: ${agentName(activeCtx.activeAgentId)}`}
-              disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
-              sentText={sentText}
-              skills={skills}
-              appliedSkills={appliedSkills}
-              onApplySkills={applySkills}
-              skillsDisabled={api.status !== "connected"}
-            />
-          </>
+          <ChatComponent
+            ctxId={activeCtx.id}
+            context={activeCtx}
+            agents={agents}
+            api={api}
+            messages={messages}
+            runningAgentId={running?.agentId ?? null}
+            pending={pending}
+            waitingAgentId={waitingAgents[activeCtx.id] ?? null}
+            skills={skills}
+            appliedSkills={appliedSkills}
+            input={input}
+            onInputChange={setInput}
+            sentText={sentText}
+            setSentText={setSentText}
+            attachedFiles={attachedFiles}
+            setAttachedFiles={setAttachedFiles}
+            onAddFiles={addFiles}
+            onSend={(text, files) => {
+              api.send({ type: "message", ctxId: activeCtx.id, text, files });
+            }}
+            onApplySkills={applySkills}
+            onCancelHandoff={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
+            onAbort={() => api.send({ type: "abort", ctxId: activeCtx.id })}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center p-4">
             <div className="text-center">

@@ -10,6 +10,8 @@ export function ChatHeader({
   onOpenSidebar,
   onCancelHandoff,
   onAbort,
+  onClose,
+  showAgentInfo = true,
   agentName,
 }: {
   ctx: ContextMeta;
@@ -19,6 +21,8 @@ export function ChatHeader({
   onOpenSidebar: () => void;
   onCancelHandoff: () => void;
   onAbort: () => void;
+  onClose?: () => void;
+  showAgentInfo?: boolean;
   agentName: (id: string) => string;
 }) {
   return (
@@ -33,9 +37,11 @@ export function ChatHeader({
         </svg>
       </button>
       <h2 className="min-w-0 truncate font-semibold text-white">{ctx.name}</h2>
-      <span className={`rounded border px-2 py-0.5 text-xs ${agentColor(ctx.activeAgentId)}`}>
-        {agentName(ctx.activeAgentId)}
-      </span>
+      {showAgentInfo && (
+        <span className={`rounded border px-2 py-0.5 text-xs ${agentColor(ctx.activeAgentId)}`}>
+          {agentName(ctx.activeAgentId)}
+        </span>
+      )}
       {running?.ctxId === ctx.id && (
         <span className="flex items-center gap-1.5 text-xs text-emerald-400">
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
@@ -65,6 +71,15 @@ export function ChatHeader({
           >
             <span className="hidden sm:inline">■ Остановить</span>
             <span className="sm:hidden">■</span>
+          </button>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-md border border-slate-500/50 bg-slate-600/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600/20 sm:px-3"
+          >
+            <span className="hidden sm:inline">Завершить</span>
+            <span className="sm:hidden">✕</span>
           </button>
         )}
       </div>

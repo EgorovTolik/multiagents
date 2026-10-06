@@ -24,6 +24,8 @@ export interface ContextMeta {
   name: string;
   createdAt: number;
   activeAgentId: string;
+  /** ID агента, для которого создана эта обучающая сессия. */
+  trainingAgentId?: string;
   handoffs: Handoff[];
   /** Передача, запланированная route_to_agent, но ещё не выполненная (текущий ход не завершён). */
   pendingHandoff?: Handoff;

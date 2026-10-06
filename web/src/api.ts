@@ -135,6 +135,37 @@ export async function fetchContextSizes(): Promise<Record<string, number>> {
   }
 }
 
+// ─── Training sessions API ──────────────────────────────────────────────────────
+
+export interface TrainingSession {
+  id: string;
+  agentId: string;
+  title?: string;
+  createdAt: number;
+  updatedAt?: number;
+  status?: "active" | "completed";
+}
+
+/** Создать обучающую сессию для агента */
+export async function createTrainingSession(agentId: string): Promise<TrainingSession> {
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(agentId)}`, { method: "POST" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+/** Список обучающих сессий агента */
+export async function listTrainingSessions(agentId: string): Promise<TrainingSession[]> {
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(agentId)}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+/** Удалить обучающую сессию */
+export async function deleteTrainingSession(sessionId: string): Promise<void> {
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+}
+
 const AGENT_COLORS = [
   "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
   "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
