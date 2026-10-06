@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
-import { useServer, createTrainingSession, listTrainingSessions, deleteTrainingSession, TrainingSession } from "./api";
+import { useServer, createTrainingSession, listTrainingSessions, completeTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
 import { ChatComponent } from "./components/ChatComponent";
 
 interface Props {
@@ -14,6 +15,7 @@ export default function LearningPage({ onBack }: Props) {
   // State
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [menu, setMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [activeSession, setActiveSession] = useState<TrainingSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -169,6 +171,14 @@ export default function LearningPage({ onBack }: Props) {
     apiRef.current?.send({ type: "load_context", ctxId: activeSession.id });
   }, [activeSession?.id]);
 
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menu) return;
+    const handler = () => setMenu(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [menu]);
+
   // Handle context_loaded — moved into main handleMsg callback above
 
   const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
@@ -193,9 +203,21 @@ export default function LearningPage({ onBack }: Props) {
   };
 
   // Close session
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const handleCloseSession = async () => {
     if (!activeSession) return;
-    if (!confirm("Завершить обучающую сессию? История будет удалена.")) return;
+    try {
+      await completeTrainingSession(activeSession.id);
+      load();
+    } catch (e) {
+      console.error("Failed to complete session:", e);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!activeSession) return;
+    if (!confirm("Удалить обучающую сессию? История будет удалена.")) return;
     try {
       await deleteTrainingSession(activeSession.id);
       setSessions((s) => s.filter((x) => x.id !== activeSession.id));
@@ -249,24 +271,95 @@ export default function LearningPage({ onBack }: Props) {
           </button>
           <div className="space-y-1 overflow-y-auto">
             {sessions.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => handleSelectSession(s)}
-                className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  activeSession?.id === s.id
-                    ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/40"
-                    : "text-slate-300 hover:bg-slate-800 border border-transparent"
-                }`}
-              >
-                <div className="truncate font-medium">
-                  {s.title ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
-                </div>
-                <div className="mt-0.5 text-xs text-slate-500">
-                  {new Date(s.createdAt).toLocaleDateString("ru-RU")}
-                </div>
-              </button>
+              <Fragment key={s.id}>
+                <button
+                  onClick={() => handleSelectSession(s)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setMenu({ sessionId: s.id, x: rect.right - 180, y: rect.bottom + 4 });
+                  }}
+                  className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    activeSession?.id === s.id
+                      ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/40"
+                      : "text-slate-300 hover:bg-slate-800 border border-transparent"
+                  }`}
+                >
+                  <div className="truncate font-medium flex items-center gap-1">
+                    {s.completed && <span title="Завершённая сессия">✅</span>}
+                    {s.title ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {new Date(s.createdAt).toLocaleDateString("ru-RU")}
+                    {s.completed && " • завершена"}
+                  </div>
+                </button>
+              </Fragment>
             ))}
           </div>
+
+          {/* Context menu for training sessions */}
+          {menu && createPortal(
+            <div
+              className="fixed z-50 w-[180px] rounded-lg border border-slate-700 bg-slate-900/95 shadow-xl backdrop-blur"
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <button
+                onClick={async () => {
+                  setMenu(null);
+                  const s = sessions.find(x => x.id === menu.sessionId);
+                  if (s) {
+                    setActiveSession(s);
+                    handleSelectSession(s);
+                  }
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 first:rounded-t-lg"
+              >
+                Открыть
+              </button>
+              <button
+                onClick={async () => {
+                  setMenu(null);
+                  const s = sessions.find(x => x.id === menu.sessionId);
+                  if (s) {
+                    setActiveSession(s);
+                    try {
+                      await completeTrainingSession(s.id);
+                      load();
+                    } catch (e) {
+                      console.error("Failed to complete:", e);
+                    }
+                  }
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+              >
+                Завершить
+              </button>
+              <div className="h-px bg-slate-700 my-1" />
+              <button
+                onClick={async () => {
+                  setMenu(null);
+                  const s = sessions.find(x => x.id === menu.sessionId);
+                  if (s && confirm("Удалить сессию? История будет удалена.")) {
+                    await deleteTrainingSession(s.id);
+                    setSessions(prev => prev.filter(x => x.id !== s.id));
+                    if (activeSession?.id === s.id) {
+                      const next = sessions.find(x => x.id !== s.id);
+                      if (next) {
+                        navigate(`/training/${next.id}`);
+                      } else {
+                        navigate("/agents");
+                      }
+                    }
+                  }
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-700 last:rounded-b-lg"
+              >
+                Удалить сессию
+              </button>
+            </div>,
+            document.body
+          )}
         </aside>
 
         {/* Right: chat */}

@@ -47,6 +47,8 @@ export interface ContextMeta {
   lastMessageAt?: number;
   /** Пользователь нажал «Остановить» — не запускать recovery после abort. */
   aborted?: boolean;
+  /** Сессия обучения завершена (не удалена, но помечена как completed). */
+  completed?: boolean;
   /** Навыки (skills/), применённые к этому чату. */
   skills?: string[];
   /** Какие навыки уже переданы какому агенту (agentId → id навыков). */

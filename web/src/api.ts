@@ -160,6 +160,12 @@ export async function listTrainingSessions(agentId: string): Promise<TrainingSes
   return r.json();
 }
 
+/** Завершить обучающую сессию (пометить как completed, не удаляя историю) */
+export async function completeTrainingSession(sessionId: string): Promise<void> {
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}/complete`, { method: "POST" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+}
+
 /** Удалить обучающую сессию */
 export async function deleteTrainingSession(sessionId: string): Promise<void> {
   const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });

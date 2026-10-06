@@ -335,7 +335,7 @@ app.get("/api/training/sessions/:sessionId", (req, res) => {
     // Не найдена как сессия — пробуем трактовать как agentId (обратная совместимость)
     const trainingSessions = store.listTraining()
       .filter((c) => c.trainingAgentId === sessionId)
-      .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId }))
+      .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId, completed: !!c.completed }))
       .sort((a, b) => b.createdAt - a.createdAt);
     if (trainingSessions.length > 0 || store.listTraining().some((c) => c.trainingAgentId === sessionId)) {
       res.json(trainingSessions);
@@ -348,7 +348,31 @@ app.get("/api/training/sessions/:sessionId", (req, res) => {
     res.status(404).json({ error: "Это не обучающая сессия" });
     return;
   }
-  res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId });
+  res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId, completed: !!ctx.completed });
+});
+
+// Mark training session as completed (don't delete history)
+app.post("/api/training/sessions/:sessionId/complete", (req, res) => {
+  const sessionId = String(req.params.sessionId ?? "");
+  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
+    res.status(400).json({ error: "Некорректный ID сессии" });
+    return;
+  }
+  try {
+    const ctx = store.get(sessionId);
+    if (ctx) {
+      console.log("[complete] Setting completed for", sessionId, "trainingAgentId:", ctx.trainingAgentId);
+      ctx.completed = true;
+      ctx.updatedAt = new Date();
+      store.save(ctx);
+      console.log("[complete] Saved successfully");
+    } else {
+      console.log("[complete] Context not found:", sessionId);
+    }
+  } catch (e) {
+    console.error("[complete] Error:", e);
+  }
+  res.json({ ok: true });
 });
 
 app.delete("/api/training/sessions/:sessionId", (req, res) => {
