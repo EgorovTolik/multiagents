@@ -258,11 +258,11 @@ export default function LearningPage({ onBack }: Props) {
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar: sessions list */}
-        <aside className="w-72 shrink-0 border-r border-slate-800 bg-slate-900/50 p-3">
+        <aside className="relative flex w-72 flex-col shrink-0 border-r border-slate-800 bg-slate-900/50" style={{ height: '100%' }}>
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
             Сессии обучения ({sessions.length})
           </h2>
-          <div className="space-y-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
             {sessions.map((s) => (
               <Fragment key={s.id}>
                 <div
@@ -306,7 +306,7 @@ export default function LearningPage({ onBack }: Props) {
               </Fragment>
             ))}
           </div>
-          <div className="border-t border-slate-800 p-3">
+          <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 p-3">
             <button
               onClick={handleCreateSession}
               disabled={!currentAgentId}
