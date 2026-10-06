@@ -1,0 +1,11 @@
+{
+  "id": "ce51be45",
+  "name": "Обучение Создатель",
+  "createdAt": 1791302014141,
+  "activeAgentId": "agent-creator",
+  "handoffs": [],
+  "trainingAgentId": "agent-creator",
+  "skills": [
+    "skill-training"
+  ]
+}

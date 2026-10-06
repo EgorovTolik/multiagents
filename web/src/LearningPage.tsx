@@ -137,6 +137,17 @@ export default function LearningPage({ onBack }: Props) {
         if (s && s.agentId) return s.agentId;
       }
     } catch { /* ignore */ }
+    // If no session found with this ID, check if it's an agent ID directly
+    try {
+      const agentsResp = await fetch('/api/agents');
+      if (agentsResp.ok) {
+        const agentList = await agentsResp.json();
+        if (agentList && Array.isArray(agentList)) {
+          const found = agentList.find((a: { id: string }) => a.id === sessionId);
+          if (found) return sessionId;
+        }
+      }
+    } catch { /* ignore */ }
     return null;
   }, [sessionId]);
 
@@ -406,6 +417,10 @@ export default function LearningPage({ onBack }: Props) {
               onClose={handleCloseSession}
               showAgentInfo={true}
             />
+          ) : sessions.length > 0 ? (
+            <div className="flex flex-1 items-center justify-center p-4">
+              <p className="text-slate-500">Выберите сессию обучения слева или создайте новую</p>
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center p-4">
               <p className="text-slate-500">Загрузка сессии…</p>

@@ -300,14 +300,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
         <div className="ml-auto flex items-center gap-3">
           {saved && <span className="hidden text-sm text-emerald-400 sm:inline">✓ Сохранено</span>}
           <button
-            onClick={async () => {
+            onClick={() => {
               if (!selectedId) return;
-              try {
-                const session = await createTrainingSession(selectedId);
-                window.location.hash = `#/training/${session.id}`;
-              } catch (e) {
-                alert(`Ошибка запуска обучения: ${e instanceof Error ? e.message : String(e)}`);
-              }
+              window.location.hash = `#/training/${selectedId}`;
             }}
             className="rounded-lg border border-emerald-600 bg-emerald-950/40 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/60 sm:px-4"
           >

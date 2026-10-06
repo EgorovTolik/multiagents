@@ -1,0 +1,11 @@
+{
+  "id": "d7c7b3b0",
+  "name": "Обучение Создатель",
+  "createdAt": 1791301920665,
+  "activeAgentId": "agent-creator",
+  "handoffs": [],
+  "trainingAgentId": "agent-creator",
+  "skills": [
+    "skill-training"
+  ]
+}
