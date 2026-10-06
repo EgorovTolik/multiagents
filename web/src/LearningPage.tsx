@@ -278,6 +278,11 @@ export default function LearningPage({ onBack }: Props) {
               <Fragment key={s.id}>
                 <div
                   onClick={() => handleSelectSession(s)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setRenamingSessionId(s.id);
+                    setRenameValue(s.name ?? "");
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -329,11 +334,7 @@ export default function LearningPage({ onBack }: Props) {
                     ) : (
                       <div className="flex items-center gap-1 truncate font-medium text-xs">
                         {s.completed && <span title="Завершённая сессия">✅</span>}
-                        <span className="truncate" onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingSessionId(s.id);
-                          setRenameValue(s.name ?? "");
-                        }}>
+                        <span className="truncate">
                           {s.name ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
                         </span>
                       </div>
