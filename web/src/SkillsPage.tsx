@@ -321,7 +321,7 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
           <div className="border-t border-slate-800 p-3">
             <button
               onClick={createNew}
-              className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-indigo-500 hover:text-indigo-300"
+              className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-emerald-500 hover:text-emerald-300"
             >
               + Новый навык
             </button>

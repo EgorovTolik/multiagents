@@ -265,7 +265,7 @@ export default function LearningPage({ onBack }: Props) {
           <button
             onClick={handleCreateSession}
             disabled={!currentAgentId}
-            className="mb-3 w-full rounded-lg border border-dashed border-emerald-600 bg-emerald-950/40 py-2 text-sm text-emerald-300 hover:bg-emerald-900/60 disabled:opacity-40"
+            className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-40"
           >
             + Новая сессия
           </button>
