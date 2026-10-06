@@ -296,13 +296,6 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
     res.status(404).json({ error: `Агент «${agentId}» не найден` });
     return;
   }
-  // Если у агента уже есть обучающая сессия — вернуть её (не создавать новую)
-  const existingSessions = store.listTraining().filter((c) => c.trainingAgentId === agentId);
-  if (existingSessions.length > 0) {
-    const existing = existingSessions[0];
-    res.status(200).json({ id: existing.id, name: existing.name });
-    return;
-  }
   // Проверить доступность для обучения (занят в пайпе?)
   if (runner.activeByCtx.has(agentId)) {
     res.status(409).json({ error: `Агент «${def.name}» занят в задаче` });

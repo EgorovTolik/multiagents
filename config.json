@@ -1,5 +1,5 @@
 {
-  "model": "eac-home-ai/Qwen3.8-35B-A3B-Q6_K.gguf",
+  "model": "eac-work-ai/Ternary-Bonsai-2-27B-Uncensored-Heretic-PQ2_0.gguf",
   "port": 3000,
   "providers": {
     "eac-mac-ai": {

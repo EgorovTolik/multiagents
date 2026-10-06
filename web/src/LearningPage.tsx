@@ -308,7 +308,7 @@ export default function LearningPage({ onBack }: Props) {
           </div>
           <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 p-3">
             <button
-              onClick={handleCreateSession}
+              onClick={(e) => { e.stopPropagation(); handleCreateSession(); }}
               disabled={!currentAgentId}
               className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-sm text-slate-300 hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-40"
             >

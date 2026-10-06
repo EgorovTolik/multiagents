@@ -1,0 +1,11 @@
+{
+  "id": "8d07be13",
+  "name": "Обучение Планировщик",
+  "createdAt": 1791301352501,
+  "activeAgentId": "feature-planner",
+  "handoffs": [],
+  "trainingAgentId": "feature-planner",
+  "skills": [
+    "skill-training"
+  ]
+}
