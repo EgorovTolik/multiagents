@@ -78,8 +78,35 @@ export class SkillRegistry {
     }
   }
 
-  get(id: string) {
-    return this.skills.get(id);
+  /** Получить навык, перечитывая данные с диска (актуальное тело SKILL.md и files/). */
+  get(id: string): SkillDef | undefined {
+    const dir = path.join(this.skillsDir, id);
+    const bodyPath = path.join(dir, "SKILL.md");
+    if (!fs.existsSync(bodyPath)) return this.skills.get(id); // fallback кэш
+    const cfgPath = path.join(dir, "config.json");
+    let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
+    try {
+      cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+    } catch { /* config.json отсутствует или повреждён */ }
+
+    const files: SkillFileEntry[] = [];
+    const filesDir = path.join(dir, "files");
+    if (fs.existsSync(filesDir)) {
+      for (const f of fs.readdirSync(filesDir).sort()) {
+        if (f.endsWith(".md")) {
+          files.push({ filename: f, content: fs.readFileSync(path.join(filesDir, f), "utf8") });
+        }
+      }
+    }
+
+    return {
+      id,
+      name: cfg.name ?? id,
+      description: cfg.description ?? "",
+      autoApply: cfg.autoApply === true,
+      body: fs.readFileSync(bodyPath, "utf8"),
+      files,
+    };
   }
 
   list() {

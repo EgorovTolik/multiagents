@@ -6,7 +6,7 @@ import rehypeHighlight from "rehype-highlight";
 export type MarkdownEditorMode = "edit" | "preview";
 
 /** Ссылки открываются в новой вкладке — тот же паттерн, что в MessageRow.mdLink. */
-const mdLink = ({ href }: { href?: string }, children: React.ReactNode) => (
+const mdLink = ({ href, children }: { href?: string; children: React.ReactNode }) => (
   <a href={href} target="_blank" rel="noopener noreferrer">
     {children}
   </a>
