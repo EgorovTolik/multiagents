@@ -297,7 +297,7 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
     return;
   }
   // Если у агента уже есть обучающая сессия — вернуть её (не создавать новую)
-  const existingSessions = store.list().filter((c) => c.trainingAgentId === agentId);
+  const existingSessions = store.listTraining().filter((c) => c.trainingAgentId === agentId);
   if (existingSessions.length > 0) {
     const existing = existingSessions[0];
     res.status(200).json({ id: existing.id, name: existing.name });
@@ -308,11 +308,11 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
     res.status(409).json({ error: `Агент «${def.name}» занят в задаче` });
     return;
   }
-  // Создать обучающую сессию
-  const ctx = store.create(`Обучение ${def.name}`);
+  // Создать обучающую сессию (в отдельном хранилище training/)
+  const ctx = store.create(`Обучение ${def.name}`, true);
   ctx.activeAgentId = agentId;
   ctx.trainingAgentId = agentId;
-  store.save(ctx);
+  store.save(ctx, true);
   // Применить навык обучения к контексту
   try {
     store.applySkills(ctx.id, ["skill-training"]);
@@ -330,14 +330,14 @@ app.get("/api/training/sessions/:sessionId", (req, res) => {
     res.status(400).json({ error: "Некорректный ID сессии" });
     return;
   }
-  const ctx = store.get(sessionId);
+  const ctx = store.getTraining(sessionId);
   if (!ctx) {
     // Не найдена как сессия — пробуем трактовать как agentId (обратная совместимость)
-    const trainingSessions = store.list()
+    const trainingSessions = store.listTraining()
       .filter((c) => c.trainingAgentId === sessionId)
       .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId }))
       .sort((a, b) => b.createdAt - a.createdAt);
-    if (trainingSessions.length > 0 || store.list().some((c) => c.trainingAgentId === sessionId)) {
+    if (trainingSessions.length > 0 || store.listTraining().some((c) => c.trainingAgentId === sessionId)) {
       res.json(trainingSessions);
       return;
     }
@@ -357,7 +357,7 @@ app.delete("/api/training/sessions/:sessionId", (req, res) => {
     res.status(400).json({ error: "Некорректный ID сессии" });
     return;
   }
-  const ctx = store.get(sessionId);
+  const ctx = store.getTraining(sessionId);
   if (!ctx) {
     res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
     return;
@@ -370,7 +370,7 @@ app.delete("/api/training/sessions/:sessionId", (req, res) => {
   // Прервать агента, если он работает в этой сессии
   runner.abort(sessionId);
   runner.disposeContext(sessionId);
-  store.delete(sessionId);
+  store.deleteTraining(sessionId);
   broadcast({ type: "context_deleted", ctxId: sessionId });
   res.json({ ok: true });
 });

@@ -39,6 +39,10 @@ export default function LearningPage({ onBack }: Props) {
       case "message":
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => [...m, msg.message]);
+          // Reset sentText when any new message arrives from agent
+          if (msg.message.role === "assistant") {
+            setSentText(null);
+          }
         }
         break;
       case "delta":
@@ -77,6 +81,7 @@ export default function LearningPage({ onBack }: Props) {
             copy[idx] = { role: "assistant", agentId: msg.agentId, text: msg.text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
             return copy;
           });
+          setSentText(null);
         }
         break;
       case "run_start":
@@ -102,6 +107,11 @@ export default function LearningPage({ onBack }: Props) {
       case "handoff":
         if (activeSession && msg.ctxId === activeSession.id) {
           setPendingHandoff(null);
+        }
+        break;
+      case "context_loaded":
+        if (activeSession && msg.context?.id === activeSession.id) {
+          setMessages(msg.messages);
         }
         break;
       case "error":
@@ -159,14 +169,7 @@ export default function LearningPage({ onBack }: Props) {
     apiRef.current?.send({ type: "load_context", ctxId: activeSession.id });
   }, [activeSession?.id]);
 
-  // Handle context_loaded
-  useEffect(() => {
-    const handler = (msg: ServerMsg) => {
-      if (msg.type === "context_loaded" && activeSession && msg.context?.id === activeSession.id) {
-        setMessages(msg.messages);
-      }
-    };
-  }, [activeSession?.id]);
+  // Handle context_loaded — moved into main handleMsg callback above
 
   const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
 

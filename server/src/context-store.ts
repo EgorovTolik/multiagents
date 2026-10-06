@@ -54,22 +54,31 @@ export interface ContextMeta {
 }
 
 /**
- * Контексты задач: contexts/<id>/ — рабочий каталог, в котором работают все
- * агенты цепочки. context.json — метаданные, messages.jsonl — лог чата.
+ * Контексты задач: contexts/<id>/ — рабочий каталог для обычных чатов,
+ * training/<id>/ — обучающие сессии. context.json — метаданные,
+ * messages.jsonl — лог чата.
  */
 export class ContextStore {
+  private trainingRoot: string;
+
   constructor(
     private root: string,
     private defaultAgent: string,
   ) {
     fs.mkdirSync(root, { recursive: true });
+    this.trainingRoot = path.join(path.dirname(root), "training");
+    fs.mkdirSync(this.trainingRoot, { recursive: true });
   }
 
   dir(ctxId: string) {
     return path.join(this.root, ctxId);
   }
 
-  create(name: string): ContextMeta {
+  trainingDir(ctxId: string) {
+    return path.join(this.trainingRoot, ctxId);
+  }
+
+  create(name: string, isTraining = false): ContextMeta {
     const id = crypto.randomUUID().slice(0, 8);
     const meta: ContextMeta = {
       id,
@@ -78,11 +87,16 @@ export class ContextStore {
       activeAgentId: this.defaultAgent,
       handoffs: [],
     };
-    const dir = this.dir(id);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
-    fs.mkdirSync(path.join(dir, "results"), { recursive: true });
-    this.save(meta);
+    if (isTraining) {
+      const dir = this.trainingDir(id);
+      fs.mkdirSync(dir, { recursive: true });
+    } else {
+      const dir = this.dir(id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "results"), { recursive: true });
+    }
+    this.save(meta, isTraining);
     return meta;
   }
 
@@ -96,8 +110,45 @@ export class ContextStore {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  listTraining(): ContextMeta[] {
+    if (!fs.existsSync(this.trainingRoot)) return [];
+    return fs
+      .readdirSync(this.trainingRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => this.getTraining(e.name))
+      .filter((c): c is ContextMeta => !!c)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   get(id: string): ContextMeta | undefined {
+    // Сначала проверяем обычное хранилище
     const p = path.join(this.dir(id), "context.json");
+    if (fs.existsSync(p)) {
+      try {
+        return JSON.parse(fs.readFileSync(p, "utf8"));
+      } catch {
+        // ignore
+      }
+    }
+    // Затем обучающее
+    const tp = path.join(this.trainingDir(id), "context.json");
+    if (fs.existsSync(tp)) {
+      try {
+        return JSON.parse(fs.readFileSync(tp, "utf8"));
+      } catch {
+        // ignore
+      }
+    }
+    return undefined;
+  }
+
+  isTrainingContext(id: string): boolean {
+    const p = path.join(this.trainingDir(id), "context.json");
+    return fs.existsSync(p);
+  }
+
+  getTraining(id: string): ContextMeta | undefined {
+    const p = path.join(this.trainingDir(id), "context.json");
     if (!fs.existsSync(p)) return undefined;
     try {
       return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -106,15 +157,24 @@ export class ContextStore {
     }
   }
 
-  save(meta: ContextMeta) {
+  save(meta: ContextMeta, isTraining?: boolean) {
+    if (isTraining === undefined) {
+      // Auto-detect based on trainingAgentId
+      isTraining = !!meta.trainingAgentId;
+    }
+    const dir = isTraining ? this.trainingDir(meta.id) : this.dir(meta.id);
     fs.writeFileSync(
-      path.join(this.dir(meta.id), "context.json"),
+      path.join(dir, "context.json"),
       JSON.stringify(meta, null, 2),
     );
   }
 
   delete(ctxId: string) {
     fs.rmSync(this.dir(ctxId), { recursive: true, force: true });
+  }
+
+  deleteTraining(ctxId: string) {
+    fs.rmSync(this.trainingDir(ctxId), { recursive: true, force: true });
   }
 
   /** Рекурсивный размер директории контекста в байтах (0, если не существует). */
@@ -180,14 +240,17 @@ export class ContextStore {
   }
 
   appendMessage(ctxId: string, msg: Message) {
+    // Auto-detect training context
+    const isTraining = this.isTrainingContext(ctxId);
+    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
     fs.appendFileSync(
-      path.join(this.dir(ctxId), "messages.jsonl"),
+      path.join(dir, "messages.jsonl"),
       JSON.stringify(msg) + "\n",
     );
     const meta = this.get(ctxId);
     if (meta) {
       meta.lastMessageAt = msg.ts;
-      this.save(meta);
+      this.save(meta, isTraining);
     }
   }
 
@@ -206,7 +269,9 @@ export class ContextStore {
 
   /** Удалить сообщения начиная с индекса fromIndex (включительно). */
   truncateHistory(ctxId: string, fromIndex: number): Message[] {
-    const p = path.join(this.dir(ctxId), "messages.jsonl");
+    const isTraining = this.isTrainingContext(ctxId);
+    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
+    const p = path.join(dir, "messages.jsonl");
     if (!fs.existsSync(p)) return [];
     const lines = fs.readFileSync(p, "utf8").split("\n").filter(Boolean);
     const remaining = lines.slice(0, fromIndex).map((l) => JSON.parse(l));
@@ -215,7 +280,9 @@ export class ContextStore {
   }
 
   readMessages(ctxId: string): Message[] {
-    const p = path.join(this.dir(ctxId), "messages.jsonl");
+    const isTraining = this.isTrainingContext(ctxId);
+    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
+    const p = path.join(dir, "messages.jsonl");
     if (!fs.existsSync(p)) return [];
     return fs
       .readFileSync(p, "utf8")

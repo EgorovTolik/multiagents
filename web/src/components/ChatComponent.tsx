@@ -45,6 +45,8 @@ export interface ChatComponentProps {
   onCancelHandoff: () => void;
   /** Колбэк прерывания выполнения */
   onAbort: () => void;
+  /** Сигнал, что агент ответил — сбрасывает состояние "отправлено" */
+  onAgentResponseReceived?: () => void;
   /** Опциональный колбэк закрытия сессии (кнопка в хедере) */
   onClose?: () => void;
   /** Показывать ли информацию об агенте в хедере */

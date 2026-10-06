@@ -774,8 +774,11 @@ export class AgentRunner {
         this.emit({ type: "message", ctxId, message: sysMsg });
       }
 
-      // Цепочка завершена (нет передачи, нет recovery) — возвращаем очередь оркестратору
-      if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
+      // Цепочка завершена (нет передачи, нет recovery)
+      if (ctx.trainingAgentId) {
+        // Обучающая сессия: не сбрасываем activeAgentId — пользователь общается
+        // напрямую с агентом. Просто оставляем в текущем состоянии.
+      } else if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
         ctx.activeAgentId = ORCHESTRATOR_ID;
         ctx.inChain = false;
       }

@@ -1,0 +1,18 @@
+{
+  "id": "bc856057",
+  "name": "Обучение Планировщик",
+  "createdAt": 1791298506725,
+  "activeAgentId": "feature-planner",
+  "handoffs": [],
+  "trainingAgentId": "feature-planner",
+  "skills": [
+    "skill-training"
+  ],
+  "aborted": false,
+  "lastMessageAt": 1791298586472,
+  "deliveredSkills": {
+    "feature-planner": [
+      "skill-training"
+    ]
+  }
+}
