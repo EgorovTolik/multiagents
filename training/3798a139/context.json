@@ -1,7 +1,7 @@
 {
-  "id": "aa91aa56",
+  "id": "3798a139",
   "name": "Обучение Планировщик",
-  "createdAt": 1791301365292,
+  "createdAt": 1791301561888,
   "activeAgentId": "feature-planner",
   "handoffs": [],
   "trainingAgentId": "feature-planner",
@@ -9,5 +9,5 @@
     "skill-training"
   ],
   "completed": true,
-  "updatedAt": "2026-10-06T15:43:27.254Z"
+  "updatedAt": "2026-10-06T15:46:09.317Z"
 }

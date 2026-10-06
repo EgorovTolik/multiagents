@@ -141,26 +141,23 @@ export default function LearningPage({ onBack }: Props) {
   }, [sessionId]);
 
   // Load sessions when agent is known
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const agentId = await getAgentId();
-        if (!agentId || cancelled) return;
-        const sessList = await listTrainingSessions(agentId);
-        if (!cancelled) {
-          setSessions(sessList);
-          // Find and activate the session matching hash
-          const active = sessList.find((s) => s.id === sessionId);
-          if (active) setActiveSession(active);
-        }
-      } catch (e) {
-        if (!cancelled) setError(`Не удалось загрузить сессии: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
+  const loadSessions = useCallback(async () => {
+    try {
+      const agentId = await getAgentId();
+      if (!agentId) return;
+      const sessList = await listTrainingSessions(agentId);
+      setSessions(sessList);
+      // Find and activate the session matching hash
+      const active = sessList.find((s) => s.id === sessionId);
+      if (active) setActiveSession(active);
+    } catch (e) {
+      setError(`Не удалось загрузить сессии: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, [sessionId, getAgentId]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
 
   // Load messages for active session
   useEffect(() => {
@@ -209,7 +206,8 @@ export default function LearningPage({ onBack }: Props) {
     if (!activeSession) return;
     try {
       await completeTrainingSession(activeSession.id);
-      load();
+      // Reload sessions list to reflect completion status
+      loadSessions();
     } catch (e) {
       console.error("Failed to complete session:", e);
     }
