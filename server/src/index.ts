@@ -392,6 +392,32 @@ app.delete("/api/training/sessions/:sessionId", (req, res) => {
   res.json({ ok: true });
 });
 
+app.put("/api/training/sessions/:sessionId/rename", (req, res) => {
+  const sessionId = String(req.params.sessionId ?? "");
+  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
+    res.status(400).json({ error: "Некорректный ID сессии" });
+    return;
+  }
+  const { name } = req.body ?? {};
+  if (typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "Имя не указано" });
+    return;
+  }
+  const ctx = store.getTraining(sessionId);
+  if (!ctx) {
+    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    return;
+  }
+  if (!ctx.trainingAgentId) {
+    res.status(400).json({ error: "Это не обучающая сессия" });
+    return;
+  }
+  ctx.name = name.trim();
+  store.save(ctx, true);
+  broadcast({ type: "context_renamed", ctxId: sessionId, name: ctx.name });
+  res.json({ ok: true, id: sessionId, name: ctx.name });
+});
+
 // === Редактор агентов: REST API ===
 
 interface AgentFileEntry { filename: string; content: string }

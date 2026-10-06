@@ -10,11 +10,7 @@
   ],
   "aborted": false,
   "lastMessageAt": 1791301834752,
-  "deliveredSkills": {
-    "feature-planner": [
-      "skill-training"
-    ]
-  },
+  "deliveredSkills": {},
   "completed": true,
   "updatedAt": "2026-10-06T15:59:35.727Z"
 }

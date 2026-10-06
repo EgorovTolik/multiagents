@@ -140,7 +140,7 @@ export async function fetchContextSizes(): Promise<Record<string, number>> {
 export interface TrainingSession {
   id: string;
   agentId: string;
-  title?: string;
+  name?: string;
   createdAt: number;
   updatedAt?: number;
   status?: "active" | "completed";
@@ -163,6 +163,16 @@ export async function listTrainingSessions(agentId: string): Promise<TrainingSes
 /** Завершить обучающую сессию (пометить как completed, не удаляя историю) */
 export async function completeTrainingSession(sessionId: string): Promise<void> {
   const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}/complete`, { method: "POST" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+}
+
+/** Переименовать обучающую сессию */
+export async function renameTrainingSession(sessionId: string, name: string): Promise<void> {
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}/rename`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
 }
 

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
-import { useServer, createTrainingSession, listTrainingSessions, completeTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
+import { useServer, createTrainingSession, listTrainingSessions, completeTrainingSession, renameTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
 import { ChatComponent } from "./components/ChatComponent";
 
 interface Props {
@@ -18,6 +18,8 @@ export default function LearningPage({ onBack }: Props) {
   const [menu, setMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [activeSession, setActiveSession] = useState<TrainingSession | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
   const [pendingHandoff, setPendingHandoff] = useState<Handoff | null>(null);
@@ -288,12 +290,54 @@ export default function LearningPage({ onBack }: Props) {
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1 truncate font-medium text-xs">
-                      {s.completed && <span title="Завершённая сессия">✅</span>}
-                      <span className="truncate">
-                        {s.title ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
-                      </span>
-                    </div>
+                    {renamingSessionId === s.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter") {
+                            const name = renameValue.trim();
+                            if (name) {
+                              try {
+                                await renameTrainingSession(s.id, name);
+                                loadSessions();
+                              } catch (err) {
+                                console.error("Rename failed:", err);
+                              }
+                            }
+                            setRenamingSessionId(null);
+                          }
+                          if (e.key === "Escape") {
+                            setRenamingSessionId(null);
+                          }
+                        }}
+                        onBlur={async () => {
+                          const name = renameValue.trim();
+                          if (name) {
+                            try {
+                              await renameTrainingSession(s.id, name);
+                              loadSessions();
+                            } catch (err) {
+                              console.error("Rename failed:", err);
+                            }
+                          }
+                          setRenamingSessionId(null);
+                        }}
+                        className="w-full min-w-0 flex-1 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-sm text-white outline-none"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-1 truncate font-medium text-xs">
+                        {s.completed && <span title="Завершённая сессия">✅</span>}
+                        <span className="truncate" onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingSessionId(s.id);
+                          setRenameValue(s.name ?? "");
+                        }}>
+                          {s.name ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+                        </span>
+                      </div>
+                    )}
                     <div className="truncate text-[10px] text-slate-500">
                       {new Date(s.createdAt).toLocaleDateString("ru-RU")}
                       {s.completed && " • завершена"}
@@ -342,6 +386,19 @@ export default function LearningPage({ onBack }: Props) {
                 className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 first:rounded-t-lg"
               >
                 Открыть
+              </button>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  const s = sessions.find(x => x.id === menu.sessionId);
+                  if (s) {
+                    setRenamingSessionId(s.id);
+                    setRenameValue(s.name ?? "");
+                  }
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
+              >
+                Переименовать
               </button>
               <button
                 onClick={async () => {
