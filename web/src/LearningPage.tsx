@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
 import { useServer, createTrainingSession, listTrainingSessions, completeTrainingSession, renameTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
 import { ChatComponent } from "./components/ChatComponent";
+import { fmtDay } from "./utils/format";
 
 interface Props {
   onBack: (agentId?: string) => void;
@@ -274,8 +275,19 @@ export default function LearningPage({ onBack }: Props) {
             Сессии обучения ({sessions.length})
           </h2>
           <div className="flex-1 overflow-y-auto p-3 space-y-1">
-            {sessions.map((s) => (
-              <Fragment key={s.id}>
+            {(() => {
+              let lastDay = "";
+              return sessions.map((s) => {
+                const dayKey = new Date(s.createdAt).toDateString();
+                const dayHeader = dayKey !== lastDay;
+                lastDay = dayKey;
+                return (
+                  <Fragment key={s.id}>
+                    {dayHeader && (
+                      <div className="my-3 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        {fmtDay(s.createdAt)}
+                      </div>
+                    )}
                 <div
                   onClick={() => handleSelectSession(s)}
                   onDoubleClick={(e) => {
@@ -356,8 +368,10 @@ export default function LearningPage({ onBack }: Props) {
                     ⋮
                   </button>
                 </div>
-              </Fragment>
-            ))}
+                  </Fragment>
+                );
+              });
+            })()}
           </div>
           <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 p-3">
             <button
