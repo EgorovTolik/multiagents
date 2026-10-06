@@ -351,7 +351,7 @@ export default function LearningPage({ onBack }: Props) {
                     setActiveSession(s);
                     try {
                       await completeTrainingSession(s.id);
-                      load();
+                      loadSessions();
                     } catch (e) {
                       console.error("Failed to complete:", e);
                     }
