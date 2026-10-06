@@ -272,28 +272,44 @@ export default function LearningPage({ onBack }: Props) {
           <div className="space-y-1 overflow-y-auto">
             {sessions.map((s) => (
               <Fragment key={s.id}>
-                <button
+                <div
                   onClick={() => handleSelectSession(s)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     setMenu({ sessionId: s.id, x: rect.right - 180, y: rect.bottom + 4 });
                   }}
-                  className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors ${
                     activeSession?.id === s.id
-                      ? "bg-indigo-600/30 text-indigo-300 border border-indigo-500/40"
-                      : "text-slate-300 hover:bg-slate-800 border border-transparent"
+                      ? "bg-slate-700/60 text-white"
+                      : "text-slate-300 hover:bg-slate-800"
                   }`}
                 >
-                  <div className="truncate font-medium flex items-center gap-1">
-                    {s.completed && <span title="Завершённая сессия">✅</span>}
-                    {s.title ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 truncate font-medium text-xs">
+                      {s.completed && <span title="Завершённая сессия">✅</span>}
+                      <span className="truncate">
+                        {s.title ?? `Сессия ${new Date(s.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+                      </span>
+                    </div>
+                    <div className="truncate text-[10px] text-slate-500">
+                      {new Date(s.createdAt).toLocaleDateString("ru-RU")}
+                      {s.completed && " • завершена"}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-xs text-slate-500">
-                    {new Date(s.createdAt).toLocaleDateString("ru-RU")}
-                    {s.completed && " • завершена"}
-                  </div>
-                </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setMenu({ sessionId: s.id, x: rect.left - 180, y: rect.top });
+                    }}
+                    title="Действия"
+                    className="shrink-0 rounded px-1.5 py-1 text-sm text-slate-500 hover:bg-slate-700 hover:text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    ⋮
+                  </button>
+                </div>
               </Fragment>
             ))}
           </div>
