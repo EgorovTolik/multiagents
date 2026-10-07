@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgentInfo, ClientApi, ContextMeta, Message, SkillInfo } from "./api";
 import { useServer } from "./api";
 import { SimpleChat } from "./components/SimpleChat";
+import { MessageRow } from "./components/MessageRow";
 import { fmtTime } from "./utils/format";
 
 interface Props {
@@ -100,39 +101,15 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
           <p className="text-xs text-slate-500">Нет сообщений</p>
         ) : (
           analyzedMessages.map((m, i) => (
-            <div key={i} className="mb-3">
-              <div className={`flex items-center gap-1.5 ${m.role === "user" ? "justify-end" : ""}`}>
-                {m.role !== "user" && m.agentId && (
-                  <span className="rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-[10px] text-slate-400">
-                    {agentName(m.agentId)}
-                  </span>
-                )}
-                {m.role === "system" && (
-                  <span className="rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-500">
-                    система
-                  </span>
-                )}
-              </div>
-              <div className={`mt-1 rounded-lg border px-3 py-2 text-xs ${
-                m.role === "user" ? "border-indigo-800 bg-indigo-950/40" :
-                m.role === "system" ? "border-slate-800 bg-slate-900/60 text-slate-400" :
-                "border-slate-700 bg-slate-900"
-              }`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] font-mono text-slate-500">msg-{i + 1}</span>
-                  <span className="text-[9px] text-slate-500">{fmtTime(m.ts)}</span>
-                </div>
-                {m.thinking && (
-                  <details className="mb-2 rounded border border-slate-800 bg-slate-950/60">
-                    <summary className="cursor-pointer px-2 py-1 text-[10px] font-medium text-violet-400/70">💭 Размышления</summary>
-                    <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-800 px-2 py-1 italic text-slate-500">{m.thinking}</div>
-                  </details>
-                )}
-                <div className={`whitespace-pre-wrap break-words ${m.role === "system" ? "text-slate-400" : ""}`}>
-                  {m.text}
-                </div>
-              </div>
-            </div>
+            <MessageRow
+              key={i}
+              m={m}
+              index={i}
+              streaming={false}
+              agentName={agentName}
+              onImageClick={() => {}}
+              onTruncate={() => {}}
+            />
           ))
         )}
       </div>
