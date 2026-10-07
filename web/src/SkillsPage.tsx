@@ -195,11 +195,22 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
     }
   };
 
+  /** Системные навыки (с префиксом skill-) нельзя удалять. */
+  const isSystemSkill = (name: string): boolean => {
+    return name.startsWith("skill-");
+  };
+
   /** Удалить навык — подтверждение по аналогии с удалением чата (Sidebar). */
   const removeSkill = (skillName?: string) => {
     // Если удаляем из сайдбара без открытого detail — всё равно разрешаем, если есть имя
     if ((!data || isNew) && !skillName) return;
     const name: string = skillName ?? data!.name;
+
+    // Проверка на системный навык
+    if (isSystemSkill(name)) {
+      alert(`Системные навыки нельзя удалять. «${name}» — это системный навык.`);
+      return;
+    }
     if (!confirm(`Удалить навык «${name}»?`)) return;
     fetch(`/api/skills/${encodeURIComponent(data!.id)}`, { method: "DELETE" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
