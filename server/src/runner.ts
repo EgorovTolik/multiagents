@@ -1186,7 +1186,7 @@ export class AgentRunner {
         if (params.agentId === agentId) {
           return errText("Этот диалог уже обрабатывает данный агент");
         }
-        const ctx = this.store.get(ctxId)!;
+        // ctx already fetched above for training check
         if (ctx.handoffs.length >= MAX_HANDOFFS) {
           return errText(
             `Достигнут лимит передач в цепочке (${MAX_HANDOFFS}). Продолжи работу сам.`,

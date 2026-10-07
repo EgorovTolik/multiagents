@@ -767,7 +767,10 @@ wss.on("connection", (ws) => {
 
   send({ type: "agents", agents: registry.list() });
   send({ type: "skills", skills: skillRegistry.list() });
-  send({ type: "contexts", contexts: store.list() });
+  // Фильтруем обучающие сессии из основного списка контекстов
+  const allContexts = store.list();
+  const regularContexts = allContexts.filter((c) => !c.trainingAgentId);
+  send({ type: "contexts", contexts: regularContexts });
   send({ type: "run_state", actives: runner.getActives() });
 
   ws.on("message", async (raw) => {
@@ -780,7 +783,10 @@ wss.on("connection", (ws) => {
     try {
       switch (msg.type) {
         case "list_contexts":
-          send({ type: "contexts", contexts: store.list() });
+          // Фильтруем обучающие сессии из основного списка контекстов
+          const allCtx = store.list();
+          const regularCtx = allCtx.filter((c) => !c.trainingAgentId);
+          send({ type: "contexts", contexts: regularCtx });
           break;
         case "create_context": {
           const c = store.create(msg.name ?? "Новая задача");
