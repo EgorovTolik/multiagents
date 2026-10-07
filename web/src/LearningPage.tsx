@@ -136,34 +136,25 @@ export default function LearningPage({ onBack }: Props) {
 
   // Determine agent ID and target session from URL
   const resolveUrl = useCallback(async () => {
-    console.log("[resolveUrl] sessionId:", sessionId);
     const result = { agentId: null as string | null, targetSessionId: null as string | null };
     
     // First, check if sessionId is an agent ID
     try {
-      console.log("[resolveUrl] checking agents...");
       const agentsResp = await fetch('/api/agents');
       if (agentsResp.ok) {
         const agentList = await agentsResp.json();
-        console.log("[resolveUrl] found", agentList?.length, "agents");
         if (agentList && Array.isArray(agentList)) {
           const found = agentList.find((a: { id: string }) => a.id === sessionId);
-          console.log("[resolveUrl] agent found:", !!found);
           if (found) {
             result.agentId = sessionId;
             return result; // This is an agent ID, no specific session
           }
         }
-      } else {
-        console.log("[resolveUrl] agents API error:", agentsResp.status);
       }
-    } catch (e) {
-      console.log("[resolveUrl] agents fetch error:", e);
-    }
+    } catch { /* ignore */ }
     
     // If not an agent ID, try to treat it as a session ID and find its agent
     try {
-      console.log("[resolveUrl] trying as session...");
       const resp = await fetch(`/api/training/sessions/${sessionId}`);
       if (resp.ok) {
         const s = await resp.json();
@@ -172,12 +163,8 @@ export default function LearningPage({ onBack }: Props) {
           result.targetSessionId = sessionId;
           return result;
         }
-      } else {
-        console.log("[resolveUrl] session API error:", resp.status, await resp.text());
       }
-    } catch (e) {
-      console.log("[resolveUrl] session fetch error:", e);
-    }
+    } catch { /* ignore */ }
     
     return result;
   }, [sessionId]);
