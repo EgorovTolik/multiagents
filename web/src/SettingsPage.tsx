@@ -23,15 +23,7 @@ interface ProviderEntry {
   apiKey: string;
 }
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-slate-400">{label}</label>
-      {children}
-      {hint && <p className="mt-1 text-xs text-slate-600">{hint}</p>}
-    </div>
-  );
-}
+
 
 export default function SettingsPage({ onBack, busyCount }: { onBack: () => void; /** Сколько цепочек активно прямо сейчас (по WS-событиям) — мгновенная реакция кнопки. */ busyCount?: number | null }) {
   const [cfg, setCfg] = useState<SystemConfig | null>(null);
