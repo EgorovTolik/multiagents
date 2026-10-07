@@ -543,6 +543,7 @@ export default function LearningPage({ onBack }: Props) {
                       const remaining = prev.filter((x) => x.id !== s.id);
                       if (remaining.length === 0) {
                         setActiveSession(null);
+                        window.location.hash = `#/training/${currentAgentId}`;
                         return [];
                       }
                       const openSession = remaining.find((x) => x.status !== "completed");
