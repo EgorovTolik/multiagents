@@ -176,6 +176,7 @@ export default function LearningPage({ onBack }: Props) {
       if (!agentId) return;
       
       setUrlAgentId(agentId);
+      setActiveSession(null); // Reset when loading a different agent
       const sessList = await listTrainingSessions(agentId);
       setSessions(sessList);
       
@@ -260,13 +261,33 @@ export default function LearningPage({ onBack }: Props) {
     }
   };
 
+  // Select next session after deletion — prefer open, then any remaining
+  const selectNextSession = useCallback((deletedId: string) => {
+    setSessions((prev) => {
+      const remaining = prev.filter((s) => s.id !== deletedId);
+      if (remaining.length === 0) {
+        // No sessions left — reset to empty state
+        setActiveSession(null);
+        return [];
+      }
+      // Prefer open sessions, then any remaining
+      const openSession = remaining.find((s) => s.status !== "completed");
+      if (openSession) {
+        setActiveSession(openSession);
+      } else {
+        // All completed — pick the first one
+        setActiveSession(remaining[0]);
+      }
+      return remaining;
+    });
+  }, []);
+
   const handleDeleteSession = async () => {
     if (!activeSession) return;
     if (!confirm("Удалить обучающую сессию? История будет удалена.")) return;
     try {
       await deleteTrainingSession(activeSession.id);
-      setSessions((s) => s.filter((x) => x.id !== activeSession.id));
-      onBack(currentAgentId);
+      selectNextSession(activeSession.id);
     } catch (e) {
       alert(`Ошибка завершения: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -473,15 +494,23 @@ export default function LearningPage({ onBack }: Props) {
                   const s = sessions.find(x => x.id === menu.sessionId);
                   if (s && confirm("Удалить сессию? История будет удалена.")) {
                     await deleteTrainingSession(s.id);
-                    setSessions(prev => prev.filter(x => x.id !== s.id));
-                    if (activeSession?.id === s.id) {
-                      const next = sessions.find(x => x.id !== s.id);
-                      if (next) {
-                        navigate(`/training/${next.id}`);
-                      } else {
-                        navigate("/agents");
+                    // Use same selection logic as handleDeleteSession
+                    setSessions((prev) => {
+                      const remaining = prev.filter((x) => x.id !== s.id);
+                      if (remaining.length === 0) {
+                        setActiveSession(null);
+                        return [];
                       }
-                    }
+                      const openSession = remaining.find((x) => x.status !== "completed");
+                      if (openSession) {
+                        setActiveSession(openSession);
+                        navigate(`/training/${openSession.id}`);
+                      } else {
+                        setActiveSession(remaining[0]);
+                        navigate(`/training/${remaining[0].id}`);
+                      }
+                      return remaining;
+                    });
                   }
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-700 last:rounded-b-lg"
