@@ -147,6 +147,7 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
         api={api}
         agents={agents}
         agentName={agentName}
+        onBack={onBack}
       />
     </div>
   );

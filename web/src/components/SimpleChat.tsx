@@ -7,9 +7,10 @@ export interface SimpleChatProps {
   api: ClientApi;
   agents: AgentInfo[];
   agentName: (id: string) => string;
+  onBack?: () => void;
 }
 
-export function SimpleChat({ ctxId, api, agents, agentName }: SimpleChatProps) {
+export function SimpleChat({ ctxId, api, agents, agentName, onBack }: SimpleChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [runningAgentId, setRunningAgentId] = useState<string | null>(null);
   const [pendingHandoff, setPendingHandoff] = useState<Handoff | null>(null);
@@ -53,7 +54,17 @@ export function SimpleChat({ ctxId, api, agents, agentName }: SimpleChatProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-800 p-3">
-        <h2 className="text-sm font-bold text-slate-200">Анализ с flow-manager</h2>
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
+            >
+              ← Чат
+            </button>
+          )}
+          <h2 className="text-sm font-bold text-slate-200">Анализ с flow-manager</h2>
+        </div>
         <p className="text-xs text-slate-500">Активный агент: {activeAgentName}</p>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
