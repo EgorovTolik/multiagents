@@ -446,7 +446,7 @@ app.get("/api/contexts/:id/messages", (req, res) => {
     return;
   }
   try {
-    const messages = store.loadMessages(id);
+    const messages = store.readMessages(id);
     res.json(messages);
   } catch (e) {
     res.status(500).json({ error: String(e?.message ?? e) });

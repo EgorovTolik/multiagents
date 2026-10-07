@@ -49,7 +49,9 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
     })();
   }, [analyzedCtxId]);
 
-  const handleMsg = useCallback(() => {}, []);
+  const handleMsg = useCallback((msg: ServerMsg) => {
+    // Handle messages for the analysis session
+  }, []);
   const api = useServer(handleMsg);
 
   // Создание сессии анализа через API

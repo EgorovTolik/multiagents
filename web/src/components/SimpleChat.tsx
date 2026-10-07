@@ -34,7 +34,9 @@ export function SimpleChat({ ctxId, api, agentName }: SimpleChatProps) {
     }
   }, [runningAgentId]);
 
-  api.onMessage(handleMsg);
+  useEffect(() => {
+    api.onMessage(handleMsg);
+  }, [api, handleMsg]);
 
   // Auto-scroll
   useEffect(() => {
