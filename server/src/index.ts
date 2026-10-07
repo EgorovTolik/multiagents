@@ -317,31 +317,41 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
 
 // Получить детали конкретной сессии обучения (для определения agentId по sessionId)
 // Должно быть ПЕРЕД GET /api/training/sessions/:agentId — иначе Express обработает это как :agentId
-app.get("/api/training/sessions/:sessionId", (req, res) => {
+app.get("/api/training/sessions/:sessionId", async (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
   if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
     res.status(400).json({ error: "Некорректный ID сессии" });
     return;
   }
+  
+  // Сначала пробуем найти как конкретную сессию
   const ctx = store.getTraining(sessionId);
-  if (!ctx) {
-    // Не найдена как сессия — пробуем трактовать как agentId (обратная совместимость)
-    const trainingSessions = store.listTraining()
-      .filter((c) => c.trainingAgentId === sessionId)
-      .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId, completed: !!c.completed }))
-      .sort((a, b) => b.createdAt - a.createdAt);
-    if (trainingSessions.length > 0 || store.listTraining().some((c) => c.trainingAgentId === sessionId)) {
+  if (ctx) {
+    if (!ctx.trainingAgentId) {
+      res.status(404).json({ error: "Это не обучающая сессия" });
+      return;
+    }
+    res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId, completed: !!ctx.completed });
+    return;
+  }
+  
+  // Не найдена как сессия — проверяем, является ли это ID агента
+  try {
+    const agentsResp = await registry.list();
+    const isAgent = agentsResp.some((a) => a.id === sessionId);
+    if (isAgent) {
+      // Это агент — возвращаем все его обучающие сессии (или пустой массив)
+      const trainingSessions = store.listTraining()
+        .filter((c) => c.trainingAgentId === sessionId)
+        .map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, agentId: c.trainingAgentId, completed: !!c.completed }))
+        .sort((a, b) => b.createdAt - a.createdAt);
       res.json(trainingSessions);
       return;
     }
-    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
-    return;
-  }
-  if (!ctx.trainingAgentId) {
-    res.status(404).json({ error: "Это не обучающая сессия" });
-    return;
-  }
-  res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId, completed: !!ctx.completed });
+  } catch { /* ignore */ }
+  
+  // Ни сессия, ни агент — возвращаем 404
+  res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
 });
 
 // Mark training session as completed (don't delete history)

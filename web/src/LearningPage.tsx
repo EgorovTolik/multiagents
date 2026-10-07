@@ -19,6 +19,7 @@ export default function LearningPage({ onBack }: Props) {
   const [menu, setMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [activeSession, setActiveSession] = useState<TrainingSession | null>(null);
+  const [urlAgentId, setUrlAgentId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -133,45 +134,86 @@ export default function LearningPage({ onBack }: Props) {
   const api = useServer(handleMsg);
   apiRef.current = api;
 
-  // Determine agent ID from session or hash
-  const getAgentId = useCallback(async (session?: TrainingSession) => {
-    if (session?.agentId) return session.agentId;
+  // Determine agent ID and target session from URL
+  const resolveUrl = useCallback(async () => {
+    console.log("[resolveUrl] sessionId:", sessionId);
+    const result = { agentId: null as string | null, targetSessionId: null as string | null };
+    
+    // First, check if sessionId is an agent ID
     try {
-      // Fetch individual session details to get agentId
-      const resp = await fetch(`/api/training/sessions/${sessionId}`);
-      if (resp.ok) {
-        const s = await resp.json();
-        if (s && s.agentId) return s.agentId;
-      }
-    } catch { /* ignore */ }
-    // If no session found with this ID, check if it's an agent ID directly
-    try {
+      console.log("[resolveUrl] checking agents...");
       const agentsResp = await fetch('/api/agents');
       if (agentsResp.ok) {
         const agentList = await agentsResp.json();
+        console.log("[resolveUrl] found", agentList?.length, "agents");
         if (agentList && Array.isArray(agentList)) {
           const found = agentList.find((a: { id: string }) => a.id === sessionId);
-          if (found) return sessionId;
+          console.log("[resolveUrl] agent found:", !!found);
+          if (found) {
+            result.agentId = sessionId;
+            return result; // This is an agent ID, no specific session
+          }
         }
+      } else {
+        console.log("[resolveUrl] agents API error:", agentsResp.status);
       }
-    } catch { /* ignore */ }
-    return null;
+    } catch (e) {
+      console.log("[resolveUrl] agents fetch error:", e);
+    }
+    
+    // If not an agent ID, try to treat it as a session ID and find its agent
+    try {
+      console.log("[resolveUrl] trying as session...");
+      const resp = await fetch(`/api/training/sessions/${sessionId}`);
+      if (resp.ok) {
+        const s = await resp.json();
+        if (s && s.agentId) {
+          result.agentId = s.agentId;
+          result.targetSessionId = sessionId;
+          return result;
+        }
+      } else {
+        console.log("[resolveUrl] session API error:", resp.status, await resp.text());
+      }
+    } catch (e) {
+      console.log("[resolveUrl] session fetch error:", e);
+    }
+    
+    return result;
   }, [sessionId]);
 
   // Load sessions when agent is known
   const loadSessions = useCallback(async () => {
     try {
-      const agentId = await getAgentId();
+      const { agentId, targetSessionId } = await resolveUrl();
       if (!agentId) return;
+      
+      setUrlAgentId(agentId);
       const sessList = await listTrainingSessions(agentId);
       setSessions(sessList);
-      // Find and activate the session matching hash
-      const active = sessList.find((s) => s.id === sessionId);
-      if (active) setActiveSession(active);
+      
+      // Selection priority:
+      // 1. If URL specifies a session ID, select it
+      // 2. Otherwise, select first open (non-completed) session
+      // 3. Otherwise, select most recent session by last activity
+      if (targetSessionId) {
+        const target = sessList.find((s) => s.id === targetSessionId);
+        if (target) setActiveSession(target);
+      } else {
+        // Find first open session (not completed)
+        const openSession = sessList.find((s) => s.status !== "completed");
+        if (openSession) {
+          setActiveSession(openSession);
+        } else if (sessList.length > 0) {
+          // No open sessions — pick most recent by createdAt
+          const sorted = [...sessList].sort((a, b) => b.createdAt - a.createdAt);
+          setActiveSession(sorted[0]);
+        }
+      }
     } catch (e) {
       setError(`Не удалось загрузить сессии: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [sessionId, getAgentId]);
+  }, [sessionId, resolveUrl]);
 
   useEffect(() => {
     loadSessions();
@@ -198,7 +240,7 @@ export default function LearningPage({ onBack }: Props) {
 
   const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
 
-  const currentAgentId = activeSession?.agentId;
+  const currentAgentId = activeSession?.agentId ?? urlAgentId;
   const currentAgent = agents.find((a) => a.id === currentAgentId);
 
   // Create new session
