@@ -33,6 +33,17 @@ export function SimpleChat({ ctxId, api, agents, agentName, onBack }: SimpleChat
       setPendingHandoff(msg.handoff);
     } else if (msg.type === "handoff_cancelled" || msg.type === "handoff") {
       setPendingHandoff(null);
+    } else if (msg.type === "delta") {
+      setMessages((m) => {
+        const last = m[m.length - 1];
+        // Временный пузырь: текст с «…» или пустой текст с идущими размышлениями
+        if (last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || (last.text === "" && !!last.thinking))) {
+          const copy = [...m];
+          copy[m.length - 1] = { ...last, text: last.text === "" ? msg.text + "…" : last.text.slice(0, -1) + msg.text + "…" };
+          return copy;
+        }
+        return [...m, { role: "assistant", agentId: msg.agentId, text: msg.text + "…", ts: Date.now() }];
+      });
     }
   }, [runningAgentId]);
 
