@@ -548,10 +548,10 @@ export default function LearningPage({ onBack }: Props) {
                       const openSession = remaining.find((x) => x.status !== "completed");
                       if (openSession) {
                         setActiveSession(openSession);
-                        navigate(`/training/${openSession.id}`);
+                        window.location.hash = `#/training/${openSession.id}`;
                       } else {
                         setActiveSession(remaining[0]);
-                        navigate(`/training/${remaining[0].id}`);
+                        window.location.hash = `#/training/${remaining[0].id}`;
                       }
                       return remaining;
                     });
