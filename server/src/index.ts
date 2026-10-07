@@ -778,9 +778,9 @@ wss.on("connection", (ws) => {
 
   send({ type: "agents", agents: registry.list() });
   send({ type: "skills", skills: skillRegistry.list() });
-  // Фильтруем обучающие сессии из основного списка контекстов
+  // Фильтруем обучающие сессии и сессии анализа из основного списка контекстов
   const allContexts = store.list();
-  const regularContexts = allContexts.filter((c) => !c.trainingAgentId);
+  const regularContexts = allContexts.filter((c) => !c.trainingAgentId && !c.mistakeAnalysisCtxId);
   send({ type: "contexts", contexts: regularContexts });
   send({ type: "run_state", actives: runner.getActives() });
 
@@ -794,9 +794,9 @@ wss.on("connection", (ws) => {
     try {
       switch (msg.type) {
         case "list_contexts":
-          // Фильтруем обучающие сессии из основного списка контекстов
+          // Фильтруем обучающие сессии и сессии анализа из основного списка контекстов
           const allCtx = store.list();
-          const regularCtx = allCtx.filter((c) => !c.trainingAgentId);
+          const regularCtx = allCtx.filter((c) => !c.trainingAgentId && !c.mistakeAnalysisCtxId);
           send({ type: "contexts", contexts: regularCtx });
           break;
         case "create_context": {
