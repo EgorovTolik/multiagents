@@ -9,17 +9,30 @@ import { AgentRegistry } from "./registry";
 import { SkillRegistry } from "./skill-registry";
 import { ContextStore } from "./context-store";
 import { AgentRunner } from "./runner";
+import { validateParam, parseModelList, readMarkdownDir, syncMarkdownDir, readJson } from "./utils";
+
+/** Требует существующую обучающую сессию; если не найдена — отвечает 400/404 и завершает запрос. */
+function requireTrainingSession(sessionId: string, res: express.Response) {
+  if (!validateParam(sessionId)) {
+    res.status(400).json({ error: "Некорректный ID сессии" });
+    return null;
+  }
+  const ctx = store.getTraining(sessionId);
+  if (!ctx) {
+    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    return null;
+  }
+  if (!ctx.trainingAgentId) {
+    res.status(400).json({ error: "Это не обучающая сессия" });
+    return null;
+  }
+  return ctx;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..", "..");
 
-const config = (() => {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(root, "config.json"), "utf8"));
-  } catch {
-    return {};
-  }
-})();
+const config = readJson(path.join(root, "config.json"), {});
 
 const PORT = config.port ?? 3000;
 const AGENTS_DIR = path.join(root, "agents");
@@ -35,10 +48,7 @@ fs.mkdirSync(ARCHIVES_DIR, { recursive: true });
 // Поддерживает обе структуры: legacy apiKeys и новую providers
 function syncAuthKeys(): void {
   const authPath = path.join(AGENTS_DIR, "auth.json");
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(authPath, "utf8"));
-  } catch { /* файл пуст или не существует */ }
+  let existing: Record<string, unknown> = readJson(authPath, {});
 
   // Новая структура: providers: { id: { url, apiKey } }
   const providers: Record<string, { url?: string; apiKey?: string }> = config.providers ?? {};
@@ -67,7 +77,7 @@ const store = new ContextStore(CONTEXTS_DIR, "orchestrator");
 // при следующем обращении каждый агент получит навыки своего контекста заново.
 for (const c of store.list()) {
   if (c.deliveredSkills && Object.keys(c.deliveredSkills).length > 0) {
-    c.deliveredSkills = {};
+    store.resetDeliveredSkills(c);
     store.save(c);
   }
 }
@@ -286,7 +296,7 @@ function isAgentAvailableForTraining(agentId: string): { available: boolean; rea
 
 app.post("/api/training/sessions/:agentId", (req, res) => {
   const agentId = String(req.params.agentId ?? "");
-  if (!agentId || agentId.includes("..") || agentId.includes("/")) {
+  if (!validateParam(agentId)) {
     res.status(400).json({ error: "Некорректный ID агента" });
     return;
   }
@@ -319,7 +329,7 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
 // Должно быть ПЕРЕД GET /api/training/sessions/:agentId — иначе Express обработает это как :agentId
 app.get("/api/training/sessions/:sessionId", async (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
-  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
+  if (!validateParam(sessionId)) {
     res.status(400).json({ error: "Некорректный ID сессии" });
     return;
   }
@@ -357,21 +367,14 @@ app.get("/api/training/sessions/:sessionId", async (req, res) => {
 // Mark training session as completed (don't delete history)
 app.post("/api/training/sessions/:sessionId/complete", (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
-  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
-    res.status(400).json({ error: "Некорректный ID сессии" });
-    return;
-  }
+  const ctx = requireTrainingSession(sessionId, res);
+  if (!ctx) return;
   try {
-    const ctx = store.get(sessionId);
-    if (ctx) {
-      console.log("[complete] Setting completed for", sessionId, "trainingAgentId:", ctx.trainingAgentId);
-      ctx.completed = true;
-      ctx.updatedAt = new Date();
-      store.save(ctx);
-      console.log("[complete] Saved successfully");
-    } else {
-      console.log("[complete] Context not found:", sessionId);
-    }
+    console.log("[complete] Setting completed for", sessionId, "trainingAgentId:", ctx.trainingAgentId);
+    ctx.completed = true;
+    ctx.updatedAt = new Date();
+    store.save(ctx);
+    console.log("[complete] Saved successfully");
   } catch (e) {
     console.error("[complete] Error:", e);
   }
@@ -380,20 +383,8 @@ app.post("/api/training/sessions/:sessionId/complete", (req, res) => {
 
 app.delete("/api/training/sessions/:sessionId", (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
-  if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
-    res.status(400).json({ error: "Некорректный ID сессии" });
-    return;
-  }
-  const ctx = store.getTraining(sessionId);
-  if (!ctx) {
-    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
-    return;
-  }
-  // Проверить, что это обучающая сессия
-  if (!ctx.trainingAgentId) {
-    res.status(400).json({ error: "Это не обучающая сессия" });
-    return;
-  }
+  const ctx = requireTrainingSession(sessionId, res);
+  if (!ctx) return;
   // Прервать агента, если он работает в этой сессии
   runner.abort(sessionId);
   runner.disposeContext(sessionId);
@@ -446,26 +437,16 @@ app.get("/api/agents/:id/detail", (req, res) => {
   }
   // config.json
   const cfgPath = path.join(dir, "config.json");
-  const cfg = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, "utf8")) : {};
+  const cfg = readJson(cfgPath, {});
   // AGENT.md
   const promptPath = path.join(dir, "AGENT.md");
   const systemPrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf8") : "";
   // rules/
-  const rules: AgentFileEntry[] = [];
   const rulesDir = path.join(dir, "rules");
-  if (fs.existsSync(rulesDir)) {
-    for (const f of fs.readdirSync(rulesDir).sort()) {
-      if (f.endsWith(".md")) rules.push({ filename: f, content: fs.readFileSync(path.join(rulesDir, f), "utf8") });
-    }
-  }
+  const rules = readMarkdownDir(rulesDir);
   // skills/
-  const skills: AgentFileEntry[] = [];
   const skillsDir = path.join(dir, "skills");
-  if (fs.existsSync(skillsDir)) {
-    for (const f of fs.readdirSync(skillsDir).sort()) {
-      if (f.endsWith(".md")) skills.push({ filename: f, content: fs.readFileSync(path.join(skillsDir, f), "utf8") });
-    }
-  }
+  const skills = readMarkdownDir(skillsDir);
   // Обратная логика выдачи инструментов: все pi-инструменты включены по умолчанию,
   // в конфиге хранится только список отключённых (denylist)
   const disabledTools = Array.isArray(cfg.disabledTools) ? cfg.disabledTools : [];
@@ -499,37 +480,10 @@ app.put("/api/agents/:id", (req, res) => {
   fs.writeFileSync(path.join(dir, "AGENT.md"), systemPrompt ?? "");
 
   // rules/
-  const rulesDir = path.join(dir, "rules");
-  fs.mkdirSync(rulesDir, { recursive: true });
-  // удалить старые файлы которые не в списке
-  if (fs.existsSync(rulesDir)) {
-    for (const f of fs.readdirSync(rulesDir)) {
-      if (f.endsWith(".md") && !rules?.some((r: AgentFileEntry) => r.filename === f)) {
-        fs.unlinkSync(path.join(rulesDir, f));
-      }
-    }
-  }
-  for (const rule of rules ?? []) {
-    if (rule.filename && !rule.filename.includes("..") && !rule.filename.includes("/")) {
-      fs.writeFileSync(path.join(rulesDir, rule.filename), rule.content);
-    }
-  }
+  syncMarkdownDir(path.join(dir, "rules"), rules ?? []);
 
   // skills/
-  const skillsDir = path.join(dir, "skills");
-  fs.mkdirSync(skillsDir, { recursive: true });
-  if (fs.existsSync(skillsDir)) {
-    for (const f of fs.readdirSync(skillsDir)) {
-      if (f.endsWith(".md") && !skills?.some((s: AgentFileEntry) => s.filename === f)) {
-        fs.unlinkSync(path.join(skillsDir, f));
-      }
-    }
-  }
-  for (const skill of skills ?? []) {
-    if (skill.filename && !skill.filename.includes("..") && !skill.filename.includes("/")) {
-      fs.writeFileSync(path.join(skillsDir, skill.filename), skill.content);
-    }
-  }
+  syncMarkdownDir(path.join(dir, "skills"), skills ?? []);
 
   // Перезагрузить реестр и разослать обновлённый список
   registry.reload();
@@ -736,8 +690,7 @@ app.get("/api/providers/:id/models", async (req, res) => {
 
     // Поддерживаем оба формата: OpenAI ({data:[{id}]}) и llama.cpp native ({models:[{name|model}]})
     const data = await resp.json() as any;
-    const arr: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-    const models = [...new Set(arr.map((m) => m.id ?? m.model ?? m.name).filter(Boolean))].sort();
+    const models = parseModelList(data);
     modelsCache[providerId] = { models, fetchedAt: Date.now() };
     res.json({ models, cached: false, fetchedAt: Date.now() });
   } catch (e) {

@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 import { Type } from "typebox";
+import { parseModelList } from "./utils";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -376,7 +377,7 @@ export class AgentRunner {
     // Тела навыков живут только в сессиях — после сброса они должны переинжектиться
     for (const ctx of this.store.list()) {
       if (ctx.deliveredSkills && Object.keys(ctx.deliveredSkills).length > 0) {
-        ctx.deliveredSkills = {};
+        this.store.resetDeliveredSkills(ctx);
         this.store.save(ctx);
       }
     }
@@ -395,8 +396,7 @@ export class AgentRunner {
       clearTimeout(t);
       if (!resp.ok) return [];
       const data: any = await resp.json();
-      const arr: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-      return [...new Set(arr.map((m) => m.id ?? m.model ?? m.name).filter(Boolean))];
+      return parseModelList(data);
     } catch {
       return [];
     }

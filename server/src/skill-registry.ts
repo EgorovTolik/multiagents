@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readJson } from "./utils";
 
 export interface SkillFileEntry {
   filename: string;
@@ -52,20 +53,9 @@ export class SkillRegistry {
       if (!fs.existsSync(bodyPath)) continue;
       const cfgPath = path.join(dir, "config.json");
       let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
-      try {
-        cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-      } catch { /* config.json отсутствует или повреждён — используем id */ }
+      cfg = readJson(cfgPath, {});
 
-      // Читаем дополнительные файлы из files/
-      const files: SkillFileEntry[] = [];
-      const filesDir = path.join(dir, "files");
-      if (fs.existsSync(filesDir)) {
-        for (const f of fs.readdirSync(filesDir).sort()) {
-          if (f.endsWith(".md")) {
-            files.push({ filename: f, content: fs.readFileSync(path.join(filesDir, f), "utf8") });
-          }
-        }
-      }
+      const files = this.readSkillFiles(dir);
 
       this.skills.set(id, {
         id,
@@ -85,19 +75,9 @@ export class SkillRegistry {
     if (!fs.existsSync(bodyPath)) return this.skills.get(id); // fallback кэш
     const cfgPath = path.join(dir, "config.json");
     let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
-    try {
-      cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-    } catch { /* config.json отсутствует или повреждён */ }
+    cfg = readJson(cfgPath, {});
 
-    const files: SkillFileEntry[] = [];
-    const filesDir = path.join(dir, "files");
-    if (fs.existsSync(filesDir)) {
-      for (const f of fs.readdirSync(filesDir).sort()) {
-        if (f.endsWith(".md")) {
-          files.push({ filename: f, content: fs.readFileSync(path.join(filesDir, f), "utf8") });
-        }
-      }
-    }
+    const files = this.readSkillFiles(dir);
 
     return {
       id,
@@ -111,6 +91,19 @@ export class SkillRegistry {
 
   list() {
     return [...this.skills.values()];
+  }
+
+  /** Прочитать все *.md файлы из директории files/ навыка. */
+  private readSkillFiles(dir: string): SkillFileEntry[] {
+    const filesDir = path.join(dir, "files");
+    if (!fs.existsSync(filesDir)) return [];
+    const files: SkillFileEntry[] = [];
+    for (const f of fs.readdirSync(filesDir).sort()) {
+      if (f.endsWith(".md")) {
+        files.push({ filename: f, content: fs.readFileSync(path.join(filesDir, f), "utf8") });
+      }
+    }
+    return files;
   }
 
   private static isValidId(id: string): boolean {

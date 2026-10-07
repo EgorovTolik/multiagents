@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readJson } from "./utils";
 
 export interface AgentSkill {
   name: string;
@@ -53,9 +54,7 @@ export class AgentRegistry {
 
       const systemPrompt = fs.readFileSync(agentMd, "utf8");
       const cfgPath = path.join(dir, "config.json");
-      const cfg = fs.existsSync(cfgPath)
-        ? JSON.parse(fs.readFileSync(cfgPath, "utf8"))
-        : {};
+      const cfg = readJson(cfgPath, {});
 
       const rules: string[] = [];
       const rulesDir = path.join(dir, "rules");

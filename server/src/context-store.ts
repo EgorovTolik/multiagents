@@ -181,6 +181,13 @@ export class ContextStore {
     fs.rmSync(this.trainingDir(ctxId), { recursive: true, force: true });
   }
 
+  /** Сбрасывает флаги доставки навыков (навыки будут инжектиться заново). */
+  resetDeliveredSkills(meta: ContextMeta): void {
+    if (meta.deliveredSkills && Object.keys(meta.deliveredSkills).length > 0) {
+      meta.deliveredSkills = {};
+    }
+  }
+
   /** Рекурсивный размер директории контекста в байтах (0, если не существует). */
   dirSize(ctxId: string): number {
     const dir = this.dir(ctxId);
