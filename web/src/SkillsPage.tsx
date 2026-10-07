@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { HelpTip } from "./components/HelpTip";
+import { Field } from "./components/Field";
+import { SectionFiles } from "./components/SectionFiles";
 import MarkdownEditor from "./components/MarkdownEditor";
 
 interface SkillFileEntry {
@@ -411,6 +413,14 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                 onAdd={addFile}
                 onRemove={(i) => removeFile(i)}
                 onChange={(i, field, val) => updateFile(i, field, val)}
+                content={(f, i) => (
+                  <textarea
+                    value={f.content}
+                    onChange={(e) => updateFile(i, "content", e.target.value)}
+                    rows={6}
+                    className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500"
+                  />
+                )}
               />
 
 
@@ -424,54 +434,4 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
 
 // ─── Компоненты формы ──────────────────────────────────────────────────────────────
 
-function SectionFiles({
-  title, files, dirty, onAdd, onRemove, onChange, help,
-}: {
-  title: string;
-  files: SkillFileEntry[];
-  dirty: boolean;
-  onAdd: () => void;
-  onRemove: (index: number) => void;
-  onChange: (index: number, field: "filename" | "content", value: string) => void;
-  help?: string;
-}) {
-  return (
-    <Field label={title} dirty={dirty} help={help}>
-      <div className={`space-y-3 rounded-lg border bg-slate-900/50 p-3 ${borderClass(dirty)}`}>
-        {files.length === 0 && (
-          <p className="text-xs text-slate-500">Нет файлов</p>
-        )}
-        {files.map((f, i) => (
-          <div key={i} className="rounded-lg border border-slate-700 bg-slate-900 p-2.5">
-            <div className="mb-2 flex items-center gap-2">
-              <input
-                value={f.filename}
-                onChange={(e) => onChange(i, "filename", e.target.value)}
-                className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 font-mono text-xs outline-none focus:border-indigo-500"
-              />
-              <button
-                onClick={() => onRemove(i)}
-                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
-                title="Удалить файл"
-              >
-                ✕
-              </button>
-            </div>
-            <textarea
-              value={f.content}
-              onChange={(e) => onChange(i, "content", e.target.value)}
-              rows={6}
-              className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 font-mono text-xs leading-relaxed outline-none focus:border-indigo-500"
-            />
-          </div>
-        ))}
-        <button
-          onClick={onAdd}
-          className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-xs text-slate-400 hover:border-indigo-500 hover:text-indigo-300"
-        >
-          + Добавить файл
-        </button>
-      </div>
-    </Field>
-  );
-}
+
