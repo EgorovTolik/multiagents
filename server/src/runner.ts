@@ -953,7 +953,16 @@ export class AgentRunner {
 
     // Обратная логика выдачи: ВСЕ pi-инструменты включены по умолчанию,
     // в конфиге агента хранится только список отключённых (denylist → excludeTools).
-    const excludeTools = def.disabledTools ?? [];
+    let excludeTools = def.disabledTools ?? [];
+    // Во время обучающей сессии временно предоставляем все инструменты
+    // для работы с файлами, чтобы агент мог редактировать свой AGENT.md
+    try {
+      const ctx = this.store.get(ctxId);
+      if (ctx?.trainingAgentId) {
+        // Исключаем из denylist только инструменты файлов, оставляя остальные ограничения
+        excludeTools = excludeTools.filter((t: string) => !['read', 'write', 'edit', 'bash'].includes(t));
+      }
+    } catch { /* ignore */ }
 
     // Модель агента: если её ещё нет в ModelRuntime (настройку меняли после старта
     // сервера), до-регистрируем — иначе SDK молча возьмёт модель по умолчанию.
@@ -1156,6 +1165,15 @@ export class AgentRunner {
         }),
       }),
       execute: async (_id, params: { agentId: string; reason: string; context: string }) => {
+        // Во время обучающей сессии блокируем передачу работы другим агентам
+        const ctx = this.store.get(ctxId);
+        if (ctx?.trainingAgentId) {
+          return errText(
+            `Во время обучающей сессии передача задач другим агентам запрещена. ` +
+            `Объясни пользователю, что ты сам продолжишь работу.`,
+          );
+        }
+
         const target = this.registry.get(params.agentId);
         if (!target) {
           return errText(

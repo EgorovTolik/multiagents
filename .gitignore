@@ -1,9 +1,11 @@
 node_modules/
 dist/
 contexts/
+training/
 previews/
 archives/
 shared/
+flow-ai/
 .pi/
 *.log
 .DS_Store

@@ -100,6 +100,18 @@ export default function LearningPage({ onBack }: Props) {
           setRunningAgentId(null);
         }
         break;
+      case "run_state":
+        // Синхронизация статуса агентов при подключении нового клиента
+        if (!activeSession) break;
+        const isActive = (msg.actives ?? []).some((a: any) => a.ctxId === activeSession.id);
+        if (isActive && !runningAgentId) {
+          // Агент занят, но мы не получили run_start — устанавливаем статус
+          setRunningAgentId(activeSession.agentId);
+        } else if (!isActive && runningAgentId) {
+          // Агент свободен, но мы не получили run_end — сбрасываем статус
+          setRunningAgentId(null);
+        }
+        break;
       case "handoff_pending":
         if (activeSession && msg.ctxId === activeSession.id) {
           setPendingHandoff(msg.handoff);
