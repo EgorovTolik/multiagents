@@ -527,8 +527,9 @@ export default function LearningPage({ onBack }: Props) {
               <p className="text-slate-500">Выберите сессию обучения слева или создайте новую</p>
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center p-4">
-              <p className="text-slate-500">Загрузка сессии…</p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
+              <p className="text-lg font-medium text-slate-300">У агента пока нет обучающих сессий</p>
+              <p className="text-sm text-slate-500">Создайте первую сессию, чтобы начать обучение через диалог</p>
             </div>
           )}
         </main>
