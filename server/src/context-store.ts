@@ -92,6 +92,8 @@ export class ContextStore {
     if (isTraining) {
       const dir = this.trainingDir(id);
       fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "results"), { recursive: true });
     } else {
       const dir = this.dir(id);
       fs.mkdirSync(dir, { recursive: true });

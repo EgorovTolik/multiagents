@@ -806,6 +806,18 @@ wss.on("connection", (ws) => {
           const messages = store
             .readMessages(msg.ctxId)
             .map((m) => (m.role === "assistant" ? { ...m, text: store.maskPaths(msg.ctxId, m.text) } : m));
+          // Если агент занят стримингом — включаем частичное сообщение
+          const stream = runner.getPendingStream(msg.ctxId);
+          if (stream) {
+            messages.push({
+              role: "assistant",
+              agentId: stream.agentId,
+              text: store.maskPaths(msg.ctxId, stream.text),
+              thinking: stream.thinking,
+              ts: Date.now(),
+              streaming: true,
+            });
+          }
           send({
             type: "context_loaded",
             context: store.get(msg.ctxId),

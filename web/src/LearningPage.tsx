@@ -1,17 +1,19 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
-import { useServer, createTrainingSession, listTrainingSessions, completeTrainingSession, renameTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
+import { useServer, fetchContextSizes, createTrainingSession, listTrainingSessions, completeTrainingSession, renameTrainingSession, deleteTrainingSession, TrainingSession } from "./api";
 import { ChatComponent } from "./components/ChatComponent";
-import { fmtDay } from "./utils/format";
+import { fmtDay, formatBytes } from "./utils/format";
 
 interface Props {
   onBack: (agentId?: string) => void;
 }
 
 export default function LearningPage({ onBack }: Props) {
-  const hash = window.location.hash; // #/training/:sessionId
-  const sessionId = hash.replace("#/training/", "");
+  const hash = window.location.hash; // #/training/:agentId or #/training/:agentId/:sessionId
+  const parts = hash.replace("#/training/", "").split("/");
+  const urlAgentIdPart = parts[0]; // agentId or empty
+  const urlSessionId = parts.length > 1 ? parts[1] : null;
 
   // State
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -29,6 +31,8 @@ export default function LearningPage({ onBack }: Props) {
   const [sentText, setSentText] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; mediaType: string; data: string; size: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** Размер директорий сессий: { [sessionId]: number } */
+  const [sessionSizes, setSessionSizes] = useState<Record<string, number>>({});
 
   // Refs
   const apiRef = useRef<ClientApi | null>(null);
@@ -55,9 +59,13 @@ export default function LearningPage({ onBack }: Props) {
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => {
             const last = m[m.length - 1];
-            if (last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || (last.text === "" && !!last.thinking))) {
+            // Проверяем: сообщение уже стримится (оканчивается на …) или это возобновление после перезагрузки
+            const isStreaming = last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || last.streaming);
+            if (isStreaming) {
               const copy = [...m];
-              copy[m.length - 1] = { ...last, text: last.text === "" ? msg.text + "…" : last.text.slice(0, -1) + msg.text + "…" };
+              // Если это возобновление после перезагрузки — удаляем флаг streaming
+              const baseText = last.text.endsWith("…") ? last.text.slice(0, -1) : last.text;
+              copy[m.length - 1] = { ...last, text: baseText + msg.text + "…", streaming: false };
               return copy;
             }
             return [...m, { role: "assistant", agentId: msg.agentId, text: msg.text + "…", ts: Date.now() }];
@@ -68,9 +76,11 @@ export default function LearningPage({ onBack }: Props) {
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => {
             const last = m[m.length - 1];
-            if (last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || (last.text === "" && !!last.thinking))) {
+            // Проверяем: сообщение уже стримится или это возобновление после перезагрузки
+            const isStreaming = last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || last.streaming || (last.text === "" && !!last.thinking));
+            if (isStreaming) {
               const copy = [...m];
-              copy[m.length - 1] = { ...last, thinking: (last.thinking ?? "") + msg.text };
+              copy[m.length - 1] = { ...last, thinking: (last.thinking ?? "") + msg.text, streaming: false };
               return copy;
             }
             return [...m, { role: "assistant", agentId: msg.agentId, text: "", thinking: msg.text, ts: Date.now() }];
@@ -148,38 +158,55 @@ export default function LearningPage({ onBack }: Props) {
 
   // Determine agent ID and target session from URL
   const resolveUrl = useCallback(async () => {
+    console.log("[resolveUrl] urlAgentIdPart:", urlAgentIdPart, "urlSessionId:", urlSessionId);
     const result = { agentId: null as string | null, targetSessionId: null as string | null };
     
-    // First, check if sessionId is an agent ID
-    try {
-      const agentsResp = await fetch('/api/agents');
-      if (agentsResp.ok) {
-        const agentList = await agentsResp.json();
-        if (agentList && Array.isArray(agentList)) {
-          const found = agentList.find((a: { id: string }) => a.id === sessionId);
-          if (found) {
-            result.agentId = sessionId;
-            return result; // This is an agent ID, no specific session
+    // Check if urlAgentIdPart is an agent ID
+    if (urlAgentIdPart) {
+      try {
+        const agentsResp = await fetch('/api/agents');
+        if (agentsResp.ok) {
+          const agentList = await agentsResp.json();
+          if (agentList && Array.isArray(agentList)) {
+            const found = agentList.find((a: { id: string }) => a.id === urlAgentIdPart);
+            if (found) {
+              result.agentId = urlAgentIdPart;
+              // If there's also a session ID, validate it
+              if (urlSessionId) {
+                try {
+                  const resp = await fetch(`/api/training/sessions/${urlSessionId}`);
+                  if (resp.ok) {
+                    const s = await resp.json();
+                    if (s && s.agentId === urlAgentIdPart) {
+                      result.targetSessionId = urlSessionId;
+                    }
+                  }
+                } catch { /* ignore */ }
+              }
+              return result;
+            }
           }
         }
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
     
-    // If not an agent ID, try to treat it as a session ID and find its agent
-    try {
-      const resp = await fetch(`/api/training/sessions/${sessionId}`);
-      if (resp.ok) {
-        const s = await resp.json();
-        if (s && s.agentId) {
-          result.agentId = s.agentId;
-          result.targetSessionId = sessionId;
-          return result;
+    // If not an agent ID in URL, try to treat urlAgentIdPart as a session ID and find its agent
+    if (urlAgentIdPart && !result.agentId) {
+      try {
+        const resp = await fetch(`/api/training/sessions/${urlAgentIdPart}`);
+        if (resp.ok) {
+          const s = await resp.json();
+          if (s && s.agentId) {
+            result.agentId = s.agentId;
+            result.targetSessionId = urlAgentIdPart;
+            return result;
+          }
         }
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
     
     return result;
-  }, [sessionId]);
+  }, [urlAgentIdPart, urlSessionId]);
 
   // Load sessions when agent is known
   const loadSessions = useCallback(async () => {
@@ -191,6 +218,8 @@ export default function LearningPage({ onBack }: Props) {
       setActiveSession(null); // Reset when loading a different agent
       const sessList = await listTrainingSessions(agentId);
       setSessions(sessList);
+      // Запросить размеры директорий сессий (они — контексты, API то же)
+      fetchContextSizes().then((s) => setSessionSizes(s));
       
       // Selection priority:
       // 1. If URL specifies a session ID, select it
@@ -213,7 +242,7 @@ export default function LearningPage({ onBack }: Props) {
     } catch (e) {
       setError(`Не удалось загрузить сессии: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [sessionId, resolveUrl]);
+  }, [urlAgentIdPart, urlSessionId, resolveUrl]);
 
   useEffect(() => {
     loadSessions();
@@ -355,6 +384,9 @@ export default function LearningPage({ onBack }: Props) {
                       </div>
                     )}
                 <div
+                  title={sessionSizes[s.id] != null
+                    ? `sessions/${s.id} (${formatBytes(sessionSizes[s.id])})`
+                    : `sessions/${s.id}`}
                   onClick={() => handleSelectSession(s)}
                   onDoubleClick={(e) => {
                     e.stopPropagation();

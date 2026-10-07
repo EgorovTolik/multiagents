@@ -485,7 +485,7 @@ export class AgentRunner {
     let mdLinks: string[] = [];
     const PREVIEWS_DIR = path.join(PROJECT_ROOT, "previews");
     if (files && files.length > 0) {
-      const filesDir = path.join(this.store.dir(ctxId), "files");
+      const filesDir = path.join(this.getCtxDir(ctxId), "files");
       fs.mkdirSync(filesDir, { recursive: true });
       fs.mkdirSync(PREVIEWS_DIR, { recursive: true });
       for (const f of files) {
@@ -638,6 +638,30 @@ export class AgentRunner {
     ctx.pendingHandoff = undefined;
     this.store.save(ctx);
     this.emit({ type: "handoff_cancelled", ctxId });
+  }
+
+  /**
+   * Получить текущее стримящееся сообщение для контекста (если агент занят).
+   * Возвращает частичное сообщение или null если нет активного стрима.
+   */
+  getPendingStream(ctxId: string): { agentId: string; text: string; thinking?: string } | null {
+    // Ищем в pendingText по key
+    for (const [key, text] of this.pendingText.entries()) {
+      if (key.startsWith(`${ctxId}|`)) {
+        const agentId = key.split("|")[1];
+        const thinkingKey = `${ctxId}|${agentId}`;
+        const thinking = this.pendingThinking.get(thinkingKey);
+        return { agentId, text: text || "", thinking: thinking || undefined };
+      }
+    }
+    // Если pendingText пуст (только thinking), ищем там
+    for (const [key, thinking] of this.pendingThinking.entries()) {
+      if (key.startsWith(`${ctxId}|`)) {
+        const agentId = key.split("|")[1];
+        return { agentId, text: "", thinking };
+      }
+    }
+    return null;
   }
 
   private async run(ctxId: string, text: string, files?: FileAttachment[]) {
@@ -828,7 +852,7 @@ export class AgentRunner {
 
   /** Промпт для агента-маршрутизатора при обрыве цепочки (recoveryMode="router_agent"). */
   private buildRouterPrompt(ctx: ContextMeta, brokenAgent: string, task: Handoff | undefined, lastMsg: string | undefined): string {
-    const ctxDir = this.store.dir(ctx.id);
+    const ctxDir = this.getCtxDir(ctx.id);
     const history = ctx.handoffs
       .map((h, i) =>
         `${i + 1}. [${new Date(h.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}] ${h.from} → ${h.to} — ${h.reason}`
@@ -925,7 +949,7 @@ export class AgentRunner {
     const existing = this.sessions.get(k);
     if (existing) return existing;
 
-    const ctxDir = this.store.dir(ctxId);
+    const ctxDir = this.getCtxDir(ctxId);
     const loader = new DefaultResourceLoader({
       cwd: ctxDir,
       agentDir: getAgentDir(),
@@ -1022,9 +1046,17 @@ export class AgentRunner {
   private pendingImages = new Map<string, string[]>();
   /** Накопленные рассуждения (thinking) — прикрепляются к следующему сообщению ассистента. */
   private pendingThinking = new Map<string, string>();
+  private pendingText = new Map<string, string>();
 
   private keyFor(ctxId: string, agentId: string) {
     return `${ctxId}/${agentId}`;
+  }
+
+  /** Путь к рабочей директории контекста (учитывает обучающие сессии). */
+  private getCtxDir(ctxId: string): string {
+    return this.store.isTrainingContext(ctxId)
+      ? this.store.trainingDir(ctxId)
+      : this.store.dir(ctxId);
   }
 
   /** Сохраняет image-блоки из результата инструмента в contexts/<id>/attachments/ и возвращает markdown-ссылки. */
@@ -1032,7 +1064,7 @@ export class AgentRunner {
     const content = Array.isArray(result?.content) ? result.content : [];
     const images = content.filter((b: any) => b?.type === "image" && typeof b.data === "string" && b.data.length > 0);
     if (images.length === 0) return [];
-    const dir = path.join(this.store.dir(ctxId), "attachments");
+    const dir = path.join(this.getCtxDir(ctxId), "attachments");
     fs.mkdirSync(dir, { recursive: true });
     const ts = Date.now();
     return images.map((b: any, i: number) => {
@@ -1069,7 +1101,11 @@ export class AgentRunner {
       }
     }
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
-      this.emit({ type: "delta", ctxId, agentId, text: ev.assistantMessageEvent.delta });
+      // Накопление стримящегося текста для восстановления при переподключении клиента
+      const key = this.keyFor(ctxId, agentId);
+      const d: string = ev.assistantMessageEvent.delta ?? "";
+      if (d) this.pendingText.set(key, (this.pendingText.get(key) ?? "") + d);
+      this.emit({ type: "delta", ctxId, agentId, text: d });
     } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
       // Рассуждения модели — стримим в UI в реальном времени + накапливаем для истории
       const key = this.keyFor(ctxId, agentId);
@@ -1077,12 +1113,14 @@ export class AgentRunner {
       if (d) this.pendingThinking.set(key, (this.pendingThinking.get(key) ?? "") + d);
       this.emit({ type: "thinking_delta", ctxId, agentId, text: d });
     } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
-      let text = extractText(ev.message);
+      // Используем накопленный стримящийся текст вместо извлечения из события
+      const key = this.keyFor(ctxId, agentId);
+      let text = this.pendingText.get(key) || extractText(ev.message);
       if (!text) text = "";
+      this.pendingText.delete(key);
       // прикладываем накопленные изображения к этому сообщению
       text = this.withPendingImages(ctxId, agentId, text);
       // рассуждения, накопленные с начала хода (или с прошлого сообщения)
-      const key = this.keyFor(ctxId, agentId);
       const thinking = this.pendingThinking.get(key) || "";
       this.pendingThinking.delete(key);
       // убираем ссылки на несуществующие файлы (модель могла их выдумать)
@@ -1102,7 +1140,7 @@ export class AgentRunner {
    * существует — оставляем, нет — убираем (картинку целиком, обычную ссылку — с сохранением текста).
    */
   private sanitizeFileLinks(ctxId: string, text: string): string {
-    const dir = this.store.dir(ctxId);
+    const dir = this.getCtxDir(ctxId);
     return text.replace(
       /(!?)(\[[^\]]*\]\()\/api\/files\?ctx=[^&]+&path=([^)\s]+)(\))/g,
       (m: string, bang: string, label: string, encodedRel: string) => {
@@ -1284,7 +1322,7 @@ export class AgentRunner {
         const ts = Date.now();
         const dirName = params.type === "task" ? "tasks" : "results";
         const fileBase = `${params.type}-${ts}`;
-        const dirPath = path.join(this.store.dir(ctxId), dirName);
+        const dirPath = path.join(this.getCtxDir(ctxId), dirName);
         fs.mkdirSync(dirPath, { recursive: true });
 
         const header = params.type === "task"
