@@ -119,6 +119,10 @@ export default function LearningPage({ onBack }: Props) {
           setMessages(msg.messages);
         }
         break;
+      case "training_session_reopened":
+        // Сессия переоткрыта — обновляем список
+        loadSessions();
+        break;
       case "error":
         setError(msg.message);
         setTimeout(() => setError(null), 5000);

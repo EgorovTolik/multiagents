@@ -827,6 +827,13 @@ wss.on("connection", (ws) => {
               broadcast({ type: "context_renamed", ctxId: ctx.id, name });
             }
           }
+          // Если это завершённая обучающая сессия — автоматически переоткрываем её
+          let trainingCtx = store.getTraining(msg.ctxId);
+          if (trainingCtx && trainingCtx.completed) {
+            trainingCtx.completed = false;
+            store.save(trainingCtx, true);
+            broadcast({ type: "training_session_reopened", sessionId: msg.ctxId });
+          }
           await runner.handleMessage(msg.ctxId, msg.text, msg.files);
           break;
         }
