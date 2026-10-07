@@ -6,6 +6,7 @@ import AgentEditor from "./AgentEditor";
 import SettingsPage from "./SettingsPage";
 import SkillsPage from "./SkillsPage";
 import LearningPage from "./LearningPage";
+import MistakesPage from "./MistakesPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatComponent } from "./components/ChatComponent";
 import { Lightbox } from "./components/Lightbox";
@@ -314,6 +315,15 @@ export default function App() {
         onBack={(agentId) => {
           window.location.hash = "#/agents";
         }}
+      />
+    );
+  }
+  if (route.startsWith("#/mistakes/")) {
+    const analyzedCtxId = route.replace("#/mistakes/", "");
+    return (
+      <MistakesPage
+        analyzedCtxId={analyzedCtxId}
+        onBack={() => { window.location.hash = ""; }}
       />
     );
   }

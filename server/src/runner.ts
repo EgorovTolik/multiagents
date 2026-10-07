@@ -950,10 +950,30 @@ export class AgentRunner {
     if (existing) return existing;
 
     const ctxDir = this.getCtxDir(ctxId);
+    // Для flow-manager добавить информацию об анализируемом контексте в системный промпт
+    let analyzedCtxInfo = "";
+    if (agentId === "flow-manager") {
+      try {
+        const ctx = this.store.get(ctxId);
+        if (ctx?.mistakeAnalysisCtxId) {
+          const analyzedCtx = this.store.get(ctx.mistakeAnalysisCtxId);
+          analyzedCtxInfo = `
+
+## Контекст для анализа
+
+Ты анализируешь завершённую задачу с ID: ${ctx.mistakeAnalysisCtxId}
+Имя задачи: ${analyzedCtx?.name ?? "неизвестно"}
+Директория артефактов: ${this.store.dir(ctx.mistakeAnalysisCtxId)}
+
+Читай файлы из этой директории для анализа истории диалога и действий агентов.
+Не изменяй эти файлы — они неизменяемые артефакты.`;
+        }
+      } catch { /* ignore */ }
+    }
     const loader = new DefaultResourceLoader({
       cwd: ctxDir,
       agentDir: getAgentDir(),
-      systemPromptOverride: () => buildSystemPrompt(def, ctxDir, this.globalRules),
+      systemPromptOverride: () => buildSystemPrompt(def, ctxDir, this.globalRules) + analyzedCtxInfo,
     });
     await loader.reload();
 

@@ -26,6 +26,8 @@ export interface ContextMeta {
   activeAgentId: string;
   /** ID агента, для которого создана эта обучающая сессия. */
   trainingAgentId?: string;
+  /** ID контекста задачи, который анализируется в сессии "работа над ошибками". */
+  mistakeAnalysisCtxId?: string;
   handoffs: Handoff[];
   /** Передача, запланированная route_to_agent, но ещё не выполненная (текущий ход не завершён). */
   pendingHandoff?: Handoff;
@@ -179,6 +181,27 @@ export class ContextStore {
 
   deleteTraining(ctxId: string) {
     fs.rmSync(this.trainingDir(ctxId), { recursive: true, force: true });
+  }
+
+  /** Создать сессию "работа над ошибками" для анализа указанного контекста задачи. */
+  createMistakeAnalysisSession(analyzedCtxId: string): ContextMeta {
+    const id = crypto.randomUUID().slice(0, 8);
+    const analyzedCtx = this.get(analyzedCtxId);
+    const name = `Анализ: ${analyzedCtx?.name ?? analyzedCtxId}`;
+    const meta: ContextMeta = {
+      id,
+      name,
+      createdAt: Date.now(),
+      activeAgentId: "flow-manager",
+      handoffs: [],
+      mistakeAnalysisCtxId: analyzedCtxId,
+    };
+    const dir = this.dir(id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "results"), { recursive: true });
+    this.save(meta);
+    return meta;
   }
 
   /** Сбрасывает флаги доставки навыков (навыки будут инжектиться заново). */

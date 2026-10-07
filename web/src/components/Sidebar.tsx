@@ -244,8 +244,17 @@ export function Sidebar({
             />
             <div
               style={{ left: menu.x, top: menu.y }}
-              className="fixed z-[61] w-44 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
+              className="fixed z-[61] w-48 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
             >
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  window.location.hash = `#/mistakes/${menu.ctxId}`;
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-violet-300 hover:bg-violet-500/10"
+              >
+                🔍 Работа над ошибками
+              </button>
               <button
                 onClick={() => {
                   setMenu(null);

@@ -591,6 +591,30 @@ app.delete("/api/skills/:id", (req, res) => {
   }
 });
 
+// ─── Work on mistakes API ──────────────────────────────────────────────────
+app.post("/api/work-on-mistakes/sessions", (req, res) => {
+  const analyzedCtxId = String(req.body?.analyzedCtxId ?? "");
+  if (!validateParam(analyzedCtxId)) {
+    res.status(400).json({ error: "Некорректный ID контекста задачи" });
+    return;
+  }
+  // Проверить, существует ли анализируемый контекст
+  const analyzedCtx = store.get(analyzedCtxId);
+  if (!analyzedCtx) {
+    res.status(404).json({ error: `Контекст «${analyzedCtxId}» не найден` });
+    return;
+  }
+  // Проверить, что анализируемый контекст уже завершён (нет активных агентов)
+  if (runner.activeByCtx.has(analyzedCtxId)) {
+    res.status(409).json({ error: `Анализировать можно только завершённые задачи. Агент в контексте «${analyzedCtx.name}» ещё активен.` });
+    return;
+  }
+  // Создать сессию анализа
+  const ctx = store.createMistakeAnalysisSession(analyzedCtxId);
+  broadcast({ type: "context_created", context: ctx });
+  res.status(201).json({ id: ctx.id, name: ctx.name, analyzedCtxId });
+});
+
 // ─── System config API ─────────────────────────────────────────────────────────
 const CONFIG_PATH = path.join(root, "config.json");
 
