@@ -77,10 +77,12 @@ export interface ClientApi {
   status: ConnStatus;
 }
 
-export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
+export function useServer(initialHandler?: (msg: ServerMsg) => void): ClientApi {
   const wsRef = useRef<WebSocket | null>(null);
-  const handlerRef = useRef(onMessage);
-  handlerRef.current = onMessage;
+  const handlersRef = useRef<((msg: ServerMsg) => void)[]>([]);
+  if (initialHandler) {
+    handlersRef.current.push(initialHandler);
+  }
   const [status, setStatus] = useState<ConnStatus>("connecting");
 
   useEffect(() => {
@@ -102,7 +104,8 @@ export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
       ws.onerror = () => { /* onclose сработает после */ };
       ws.onmessage = (ev) => {
         try {
-          handlerRef.current(JSON.parse(ev.data));
+          const msg = JSON.parse(ev.data);
+          handlersRef.current.forEach((h) => h(msg));
         } catch { /* ignore */ }
       };
     }
@@ -119,7 +122,9 @@ export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
     send: (msg) => {
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(msg));
     },
-    onMessage: () => {},
+    onMessage: (fn) => {
+      handlersRef.current.push(fn);
+    },
     status,
   };
 }

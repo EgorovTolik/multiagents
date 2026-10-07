@@ -49,10 +49,11 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
     })();
   }, [analyzedCtxId]);
 
-  const handleMsg = useCallback((msg: ServerMsg) => {
-    // Handle messages for the analysis session
+  // Callback для SimpleChat — будет вызываться при получении сообщений
+  const chatHandleMsg = useCallback((msg: ServerMsg) => {
+    // SimpleChat обрабатывает все сообщения чата через этот callback
   }, []);
-  const api = useServer(handleMsg);
+  const api = useServer(chatHandleMsg);
 
   // Создание сессии анализа через API
   const [session, setSession] = useState<{ id: string; name: string } | null>(null);
@@ -144,6 +145,7 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
       <SimpleChat
         ctxId={session.id}
         api={api}
+        agents={agents}
         agentName={agentName}
       />
     </div>
