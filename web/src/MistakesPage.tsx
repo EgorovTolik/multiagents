@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
-import { useServer, fetchContextSizes } from "./api";
-import { ChatComponent } from "./components/ChatComponent";
+import { useCallback, useEffect, useState } from "react";
+import type { AgentInfo, ClientApi, ContextMeta, Message, SkillInfo } from "./api";
+import { useServer } from "./api";
+import { SimpleChat } from "./components/SimpleChat";
 import { fmtTime } from "./utils/format";
 
 interface Props {
@@ -49,9 +49,7 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
     })();
   }, [analyzedCtxId]);
 
-  // Обработчик WS-сообщений
-  const handleMsg = useCallback((msg: ServerMsg) => {}, []);
-
+  const handleMsg = useCallback(() => {}, []);
   const api = useServer(handleMsg);
 
   // Создание сессии анализа через API
@@ -141,14 +139,10 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
   // Правая панель: чат с flow-manager
   const RightPanel = () => (
     <div className="flex h-full flex-col">
-      <ChatComponent
+      <SimpleChat
         ctxId={session.id}
-        agents={agents}
-        skills={skills}
         api={api}
         agentName={agentName}
-        onBack={onBack}
-        title={`Анализ: ${analyzedCtx?.name ?? analyzedCtxId}`}
       />
     </div>
   );

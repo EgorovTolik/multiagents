@@ -419,6 +419,40 @@ app.put("/api/training/sessions/:sessionId/rename", (req, res) => {
   res.json({ ok: true, id: sessionId, name: ctx.name });
 });
 
+// ─── Context detail APIs ──────────────────────────────────────────────────────
+app.get("/api/contexts/:id", (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!validateParam(id)) {
+    res.status(400).json({ error: "Некорректный ID контекста" });
+    return;
+  }
+  const ctx = store.get(id);
+  if (!ctx) {
+    res.status(404).json({ error: `Контекст «${id}» не найден` });
+    return;
+  }
+  res.json(ctx);
+});
+
+app.get("/api/contexts/:id/messages", (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!validateParam(id)) {
+    res.status(400).json({ error: "Некорректный ID контекста" });
+    return;
+  }
+  const ctx = store.get(id);
+  if (!ctx) {
+    res.status(404).json({ error: `Контекст «${id}» не найден` });
+    return;
+  }
+  try {
+    const messages = store.loadMessages(id);
+    res.json(messages);
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
 // === Редактор агентов: REST API ===
 
 interface AgentFileEntry { filename: string; content: string }
