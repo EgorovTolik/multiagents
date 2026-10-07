@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, ClientApi, ContextMeta, Message, SkillInfo } from "./api";
 import { useServer } from "./api";
 import { SimpleChat } from "./components/SimpleChat";
@@ -51,10 +51,13 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
   }, [analyzedCtxId]);
 
   // Callback для SimpleChat — будет вызываться при получении сообщений
+  const chatHandleMsgRef = useRef((msg: ServerMsg) => {});
   const chatHandleMsg = useCallback((msg: ServerMsg) => {
-    // SimpleChat обрабатывает все сообщения чата через этот callback
+    chatHandleMsgRef.current(msg);
   }, []);
-  const api = useServer(chatHandleMsg);
+  
+  // Зафиксировать api в стабильном объекте
+  const api = useMemo(() => useServer(chatHandleMsg), [chatHandleMsg]);
 
   // Создание сессии анализа через API
   const [session, setSession] = useState<{ id: string; name: string } | null>(null);
