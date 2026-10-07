@@ -137,9 +137,9 @@ function MessageRowInner({
           {m.agentId ? agentName(m.agentId) : "система"}
         </span>
         <div className="rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
-          {/* Рассуждения модели: открыты всегда, чтобы видеть полную историю размышлений после перезагрузки */}
+          {/* Рассуждения модели: свёрнуты по умолчанию, можно раскрыть вручную */}
           {m.thinking && (
-            <details className="mb-2 rounded-lg border border-slate-800 bg-slate-950/60 text-xs" open={true}>
+            <details className="mb-2 rounded-lg border border-slate-800 bg-slate-950/60 text-xs">
               <summary className="cursor-pointer select-none px-3 py-1.5 font-medium text-violet-400/90 hover:text-violet-300">
                 💭 Размышления{streaming ? " (идут…)" : ""}
               </summary>
