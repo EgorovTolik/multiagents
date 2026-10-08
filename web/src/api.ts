@@ -77,53 +77,106 @@ export interface ClientApi {
   status: ConnStatus;
 }
 
-export function useServer(initialHandler?: (msg: ServerMsg) => void): ClientApi {
-  const wsRef = useRef<WebSocket | null>(null);
-  const handlersRef = useRef<((msg: ServerMsg) => void)[]>([]);
-  if (initialHandler) {
-    handlersRef.current.push(initialHandler);
-  }
-  const [status, setStatus] = useState<ConnStatus>("connecting");
+// Singleton WebSocket connection shared across all components
+let globalWs: WebSocket | null = null;
+let globalHandlers: ((msg: ServerMsg) => void)[] = [];
+let globalStatus: ConnStatus = "connecting";
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let connectionStarted = false;
+let appHandler: ((msg: ServerMsg) => void) | null = null;
 
-  useEffect(() => {
-    let closed = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    function connect() {
-      if (closed) return;
-      setStatus("connecting");
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.hostname}:3000`);
-      wsRef.current = ws;
-      ws.onopen = () => setStatus("connected");
-      ws.onclose = () => {
-        setStatus("disconnected");
-        // авто-реконнект через 2 сек
-        if (!closed) timer = setTimeout(connect, 2000);
-      };
-      ws.onerror = () => { /* onclose сработает после */ };
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          handlersRef.current.forEach((h) => h(msg));
-        } catch { /* ignore */ }
-      };
+function ensureConnection() {
+  console.log("[WS ENSURE] connectionStarted:", connectionStarted, "globalWs:", !!globalWs);
+  if (connectionStarted) {
+    if (globalWs && (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING)) {
+      return globalWs;
     }
+    // Connection was started but is now closed — try to reconnect
+  }
+  
+  connectionStarted = true;
+  console.log("[WS ENSURE] creating WebSocket");
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  console.log("[WS ENSURE] URL:", `${proto}://${location.hostname}:3000`);
+  const ws = new WebSocket(`${proto}://${location.hostname}:3000`);
+  globalWs = ws;
+  globalStatus = "connecting";
+  console.log("[WS ENSURE] WebSocket created");
+  
+  ws.onopen = () => {
+    globalStatus = "connected";
+  };
+  
+  ws.onclose = () => {
+    globalStatus = "disconnected";
+    // авто-реконнект через 2 сек
+    if (!reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectionStarted = false; // Allow new connection attempt
+        ensureConnection();
+      }, 2000);
+    }
+  };
+  
+  ws.onerror = () => { /* onclose сработает после */ };
+  
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      globalHandlers.forEach((h) => h(msg));
+    } catch { /* ignore */ }
+  };
+  
+  return ws;
+}
 
-    connect();
+export function useServer(initialHandler?: (msg: ServerMsg) => void): ClientApi {
+  const [status, setStatus] = useState<ConnStatus>(globalStatus);
+  
+  useEffect(() => {
+    ensureConnection();
+    
+    // Update or register app handler
+    if (initialHandler) {
+      if (appHandler && appHandler !== initialHandler) {
+        // Replace old handler with new one
+        const idx = globalHandlers.indexOf(appHandler);
+        if (idx >= 0) globalHandlers[idx] = initialHandler;
+      } else if (!appHandler) {
+        globalHandlers.push(initialHandler);
+      }
+      appHandler = initialHandler;
+    }
+    
+    // Poll status updates
+    const interval = setInterval(() => {
+      if (globalWs) {
+        if (globalWs.readyState === WebSocket.OPEN) {
+          setStatus("connected");
+        } else if (globalWs.readyState === WebSocket.CLOSED) {
+          setStatus("disconnected");
+        }
+      }
+    }, 500);
+    
     return () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      wsRef.current?.close();
+      clearInterval(interval);
+      // Don't close the connection on unmount — other components may still be using it
     };
   }, []);
 
   return {
     send: (msg) => {
-      if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify(msg));
+      const ws = ensureConnection();
+      if (ws.readyState === WebSocket.OPEN) {
+        console.log("[WS SEND]", msg.type);
+        ws.send(JSON.stringify(msg));
+      }
     },
     onMessage: (fn) => {
-      handlersRef.current.push(fn);
+      console.log("[WS ONMESSAGE] registering handler, total:", globalHandlers.length + 1);
+      globalHandlers.push(fn);
     },
     status,
   };

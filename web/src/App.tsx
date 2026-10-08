@@ -114,6 +114,7 @@ export default function App() {
           }
           break;
         case "message":
+          console.log("[APP HANDLE] message event", msg.ctxId, "active:", activeCtx?.id, msg.message.role);
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => [...m, msg.message]);
           if (msg.message.role === "system") {

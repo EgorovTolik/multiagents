@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentInfo, ClientApi, ContextMeta, Message, SkillInfo } from "./api";
+import type { AgentInfo, ClientApi, ContextMeta, Message, ServerMsg, SkillInfo } from "./api";
 import { useServer } from "./api";
 import { SimpleChat } from "./components/SimpleChat";
 import { MessageRow } from "./components/MessageRow";
@@ -51,9 +51,8 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
   }, [analyzedCtxId]);
 
   // Callback для SimpleChat — будет вызываться при получении сообщений
-  const chatHandleMsgRef = useRef((msg: ServerMsg) => {});
   const chatHandleMsg = useCallback((msg: ServerMsg) => {
-    chatHandleMsgRef.current(msg);
+    // Можно добавить логику обработки
   }, []);
   
   // Хук useServer должен вызываться на верхнем уровне, не внутри useMemo
