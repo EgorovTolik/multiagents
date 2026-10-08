@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Field } from "./components/Field";
 
 interface Provider {
   url: string;
@@ -309,7 +310,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
           </div>
 
           {/* Port */}
-          <Field label="Порт сервера" hint="Изменение порта требует перезапуск сервера.">
+          <Field label="Порт сервера" help="Изменение порта требует перезапуск сервера.">
             <input
               type="number"
               value={cfg.port ?? 3000}
@@ -367,7 +368,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
           <div className="border-t border-slate-800 pt-5">
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">Ограничения</h2>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Макс. передач в цепочке" hint="Защита от бесконечных циклов.">
+              <Field label="Макс. передач в цепочке" help="Защита от бесконечных циклов.">
                 <input
                   type="number"
                   value={cfg.maxHandoffs ?? 200}
@@ -375,7 +376,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Макс. авто-восстановлений" hint="Сколько раз система чинит прерванную цепочку.">
+              <Field label="Макс. авто-восстановлений" help="Сколько раз система чинит прерванную цепочку.">
                 <input
                   type="number"
                   value={cfg.maxRecoveries ?? 2}
@@ -383,7 +384,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Таймаут зависшей сессии (сек)" hint="Нет событий дольше — сессия прерывается.">
+              <Field label="Таймаут зависшей сессии (сек)" help="Нет событий дольше — сессия прерывается.">
                 <input
                   type="number"
                   value={Math.round((cfg.stallTimeoutMs ?? 180000) / 1000)}
@@ -391,7 +392,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Макс. размер файла (МБ)" hint="Ограничение на загрузку файлов.">
+              <Field label="Макс. размер файла (МБ)" help="Ограничение на загрузку файлов.">
                 <input
                   type="number"
                   value={cfg.maxUploadSizeMb ?? 50}
@@ -401,7 +402,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
               </Field>
             </div>
             <div className="mt-4">
-              <Field label="Режим восстановления цепочки" hint="Что делать, если агент завершил ход, не передав диалог дальше."> 
+              <Field label="Режим восстановления цепочки" help="Что делать, если агент завершил ход, не передав диалог дальше."> 
                 <select
                   value={cfg.recoveryMode ?? "router_agent"}
                   onChange={(e) => set("recoveryMode", e.target.value as "router_agent" | "orchestrator_check")}
