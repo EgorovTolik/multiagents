@@ -88,7 +88,11 @@ export default function App() {
           }
           break;
         case "context_created":
-          setContexts((c) => [msg.context, ...c]);
+          setContexts((c) => {
+            // Проверка на дубликаты по ID — broadcast может прийти несколько раз
+            if (c.some((ctx) => ctx.id === msg.context.id)) return c;
+            return [msg.context, ...c];
+          });
           setActiveCtx(msg.context);
           setMessages([]);
           setAppliedSkills(msg.context.skills ?? []);

@@ -56,12 +56,14 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
     chatHandleMsgRef.current(msg);
   }, []);
   
-  // Зафиксировать api в стабильном объекте
-  const api = useMemo(() => useServer(chatHandleMsg), [chatHandleMsg]);
+  // Хук useServer должен вызываться на верхнем уровне, не внутри useMemo
+  const api = useServer(chatHandleMsg);
 
   // Создание сессии анализа через API
   const [session, setSession] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
+    if (session) return; // Уже создана — не создавать повторно при ре-монтировании
+    let cancelled = false;
     (async () => {
       try {
         const resp = await fetch("/api/work-on-mistakes/sessions", {
@@ -69,12 +71,13 @@ export default function MistakesPage({ analyzedCtxId, onBack }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ analyzedCtxId }),
         });
-        if (resp.ok) {
+        if (resp.ok && !cancelled) {
           setSession(await resp.json());
         }
       } catch { /* ignore */ }
     })();
-  }, [analyzedCtxId]);
+    return () => { cancelled = true; };
+  }, [analyzedCtxId, session]);
 
   if (!session) {
     return (
