@@ -124,6 +124,7 @@ function ensureConnection() {
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
+      console.log("[WS ONMESSAGE] received event:", msg.type);
       globalHandlers.forEach((h) => h(msg));
     } catch { /* ignore */ }
   };

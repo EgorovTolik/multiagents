@@ -66,6 +66,7 @@ export default function App() {
   // ─── WS message handler ────────────────────────────────────────────────────────
   const handle = useCallback(
     (msg: ServerMsg) => {
+      console.log("[APP HANDLE] received event:", msg.type);
       switch (msg.type) {
         case "agents":
           setAgents(msg.agents);
@@ -87,7 +88,9 @@ export default function App() {
             }
           }
           break;
-        case "context_created":
+        case "context_created": {
+          console.log("[APP HANDLE] context_created:", msg.context?.id, typeof msg.context);
+          if (!msg.context) break;
           setContexts((c) => {
             // Проверка на дубликаты по ID — broadcast может прийти несколько раз
             if (c.some((ctx) => ctx.id === msg.context.id)) return c;
@@ -97,6 +100,7 @@ export default function App() {
           setMessages([]);
           setAppliedSkills(msg.context.skills ?? []);
           break;
+        }
         case "context_renamed":
           setContexts((cs) => cs.map((c) => (c.id === msg.ctxId ? { ...c, name: msg.name } : c)));
           setActiveCtx((c) => (c?.id === msg.ctxId ? { ...c, name: msg.name } : c));
@@ -113,14 +117,20 @@ export default function App() {
             setAppliedSkills([]);
           }
           break;
-        case "message":
+        case "message": {
           console.log("[APP HANDLE] message event", msg.ctxId, "active:", activeCtx?.id, msg.message.role);
-          if (msg.ctxId !== activeCtx?.id) break;
-          setMessages((m) => [...m, msg.message]);
+          if (msg.ctxId !== activeCtx?.id) { break; }
+          console.log("[APP HANDLE] adding message to state");
+          setMessages((m) => {
+            const updated = [...m, msg.message];
+            console.log("[APP HANDLE] state now has", updated.length, "messages");
+            return updated;
+          });
           if (msg.message.role === "system") {
             setActiveCtx((c) => (c ? { ...c, activeAgentId: msg.message.agentId ?? c.activeAgentId } : c));
           }
           break;
+        }
         case "delta":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
