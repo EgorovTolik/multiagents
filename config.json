@@ -1,5 +1,5 @@
 {
-  "model": "eac-work-ai/Ternary-Bonsai-2-27B-Uncensored-Heretic-PQ2_0.gguf",
+  "model": "eac-mac-ai/Ornith-1.5-35B-A3B-APEX-MTP-Quality.gguf",
   "port": 3000,
   "providers": {
     "eac-mac-ai": {
@@ -8,7 +8,7 @@
     },
     "eac-home-ai": {
       "url": "http://eac-agent.online:44221",
-      "apiKey": "kv-123"
+      "apiKey": "kv-1234"
     },
     "eac-work-ai": {
       "url": "http://eac-agent.online:44222",

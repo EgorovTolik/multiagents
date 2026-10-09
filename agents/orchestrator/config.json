@@ -25,7 +25,6 @@
     "update_orchestrator_agent_description",
     "workflow"
   ],
-  "model": "eac-home-ai/Qwen3.8-35B-A3B-Q4_K_M.gguf",
   "thinkingLevel": "medium",
   "forgetSessionAfterStep": false
 }

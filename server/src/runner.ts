@@ -198,6 +198,8 @@ export class AgentRunner {
     // глобальном реестре pi (~/.pi/agent/models.json), резолвятся как undefined,
     // и сессия молча падает на модель по умолчанию (чужой сервер).
     await this.registerProjectProviders();
+    // Коррекция моделей агентов: если указанная модель недоступна — сбросить или выбрать единственную
+    this.correctAgentModels();
     // Одноразовая миграция конфигов агентов: allowlist (tools) → denylist (disabledTools)
     try {
       const n = await this.migrateToolConfigs();
@@ -384,6 +386,74 @@ export class AgentRunner {
     return n;
   }
 
+  /** Коррекция моделей агентов: если указанная модель недоступна у провайдера —
+   * сбросить в null или выбрать единственную доступную модель. */
+  private correctAgentModels(): number {
+    let corrected = 0;
+    for (const agent of this.registry.list()) {
+      if (!agent.model) continue; // глобальная — ок
+      const slash = agent.model.indexOf("/");
+      if (slash < 0) continue; // формат не provider/model — пропустить
+      const providerId = agent.model.slice(0, slash);
+      const modelId = agent.model.slice(slash + 1);
+
+      const available = this.knownModelIds.get(providerId);
+      if (!available || available.size === 0) {
+        // Провайдер не зарегистрирован или список пуст — сбросить
+        console.log(`[runner] агент ${agent.id}: провайдер ${providerId} недоступен, модель сброшена`);
+        this.registry.updateAgent(agent.id, { model: null });
+        corrected++;
+        continue;
+      }
+
+      if (available.has(modelId)) {
+        continue; // модель доступна — ок
+      }
+
+      // Модель указана, но недоступна у провайдера
+      const cfgPath = path.join(this.agentsDir, agent.id, "config.json");
+      let cfg = {};
+      try {
+        cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+      } catch { /* ignore */ }
+
+      if (available.size === 1) {
+        const onlyModel = [...available][0];
+        console.log(`[runner] агент ${agent.id}: модель «${modelId}» недоступна, выбрана единственная доступная «${onlyModel}»`);
+        cfg.model = `${providerId}/${onlyModel}`;
+      } else {
+        console.log(`[runner] агент ${agent.id}: модель «${modelId}» недоступна (сервер вернул ${available.size} моделей), сброшено в null`);
+        cfg.model = null;
+      }
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+      this.registry.reload();
+      corrected++;
+    }
+    return corrected;
+  }
+
+  /** Перечитать конфигурацию проекта: модель по умолчанию и провайдеры. */
+  async reloadProjectConfig(configPath: string, broadcastFn?: (msg: unknown) => void): Promise<void> {
+    let cfg: { model?: string; providers?: Record<string, { url?: string; apiKey?: string }> };
+    try {
+      cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    } catch {
+      return;
+    }
+    const newModel = cfg.model || undefined;
+    if (newModel !== this.defaultModel) {
+      console.log(`[runner] модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${newModel ?? "(нет)"}`);
+      this.defaultModel = newModel;
+    }
+    // Обновить провайдеры
+    if (cfg.providers) {
+      this.providers = cfg.providers;
+      this.registerProjectProviders();
+      this.correctAgentModels();
+    }
+    broadcastFn?.({ type: "system_notice", text: `Конфигурация перечитана. Модель: ${this.defaultModel ?? "(нет)"}` });
+  }
+
   /** Запросить список моделей провайдера (OpenAI- и llama.cpp-native форматы). */
   private async fetchProviderModels(baseUrl: string, apiKey?: string): Promise<string[]> {
     try {
@@ -414,10 +484,12 @@ export class AgentRunner {
       const referenced = [this.defaultModel, ...this.registry.list().map((a) => a.model)]
         .filter((s): s is string => !!s && s.startsWith(id + "/"))
         .map((s) => s.slice(id.length + 1));
-      const ids = [...new Set([...live, ...referenced])];
-      if (ids.length === 0) continue;
-      this.registerProviderModels(id, ids);
-      console.log(`[runner] провайдер ${id} зарегистрирован в pi SDK: ${ids.length} моделей${live.length === 0 ? " (сервер недоступен — из config.json)" : ""}`);
+      const allIds = [...new Set([...live, ...referenced])];
+      if (allIds.length === 0) continue;
+      this.registerProviderModels(id, allIds);
+      // В knownModelIds сохраняем только live модели — для коррекции моделей агентов
+      this.knownModelIds.set(id, new Set(live));
+      console.log(`[runner] провайдер ${id} зарегистрирован в pi SDK: ${allIds.length} моделей${live.length === 0 ? " (сервер недоступен — из config.json)" : ""}`);
     }
   }
 
@@ -441,7 +513,6 @@ export class AgentRunner {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       })),
     });
-    this.knownModelIds.set(providerId, new Set(ids));
   }
 
   /** Гарантирует, что модель из конфига агента есть в ModelRuntime.

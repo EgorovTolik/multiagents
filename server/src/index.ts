@@ -571,13 +571,14 @@ app.get("/api/sessions", (_req, res) => {
 });
 
 // Полный сброс всех сессий — доступен только когда никто не работает и очередь пуста
-app.post("/api/sessions/reset", (_req, res) => {
+app.post("/api/sessions/reset", async (_req, res) => {
   if (runner.getActives().length > 0 || runner.hasQueued()) {
     res.status(409).json({ error: "Агенты прямо сейчас работают — сброс недоступен. Попробуйте позже." });
     return;
   }
   const n = runner.resetAllSessions();
-  broadcast({ type: "system_notice", text: `Сессии сброшены (${n})` });
+  // Перечитать конфигурацию: модель и провайдеры обновляются для новых сессий
+  await runner.reloadProjectConfig(CONFIG_PATH, broadcast);
   res.json({ ok: true, sessions: n });
 });
 

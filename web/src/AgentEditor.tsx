@@ -239,7 +239,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       .then((r) => r.json())
       .then((d: { groups: PiToolGroupInfo[]; fetchedAt?: number }) => {
         setToolGroups(d.groups ?? []);
-        setOpenGroups(Object.fromEntries((d.groups ?? []).map((g) => [g.id, true])));
+        setOpenGroups(Object.fromEntries((d.groups ?? []).map((g) => [g.id, false])));
         setToolsFetchedAt(d.fetchedAt ?? null);
       })
       .catch(() => { /* ignore — раздел инструментов pi останется пустым */ });
