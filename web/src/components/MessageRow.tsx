@@ -95,7 +95,7 @@ function MessageRowInner({
     navigator.clipboard.writeText(msgId);
     notify(`ID скопирован: ${msgId}`);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1000);
+    setTimeout(() => setCopied(false), 500);
   }, [msgId, notify]);
 
   const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
@@ -151,7 +151,7 @@ function MessageRowInner({
         {msgId && (
           <span
             onClick={handleCopyMsgId}
-            className={`mb-1 ml-1 inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition-colors duration-1000 ${
+            className={`mb-1 ml-1 inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition-colors duration-500 ${
               copied ? "border-red-400 bg-red-900/30" : "border-slate-700 bg-slate-900 hover:border-slate-600"
             } text-slate-400`}
             title="Кликните чтобы скопировать ID"
