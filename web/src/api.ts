@@ -15,6 +15,7 @@ export interface Message {
   /** Рассуждения модели (thinking) — раскрывающийся блок в UI. */
   thinking?: string;
   ts: number;
+  id?: string;
 }
 
 export interface ContextMeta {

@@ -6,9 +6,10 @@ interface SimpleChatProps {
   messages: Message[];
   title?: string;
   agentName: (id: string) => string;
+  msgIds?: string[];
 }
 
-export default function SimpleChat({ messages, title, agentName }: SimpleChatProps) {
+export default function SimpleChat({ messages, title, agentName, msgIds }: SimpleChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Автоскролл вниз
@@ -39,6 +40,7 @@ export default function SimpleChat({ messages, title, agentName }: SimpleChatPro
               onImageClick={() => {}}
               onTruncate={() => {}}
               notify={() => {}}
+              msgId={msgIds?.[i]}
             />
           ))
         )}

@@ -68,6 +68,7 @@ function MessageRowInner({
   onImageClick,
   onTruncate,
   notify,
+  msgId,
 }: {
   m: Message;
   index: number;
@@ -77,6 +78,7 @@ function MessageRowInner({
   onImageClick: (url: string) => void;
   onTruncate: (index: number) => void;
   notify: (text: string) => void;
+  msgId?: string;
 }) {
   // Auto-scroll thinking block during streaming
   const thinkingRef = useRef<HTMLDivElement>(null);
@@ -136,6 +138,15 @@ function MessageRowInner({
         >
           {m.agentId ? agentName(m.agentId) : "система"}
         </span>
+        {msgId && (
+          <span
+            onClick={() => { navigator.clipboard.writeText(msgId); notify(`ID скопирован: ${msgId}`); }}
+            className="mb-1 ml-1 inline-block cursor-pointer rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            title="Кликните чтобы скопировать ID"
+          >
+            #{msgId}
+          </span>
+        )}
         <div className="rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-4 py-2 text-sm">
           {/* Рассуждения модели: свёрнуты по умолчанию, можно раскрыть вручную */}
           {m.thinking && (

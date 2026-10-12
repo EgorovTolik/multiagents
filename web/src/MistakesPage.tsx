@@ -25,12 +25,13 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
       .then((r) => r.json())
       .then((data) => {
         // Map API response to Message format: { role, agentId, text }
-        const mapped = (data.messages || []).map((m: any) => ({
+        const mapped = (data.messages || []).map((m: any, i: number) => ({
           role: m.role,
           agentId: m.agentId,
           text: m.text,
           thinking: m.thinking,
           ts: m.ts || Date.now(),
+          id: `msg-${i + 1}`,
         }));
         setAnalyzedMessages(mapped);
       })
@@ -55,6 +56,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
         <div className="flex min-h-0 h-full w-1/2 flex-col border-r border-slate-800 bg-slate-950">
           <SimpleChat
             messages={analyzedMessages}
+            msgIds={analyzedMessages.map((m) => m.id)}
             agentName={agentName}
           />
           {/* Sticky bottom header */}
