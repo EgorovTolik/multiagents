@@ -524,6 +524,49 @@ app.post("/api/skills", (req, res) => {
   }
 });
 
+// ─── Context info API (for MistakesPage) ──────────────────────────────────────
+app.get("/api/contexts/:id", (req, res) => {
+  const ctx = store.get(String(req.params.id ?? ""));
+  if (!ctx) {
+    res.status(404).json({ error: "Context not found" });
+    return;
+  }
+  res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt });
+});
+
+app.get("/api/contexts/:id/messages", (req, res) => {
+  const ctx = store.get(String(req.params.id ?? ""));
+  if (!ctx) {
+    res.status(404).json({ error: "Context not found" });
+    return;
+  }
+  // Read messages from messages.jsonl
+  try {
+    const msgs = store.readMessages(ctx.id);
+    res.json({ messages: msgs });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ─── Work on mistakes API ──────────────────────────────────────────────────
+app.post("/api/work-on-mistakes/sessions", (req, res) => {
+  const analyzedCtxId = String(req.body?.analyzedCtxId ?? "");
+  if (!analyzedCtxId || !/^[a-f0-9]{8}$/.test(analyzedCtxId)) {
+    res.status(400).json({ error: "Некорректный ID контекста задачи" });
+    return;
+  }
+  // Проверить, существует ли анализируемый контекст
+  const analyzedCtx = store.get(analyzedCtxId);
+  if (!analyzedCtx) {
+    res.status(404).json({ error: `Контекст «${analyzedCtxId}» не найден` });
+    return;
+  }
+  // Создать сессию анализа (новый контекст)
+  const analysisCtx = store.create(`Анализ: ${analyzedCtx.name}`);
+  res.status(201).json({ id: analysisCtx.id, name: analysisCtx.name, analyzedCtxId });
+});
+
 app.put("/api/skills/:id", (req, res) => {
   try {
     const { name, description, autoApply, body, files } = req.body ?? {};
