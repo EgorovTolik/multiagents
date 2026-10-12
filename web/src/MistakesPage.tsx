@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import PageHeader from "./components/PageHeader";
 import SimpleChat from "./components/SimpleChat";
+import { FlowManagerChat } from "./components/FlowManagerChat";
 import type { ClientApi, ContextMeta } from "./api";
 import type { Message } from "./types";
 
@@ -12,6 +13,11 @@ interface MistakesPageProps {
 export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) {
   const [analyzedCtx, setAnalyzedCtx] = useState<{ id: string; name: string } | null>(null);
   const [analyzedMessages, setAnalyzedMessages] = useState<Message[]>([]);
+
+  // State для FlowManagerChat (пока заглушки)
+  const [flowInput, setFlowInput] = useState("");
+  const [flowSentText, setFlowSentText] = useState<string | null>(null);
+  const [flowAttachedFiles, setFlowAttachedFiles] = useState([]);
 
   // Загрузить информацию об анализируемом контексте
   useEffect(() => {
@@ -68,8 +74,25 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
         </div>
 
         {/* Правая панель: чат с flow-manager */}
-        <div className="flex h-full w-1/2 flex-col bg-slate-950">
-          { /* Тут будет живой чат с агентом flow-manager */ }
+        <div className="flex min-h-0 h-full w-1/2 flex-col bg-slate-950">
+          <FlowManagerChat
+            ctxId="flow-test"
+            api={api}
+            messages={[]}
+            runningAgentId={null}
+            skills={[]}
+            appliedSkills={[]}
+            input={flowInput}
+            onInputChange={setFlowInput}
+            sentText={flowSentText}
+            setSentText={setFlowSentText}
+            attachedFiles={flowAttachedFiles}
+            setAttachedFiles={setFlowAttachedFiles}
+            onAddFiles={() => {}}
+            onSend={() => {}}
+            onApplySkills={() => {}}
+            onAbort={() => {}}
+          />
         </div>
       </div>
     </div>
