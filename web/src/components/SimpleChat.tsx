@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Message } from "../types";
+import type { Message } from "../api";
 import { MessageRow } from "./MessageRow";
 
 interface SimpleChatProps {

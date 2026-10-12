@@ -312,10 +312,10 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
     return;
   }
   // Создать обучающую сессию (в отдельном хранилище training/)
-  const ctx = store.create(`Обучение ${def.name}`, true);
+  const ctx = store.create(`Обучение ${def.name}`, "training");
   ctx.activeAgentId = agentId;
   ctx.trainingAgentId = agentId;
-  store.save(ctx, true);
+  store.save(ctx, "training");
   // Применить навык обучения к контексту
   try {
     store.applySkills(ctx.id, ["skill-training"]);
@@ -414,7 +414,7 @@ app.put("/api/training/sessions/:sessionId/rename", (req, res) => {
     return;
   }
   ctx.name = name.trim();
-  store.save(ctx, true);
+  store.save(ctx, "training");
   broadcast({ type: "context_renamed", ctxId: sessionId, name: ctx.name });
   res.json({ ok: true, id: sessionId, name: ctx.name });
 });
@@ -562,9 +562,14 @@ app.post("/api/work-on-mistakes/sessions", (req, res) => {
     res.status(404).json({ error: `Контекст «${analyzedCtxId}» не найден` });
     return;
   }
-  // Создать сессию анализа (новый контекст)
-  const analysisCtx = store.create(`Анализ: ${analyzedCtx.name}`);
-  res.status(201).json({ id: analysisCtx.id, name: analysisCtx.name, analyzedCtxId });
+  // Создать сессию работы над ошибками (используем тот же ID что и анализируемая задача)
+  const mistakesSession = store.createMistakesSession(analyzedCtxId, analyzedCtx.name);
+  res.status(201).json({
+    id: mistakesSession.id,
+    name: mistakesSession.name,
+    analyzedCtxId,
+    activeAgentId: "flow-manager"
+  });
 });
 
 app.put("/api/skills/:id", (req, res) => {
@@ -764,9 +769,9 @@ wss.on("connection", (ws) => {
 
   send({ type: "agents", agents: registry.list() });
   send({ type: "skills", skills: skillRegistry.list() });
-  // Фильтруем обучающие сессии из основного списка контекстов
+  // Фильтруем обучающие сессии и сессии работы над ошибками из основного списка
   const allContexts = store.list();
-  const regularContexts = allContexts.filter((c) => !c.trainingAgentId);
+  const regularContexts = allContexts.filter((c) => !c.trainingAgentId && !c.flowMistakesOfCtxId);
   send({ type: "contexts", contexts: regularContexts });
   send({ type: "run_state", actives: runner.getActives() });
 
@@ -780,9 +785,9 @@ wss.on("connection", (ws) => {
     try {
       switch (msg.type) {
         case "list_contexts":
-          // Фильтруем обучающие сессии из основного списка контекстов
+          // Фильтруем обучающие и flow-mistakes сессии из основного списка
           const allCtx = store.list();
-          const regularCtx = allCtx.filter((c) => !c.trainingAgentId);
+          const regularCtx = allCtx.filter((c) => !c.trainingAgentId && !c.flowMistakesOfCtxId);
           send({ type: "contexts", contexts: regularCtx });
           break;
         case "create_context": {
@@ -856,7 +861,7 @@ wss.on("connection", (ws) => {
           let trainingCtx = store.getTraining(msg.ctxId);
           if (trainingCtx && trainingCtx.completed) {
             trainingCtx.completed = false;
-            store.save(trainingCtx, true);
+            store.save(trainingCtx, "training");
             broadcast({ type: "training_session_reopened", sessionId: msg.ctxId });
           }
           await runner.handleMessage(msg.ctxId, msg.text, msg.files);

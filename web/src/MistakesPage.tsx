@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import PageHeader from "./components/PageHeader";
 import SimpleChat from "./components/SimpleChat";
 import { FlowManagerChat } from "./components/FlowManagerChat";
-import type { ClientApi, ContextMeta } from "./api";
-import type { Message } from "./types";
+import type { ClientApi, ContextMeta, Message } from "./api";
+import type { AttachedFile } from "./components/InputArea";
 
 interface MistakesPageProps {
   analyzedCtxId: string;
@@ -17,7 +17,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
   // State для FlowManagerChat (пока заглушки)
   const [flowInput, setFlowInput] = useState("");
   const [flowSentText, setFlowSentText] = useState<string | null>(null);
-  const [flowAttachedFiles, setFlowAttachedFiles] = useState([]);
+  const [flowAttachedFiles, setFlowAttachedFiles] = useState<AttachedFile[]>([]);
 
   // Загрузить информацию об анализируемом контексте
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
         {/* Правая панель: чат с flow-manager */}
         <div className="flex min-h-0 h-full w-1/2 flex-col bg-slate-950">
           <FlowManagerChat
-            ctxId="flow-test"
+            ctxId={analyzedCtxId}
             api={api}
             messages={[]}
             runningAgentId={null}

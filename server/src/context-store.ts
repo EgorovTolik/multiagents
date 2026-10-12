@@ -19,6 +19,8 @@ export interface Message {
   ts: number;
 }
 
+export type ContextType = "work" | "training" | "mistakes";
+
 export interface ContextMeta {
   id: string;
   name: string;
@@ -49,6 +51,8 @@ export interface ContextMeta {
   aborted?: boolean;
   /** Сессия обучения завершена (не удалена, но помечена как completed). */
   completed?: boolean;
+  /** ID анализируемой задачи (для сессий работы над ошибками). */
+  flowMistakesOfCtxId?: string;
   /** Навыки (skills/), применённые к этому чату. */
   skills?: string[];
   /** Какие навыки уже переданы какому агенту (agentId → id навыков). */
@@ -62,6 +66,7 @@ export interface ContextMeta {
  */
 export class ContextStore {
   private trainingRoot: string;
+  private mistakesRoot: string;
 
   constructor(
     private root: string,
@@ -70,6 +75,8 @@ export class ContextStore {
     fs.mkdirSync(root, { recursive: true });
     this.trainingRoot = path.join(path.dirname(root), "training");
     fs.mkdirSync(this.trainingRoot, { recursive: true });
+    this.mistakesRoot = path.join(path.dirname(root), "flow-mistakes");
+    fs.mkdirSync(this.mistakesRoot, { recursive: true });
   }
 
   dir(ctxId: string) {
@@ -80,7 +87,11 @@ export class ContextStore {
     return path.join(this.trainingRoot, ctxId);
   }
 
-  create(name: string, isTraining = false): ContextMeta {
+  mistakesDir(ctxId: string) {
+    return path.join(this.mistakesRoot, ctxId);
+  }
+
+  create(name: string, type: ContextType = "work"): ContextMeta {
     const id = crypto.randomUUID().slice(0, 8);
     const meta: ContextMeta = {
       id,
@@ -89,8 +100,13 @@ export class ContextStore {
       activeAgentId: this.defaultAgent,
       handoffs: [],
     };
-    if (isTraining) {
+    if (type === "training") {
       const dir = this.trainingDir(id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "results"), { recursive: true });
+    } else if (type === "mistakes") {
+      const dir = this.mistakesDir(id);
       fs.mkdirSync(dir, { recursive: true });
       fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
       fs.mkdirSync(path.join(dir, "results"), { recursive: true });
@@ -100,7 +116,16 @@ export class ContextStore {
       fs.mkdirSync(path.join(dir, "tasks"), { recursive: true });
       fs.mkdirSync(path.join(dir, "results"), { recursive: true });
     }
-    this.save(meta, isTraining);
+    this.save(meta, type);
+    return meta;
+  }
+
+  /** Создать сессию работы над ошибками для анализируемого контекста. */
+  createMistakesSession(analyzedCtxId: string, analyzedName: string): ContextMeta {
+    const meta = this.create(`Работа над ошибками: ${analyzedName}`, "mistakes");
+    meta.activeAgentId = "flow-manager";
+    meta.flowMistakesOfCtxId = analyzedCtxId;
+    this.save(meta, "mistakes");
     return meta;
   }
 
@@ -161,12 +186,19 @@ export class ContextStore {
     }
   }
 
-  save(meta: ContextMeta, isTraining?: boolean) {
-    if (isTraining === undefined) {
+  save(meta: ContextMeta, type?: ContextType) {
+    if (type === undefined) {
       // Auto-detect based on trainingAgentId
-      isTraining = !!meta.trainingAgentId;
+      type = meta.trainingAgentId ? "training" : "work";
     }
-    const dir = isTraining ? this.trainingDir(meta.id) : this.dir(meta.id);
+    let dir: string;
+    if (type === "training") {
+      dir = this.trainingDir(meta.id);
+    } else if (type === "mistakes") {
+      dir = this.mistakesDir(meta.id);
+    } else {
+      dir = this.dir(meta.id);
+    }
     fs.writeFileSync(
       path.join(dir, "context.json"),
       JSON.stringify(meta, null, 2),
@@ -251,9 +283,12 @@ export class ContextStore {
   }
 
   appendMessage(ctxId: string, msg: Message) {
-    // Auto-detect training context
-    const isTraining = this.isTrainingContext(ctxId);
-    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
+    // Auto-detect context type
+    let type: ContextType = "work";
+    if (this.isTrainingContext(ctxId)) {
+      type = "training";
+    }
+    const dir = type === "training" ? this.trainingDir(ctxId) : this.dir(ctxId);
     fs.appendFileSync(
       path.join(dir, "messages.jsonl"),
       JSON.stringify(msg) + "\n",
@@ -261,7 +296,7 @@ export class ContextStore {
     const meta = this.get(ctxId);
     if (meta) {
       meta.lastMessageAt = msg.ts;
-      this.save(meta, isTraining);
+      this.save(meta, type);
     }
   }
 
