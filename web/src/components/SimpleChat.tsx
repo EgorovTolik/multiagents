@@ -19,7 +19,7 @@ export default function SimpleChat({ messages, title, agentName }: SimpleChatPro
   }, [messages]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 h-full flex-col">
       {title && (
         <div className="border-b border-slate-800 p-3">
           <h2 className="text-sm font-bold text-slate-200">{title}</h2>

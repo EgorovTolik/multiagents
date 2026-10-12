@@ -50,14 +50,19 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
       />
 
       {/* Основной контент */}
-      <div className="flex flex-1 w-full">
+      <div className="flex flex-1 w-full overflow-hidden">
         {/* Левая панель: история анализируемого контекста */}
-        <div className="flex h-full w-1/2 flex-col border-r border-slate-800 bg-slate-950">
+        <div className="flex min-h-0 h-full w-1/2 flex-col border-r border-slate-800 bg-slate-950">
           <SimpleChat
-            title={`История: ${analyzedCtx ? analyzedCtx.name : analyzedCtxId}`}
             messages={analyzedMessages}
             agentName={agentName}
           />
+          {/* Sticky bottom header */}
+          <div className="border-t border-slate-800 bg-slate-950 p-3">
+            <h2 className="text-sm font-bold text-slate-200">
+              История: {analyzedCtx ? analyzedCtx.name : analyzedCtxId}
+            </h2>
+          </div>
         </div>
 
         {/* Правая панель: чат с flow-manager */}
