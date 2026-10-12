@@ -255,6 +255,12 @@ export function Sidebar({
               >
                 ⬇️ Скачать архив
               </button>
+              <a
+                href={`#/mistakes/${menu.ctxId}`}
+                className="block w-full px-3 py-2 text-left text-sm text-indigo-300 hover:bg-indigo-500/10"
+              >
+                🔍 Общий анализ
+              </a>
               <button
                 onClick={() => {
                   setMenu(null);
