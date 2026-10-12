@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import PageHeader from "./components/PageHeader";
 import { HelpTip } from "./components/HelpTip";
 import { Field } from "./components/Field";
 import { SectionFiles } from "./components/SectionFiles";
@@ -227,37 +228,10 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-dvh flex-col bg-slate-950 text-slate-100">
       {/* Верхняя панель */}
-      <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3 sm:gap-3 sm:px-6">
-        <button
-          onClick={() => setListOpen(true)}
-          className="rounded-lg border border-slate-700 bg-slate-800 p-2 text-slate-300 hover:bg-slate-700 md:hidden"
-          aria-label="Список навыков"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <line x1="2" y1="4" x2="14" y2="4" />
-            <line x1="2" y1="8" x2="14" y2="8" />
-            <line x1="2" y1="12" x2="14" y2="12" />
-          </svg>
-        </button>
-        <button
-          onClick={() => guardedAction(onBack)}
-          className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
-        >
-          ← Чат
-        </button>
-        <h1 className="hidden text-lg font-semibold sm:block">Навыки</h1>
-        {error && <span className="text-sm text-red-400">{error}</span>}
-        <div className="ml-auto flex items-center gap-3">
-          {saved && <span className="hidden text-sm text-emerald-400 sm:inline">✓ Сохранено</span>}
-          <button
-            onClick={save}
-            disabled={!data || !anyDirty || saving}
-            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 sm:px-5"
-          >
-            {saving ? "Сохранение…" : isNew ? "Создать" : "Сохранить"}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="Навыки"
+        onBack={() => guardedAction(onBack)}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Мобильный overlay для drawer */}
