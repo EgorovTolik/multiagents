@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -88,6 +88,16 @@ function MessageRowInner({
     }
   }, [m.thinking, streaming]);
 
+  // Animation state for copy feedback
+  const [copied, setCopied] = useState(false);
+  const handleCopyMsgId = useCallback(() => {
+    if (!msgId) return;
+    navigator.clipboard.writeText(msgId);
+    notify(`ID скопирован: ${msgId}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1000);
+  }, [msgId, notify]);
+
   const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
 
   if (m.role === "system") {
@@ -140,8 +150,10 @@ function MessageRowInner({
         </span>
         {msgId && (
           <span
-            onClick={() => { navigator.clipboard.writeText(msgId); notify(`ID скопирован: ${msgId}`); }}
-            className="mb-1 ml-1 inline-block cursor-pointer rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-slate-600 hover:text-slate-300"
+            onClick={handleCopyMsgId}
+            className={`mb-1 ml-1 inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition-colors duration-1000 ${
+              copied ? "border-red-400 bg-red-900/30" : "border-slate-700 bg-slate-900 hover:border-slate-600"
+            } text-slate-400`}
             title="Кликните чтобы скопировать ID"
           >
             #{msgId}
