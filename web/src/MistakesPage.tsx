@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import PageHeader from "./components/PageHeader";
 import SimpleChat from "./components/SimpleChat";
 import { FlowManagerChat } from "./components/FlowManagerChat";
 import type { ClientApi, ContextMeta, Message } from "./api";
+import { useFlowManagerApi } from "./hooks/useFlowManagerApi";
 import type { AttachedFile } from "./components/InputArea";
 
 interface MistakesPageProps {
@@ -14,7 +15,10 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
   const [analyzedCtx, setAnalyzedCtx] = useState<{ id: string; name: string } | null>(null);
   const [analyzedMessages, setAnalyzedMessages] = useState<Message[]>([]);
 
-  // State для FlowManagerChat (пока заглушки)
+  // Hook для flow-manager коммуникации (отдельный WebSocket + state)
+  const flowManagerApi = useFlowManagerApi({ api, analyzedCtxId });
+
+  // State для FlowManagerChat UI
   const [flowInput, setFlowInput] = useState("");
   const [flowSentText, setFlowSentText] = useState<string | null>(null);
   const [flowAttachedFiles, setFlowAttachedFiles] = useState<AttachedFile[]>([]);
@@ -48,6 +52,23 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
     return id; // Пока просто ID, позже можно маппить на имена
   };
 
+  // Отправка сообщения flow-manager (создаёт сессию при первом сообщении)
+  const handleFlowSend = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+    setFlowSentText(text);
+    setFlowInput("");
+
+    let sessionId = flowManagerApi.getSessionId();
+    // Если сессия ещё не создана — создаём её сейчас и используем возвращённый ID
+    if (!sessionId) {
+      sessionId = await flowManagerApi.createSession();
+    }
+    if (!sessionId) return;
+
+    // Отправить сообщение через WebSocket
+    flowManagerApi.send({ type: "message", ctxId: sessionId, text });
+  }, [analyzedCtxId, flowManagerApi]);
+
   return (
     <div className="flex h-dvh flex-col bg-slate-900 text-slate-100">
       {/* Заголовок */}
@@ -62,7 +83,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
         <div className="flex min-h-0 h-full w-1/2 flex-col border-r border-slate-800 bg-slate-950">
           <SimpleChat
             messages={analyzedMessages}
-            msgIds={analyzedMessages.map((m) => m.id)}
+            msgIds={analyzedMessages.map((m, i) => m.id ?? `msg-${i}`)}
             agentName={agentName}
           />
           {/* Sticky bottom header */}
@@ -76,10 +97,10 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
         {/* Правая панель: чат с flow-manager */}
         <div className="flex min-h-0 h-full w-1/2 flex-col bg-slate-950">
           <FlowManagerChat
-            ctxId={analyzedCtxId}
+            ctxId={flowManagerApi.getSessionId() || analyzedCtxId}
             api={api}
-            messages={[]}
-            runningAgentId={null}
+            messages={flowManagerApi.getFlowMessages()}
+            runningAgentId={flowManagerApi.isFlowRunning() ? "flow-manager" : null}
             skills={[]}
             appliedSkills={[]}
             input={flowInput}
@@ -89,9 +110,9 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
             attachedFiles={flowAttachedFiles}
             setAttachedFiles={setFlowAttachedFiles}
             onAddFiles={() => {}}
-            onSend={() => {}}
+            onSend={(text, files) => handleFlowSend(text)}
             onApplySkills={() => {}}
-            onAbort={() => {}}
+            onAbort={() => flowManagerApi.send({ type: "abort", ctxId: flowManagerApi.getSessionId() ?? analyzedCtxId })}
           />
         </div>
       </div>

@@ -6,6 +6,7 @@ previews/
 archives/
 shared/
 flow-ai/
+flow-mistakes/
 .pi/
 *.log
 .DS_Store

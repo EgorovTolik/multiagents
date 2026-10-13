@@ -168,6 +168,15 @@ export class ContextStore {
         // ignore
       }
     }
+    // Затем сессии работы над ошибками
+    const mp = path.join(this.mistakesDir(id), "context.json");
+    if (fs.existsSync(mp)) {
+      try {
+        return JSON.parse(fs.readFileSync(mp, "utf8"));
+      } catch {
+        // ignore
+      }
+    }
     return undefined;
   }
 
@@ -188,8 +197,14 @@ export class ContextStore {
 
   save(meta: ContextMeta, type?: ContextType) {
     if (type === undefined) {
-      // Auto-detect based on trainingAgentId
-      type = meta.trainingAgentId ? "training" : "work";
+      // Auto-detect based on context properties
+      if (meta.trainingAgentId) {
+        type = "training";
+      } else if (meta.flowMistakesOfCtxId) {
+        type = "mistakes";
+      } else {
+        type = "work";
+      }
     }
     let dir: string;
     if (type === "training") {
@@ -220,9 +235,22 @@ export class ContextStore {
     }
   }
 
+  /** Определяет тип контекста по ID и возвращает соответствующую директорию. */
+  resolveDir(ctxId: string): { dir: string; type: ContextType } {
+    if (this.isTrainingContext(ctxId)) {
+      return { dir: this.trainingDir(ctxId), type: "training" };
+    }
+    // Check for mistakes session
+    const mp = path.join(this.mistakesDir(ctxId), "context.json");
+    if (fs.existsSync(mp)) {
+      return { dir: this.mistakesDir(ctxId), type: "mistakes" };
+    }
+    return { dir: this.dir(ctxId), type: "work" };
+  }
+
   /** Рекурсивный размер директории контекста в байтах (0, если не существует). */
   dirSize(ctxId: string): number {
-    const dir = this.dir(ctxId);
+    const { dir } = this.resolveDir(ctxId);
     let total = 0;
     const walk = (p: string) => {
       for (const e of fs.readdirSync(p, { withFileTypes: true })) {
@@ -245,7 +273,7 @@ export class ContextStore {
    * Локальные пути сервера в клиент не уходят.
    */
   maskPaths(ctxId: string, text: string): string {
-    const dir = this.dir(ctxId);
+    const { dir } = this.resolveDir(ctxId);
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     // Проход 0: image-ссылки ![alt](<префикс>:/path/in/ctx/dir/file.png), где цель — локальный путь
@@ -283,12 +311,7 @@ export class ContextStore {
   }
 
   appendMessage(ctxId: string, msg: Message) {
-    // Auto-detect context type
-    let type: ContextType = "work";
-    if (this.isTrainingContext(ctxId)) {
-      type = "training";
-    }
-    const dir = type === "training" ? this.trainingDir(ctxId) : this.dir(ctxId);
+    const { dir, type } = this.resolveDir(ctxId);
     fs.appendFileSync(
       path.join(dir, "messages.jsonl"),
       JSON.stringify(msg) + "\n",
@@ -315,8 +338,7 @@ export class ContextStore {
 
   /** Удалить сообщения начиная с индекса fromIndex (включительно). */
   truncateHistory(ctxId: string, fromIndex: number): Message[] {
-    const isTraining = this.isTrainingContext(ctxId);
-    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
+    const { dir } = this.resolveDir(ctxId);
     const p = path.join(dir, "messages.jsonl");
     if (!fs.existsSync(p)) return [];
     const lines = fs.readFileSync(p, "utf8").split("\n").filter(Boolean);
@@ -326,8 +348,7 @@ export class ContextStore {
   }
 
   readMessages(ctxId: string): Message[] {
-    const isTraining = this.isTrainingContext(ctxId);
-    const dir = isTraining ? this.trainingDir(ctxId) : this.dir(ctxId);
+    const { dir } = this.resolveDir(ctxId);
     const p = path.join(dir, "messages.jsonl");
     if (!fs.existsSync(p)) return [];
     return fs
