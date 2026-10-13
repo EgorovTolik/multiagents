@@ -24,7 +24,7 @@ export default function MistakesPage({ analyzedCtxId, api, agents }: MistakesPag
   const [flowSentText, setFlowSentText] = useState<string | null>(null);
   const [flowAttachedFiles, setFlowAttachedFiles] = useState<AttachedFile[]>([]);
 
-  // Сбрасываем sentText когда агент завершил ответ
+  // Сбрасываем sentText когда агент завершил ответ (на основе WebSocket событий)
   useEffect(() => {
     if (!flowManagerApi.isFlowRunning() && flowSentText !== null) {
       setFlowSentText(null);

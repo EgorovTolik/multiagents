@@ -58,7 +58,7 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
             setFlowMessages((prev) => [...prev, msg.message]);
           } else if (msg.type === "run_start") {
             setFlowRunning(true);
-          } else if (msg.type === "assistant_end") {
+          } else if (msg.type === "run_end") {
             setFlowRunning(false);
           } else if (msg.type === "delta") {
             setFlowMessages((prev) => {
