@@ -19,5 +19,6 @@
       "apiKey": "sk-koS7p4o42Rx5uocstFLrKw"
     }
   },
-  "recoveryMode": "router_agent"
+  "recoveryMode": "router_agent",
+  "maxRecoveries": 4
 }
