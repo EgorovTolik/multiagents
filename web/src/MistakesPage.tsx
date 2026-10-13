@@ -23,6 +23,13 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
   const [flowSentText, setFlowSentText] = useState<string | null>(null);
   const [flowAttachedFiles, setFlowAttachedFiles] = useState<AttachedFile[]>([]);
 
+  // Сбрасываем sentText когда агент завершил ответ
+  useEffect(() => {
+    if (!flowManagerApi.isFlowRunning() && flowSentText !== null) {
+      setFlowSentText(null);
+    }
+  }, [flowManagerApi, flowSentText]);
+
   // Загрузить информацию об анализируемом контексте
   useEffect(() => {
     fetch(`/api/contexts/${analyzedCtxId}`)
@@ -31,18 +38,20 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
       .catch(() => {});
     
     // Загрузить историю сообщений анализируемого контекста
+    // Фильтруем flow-manager сообщения — они не должны отображаться в истории задачи
     fetch(`/api/contexts/${analyzedCtxId}/messages`)
       .then((r) => r.json())
       .then((data) => {
-        // Map API response to Message format: { role, agentId, text }
-        const mapped = (data.messages || []).map((m: any, i: number) => ({
-          role: m.role,
-          agentId: m.agentId,
-          text: m.text,
-          thinking: m.thinking,
-          ts: m.ts || Date.now(),
-          id: `msg-${i + 1}`,
-        }));
+        const mapped = (data.messages || [])
+          .filter((m: any) => m.agentId !== "flow-manager")
+          .map((m: any, i: number) => ({
+            role: m.role,
+            agentId: m.agentId,
+            text: m.text,
+            thinking: m.thinking,
+            ts: m.ts || Date.now(),
+            id: `msg-${i + 1}`,
+          }));
         setAnalyzedMessages(mapped);
       })
       .catch(() => {});

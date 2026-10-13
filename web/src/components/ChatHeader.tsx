@@ -15,7 +15,7 @@ export function ChatHeader({
   agentName,
 }: {
   ctx: ContextMeta;
-  running: { ctxId: string; agentId: string } | null;
+  running: { ctxId?: string; agentId: string } | null;
   pending: Handoff | null;
   wsStatus: ConnStatus;
   onOpenSidebar: () => void;
@@ -42,7 +42,7 @@ export function ChatHeader({
           {agentName(ctx.activeAgentId)}
         </span>
       )}
-      {running?.ctxId === ctx.id && (
+      {running && (!running.ctxId || running.ctxId === ctx.id) && (
         <span className="flex items-center gap-1.5 text-xs text-emerald-400">
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
           {agentName(running.agentId)} работает…

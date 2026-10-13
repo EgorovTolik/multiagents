@@ -1125,9 +1125,15 @@ export class AgentRunner {
 
   /** Путь к рабочей директории контекста (учитывает обучающие сессии). */
   private getCtxDir(ctxId: string): string {
-    return this.store.isTrainingContext(ctxId)
-      ? this.store.trainingDir(ctxId)
-      : this.store.dir(ctxId);
+    if (this.store.isTrainingContext(ctxId)) {
+      return this.store.trainingDir(ctxId);
+    }
+    // Check for mistakes session
+    const { type } = this.store.resolveDir(ctxId);
+    if (type === "mistakes") {
+      return this.store.mistakesDir(ctxId);
+    }
+    return this.store.dir(ctxId);
   }
 
   /** Сохраняет image-блоки из результата инструмента в contexts/<id>/attachments/ и возвращает markdown-ссылки. */

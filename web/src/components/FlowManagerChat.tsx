@@ -130,7 +130,7 @@ export function FlowManagerChat({
 
       <ChatHeader
         ctx={{ id: ctxId, name: "Агент", createdAt: 0, activeAgentId: "flow-manager", handoffs: [] }}
-        running={runningAgentId ? { ctxId, agentId: runningAgentId } : null}
+        running={runningAgentId ? { agentId: runningAgentId } : null}
         pending={null}
         wsStatus={api.status}
         onOpenSidebar={() => {}}
