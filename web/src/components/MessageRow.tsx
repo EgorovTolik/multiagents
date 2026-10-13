@@ -101,11 +101,29 @@ function MessageRowInner({
   const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
 
   if (m.role === "system") {
-    // Системные сообщения (передачи между агентами) — без контекстного меню
+    // Системные сообщения: отделяем тип от контента для визуальной чёткости
+    let typePart = "";
+    let contentPart = m.text;
+    
+    // Разбираем передачи между агентами
+    const handoffMatch = m.text.match(/^Передача:\s+(.+?)\s+→\s+(.+?)\s+—\s+(.*)$/);
+    if (handoffMatch) {
+      typePart = `Передача: ${agentName(handoffMatch[1])} → ${agentName(handoffMatch[2])}`;
+      contentPart = handoffMatch[3];
+    }
+    // Разбираем вопросы от агентов
+    const questionMatch = m.text.match(/^❓\s+(.+?)\s+задал вопрос пользователю:\s+«(.*)»/);
+    if (questionMatch) {
+      typePart = `❓ ${agentName(questionMatch[1])} задал вопрос пользователю`;
+      contentPart = questionMatch[2];
+    }
+
     return (
       <div className="my-3 flex justify-center">
-        <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
-          {m.text}
+        <span className="max-w-[85%] whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-400">
+          {typePart && <span className="font-semibold text-slate-300">{typePart}</span>}
+          {typePart && contentPart !== m.text && <br />}
+          {contentPart}
         </span>
       </div>
     );
