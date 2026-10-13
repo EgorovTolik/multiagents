@@ -111,11 +111,22 @@ function MessageRowInner({
       typePart = `Передача: ${agentName(handoffMatch[1])} → ${agentName(handoffMatch[2])}`;
       contentPart = handoffMatch[3];
     }
-    // Разбираем вопросы от агентов
-    const questionMatch = m.text.match(/^❓\s+(.+?)\s+задал вопрос пользователю:\s+«(.*)»/);
-    if (questionMatch) {
-      typePart = `❓ ${agentName(questionMatch[1])} задал вопрос пользователю`;
-      contentPart = questionMatch[2];
+    // Разбираем вопросы от агентов — ищем последнюю закрывающую кавычку
+    const questionStartIdx = m.text.indexOf("задал вопрос пользователю:");
+    if (questionStartIdx !== -1) {
+      const agentMatch = m.text.match(/^❓\s+(.+?)\s+задал/);
+      if (agentMatch) {
+        typePart = `❓ ${agentName(agentMatch[1])} задал вопрос пользователю`;
+        // Извлекаем контент между первой « и последней »
+        const quoteStart = m.text.indexOf("«", questionStartIdx);
+        const quoteEnd = m.text.lastIndexOf("»");
+        if (quoteStart !== -1 && quoteEnd !== -1 && quoteEnd > quoteStart) {
+          contentPart = m.text.substring(quoteStart + 1, quoteEnd);
+        } else {
+          // Если кавычки не найдены — берём весь текст после двоеточия
+          contentPart = m.text.substring(questionStartIdx + "задал вопрос пользователю:".length).trim();
+        }
+      }
     }
 
     return (
