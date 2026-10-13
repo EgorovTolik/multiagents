@@ -2,16 +2,17 @@ import { useState, useEffect, useCallback } from "react";
 import PageHeader from "./components/PageHeader";
 import SimpleChat from "./components/SimpleChat";
 import { FlowManagerChat } from "./components/FlowManagerChat";
-import type { ClientApi, ContextMeta, Message } from "./api";
+import type { AgentInfo, ClientApi, ContextMeta, Message } from "./api";
 import { useFlowManagerApi } from "./hooks/useFlowManagerApi";
 import type { AttachedFile } from "./components/InputArea";
 
 interface MistakesPageProps {
   analyzedCtxId: string;
   api: ClientApi;
+  agents: AgentInfo[];
 }
 
-export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) {
+export default function MistakesPage({ analyzedCtxId, api, agents }: MistakesPageProps) {
   const [analyzedCtx, setAnalyzedCtx] = useState<{ id: string; name: string } | null>(null);
   const [analyzedMessages, setAnalyzedMessages] = useState<Message[]>([]);
 
@@ -61,9 +62,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
     flowManagerApi.loadExistingSession().catch((e) => console.warn("Failed to load/create mistakes session:", e));
   }, [analyzedCtxId]);
 
-  const agentName = (id: string) => {
-    return id; // Пока просто ID, позже можно маппить на имена
-  };
+  const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
 
   // Отправка сообщения flow-manager (создаёт сессию при первом сообщении)
   const handleFlowSend = useCallback(async (text: string) => {
@@ -114,6 +113,7 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
             api={api}
             messages={flowManagerApi.getFlowMessages()}
             runningAgentId={flowManagerApi.isFlowRunning() ? "flow-manager" : null}
+            agentName={agentName}
             skills={[]}
             appliedSkills={[]}
             input={flowInput}

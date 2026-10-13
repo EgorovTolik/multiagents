@@ -320,7 +320,7 @@ export default function App() {
   }
   if (route.startsWith("#/mistakes/")) {
     const analyzedCtxId = route.replace("#/mistakes/", "");
-    return <MistakesPage analyzedCtxId={analyzedCtxId} api={api} />;
+    return <MistakesPage analyzedCtxId={analyzedCtxId} api={api} agents={agents} />;
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────────

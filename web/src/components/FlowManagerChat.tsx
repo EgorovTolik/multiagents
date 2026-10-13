@@ -9,6 +9,7 @@ export interface FlowManagerChatProps {
   api: ClientApi;
   messages: Message[];
   runningAgentId: string | null;
+  agentName?: (id: string) => string;
   skills: SkillInfo[];
   appliedSkills: string[];
   input: string;
@@ -28,6 +29,7 @@ export function FlowManagerChat({
   api,
   messages,
   runningAgentId,
+  agentName: propAgentName,
   skills,
   appliedSkills,
   input,
@@ -50,8 +52,9 @@ export function FlowManagerChat({
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ─── Имя агента по ID (flow-manager) ──────────────────────────────────────
-  const agentName = useCallback((id: string) => "flow-manager", []);
+  // ─── Имя агента по ID — используем переданный resolver или fallback на flow-manager ──
+  const defaultAgentName = useCallback((id: string) => id, []);
+  const agentName = propAgentName ?? defaultAgentName;
 
   // ─── Определение индекса стримящегося сообщения ──────────────────────────
   const lastMsg = messages[messages.length - 1];
@@ -163,7 +166,7 @@ export function FlowManagerChat({
           ))}
           {messages.length === 0 && (
             <div className="flex h-full items-center justify-center text-sm text-slate-600">
-              Напиши сообщение — диалог начнётся с flow-manager
+              Напиши сообщение — диалог начнётся с {agentName("flow-manager")}
             </div>
           )}
           <div ref={bottomRef} />
@@ -196,7 +199,7 @@ export function FlowManagerChat({
         onAddFiles={onAddFiles}
         attachedFiles={attachedFiles}
         onRemoveFile={(i) => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
-        placeholder="Сообщение для flow-manager"
+        placeholder={`Сообщение для ${agentName("flow-manager")}`}
         disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
         sentText={sentText}
         skills={skills}
