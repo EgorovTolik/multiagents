@@ -567,6 +567,9 @@ app.get("/api/work-on-mistakes/sessions/:analyzedCtxId", (req, res) => {
   // Сначала ищем существующую сессию
   const existing = store.findMistakesSession(analyzedCtxId);
   if (existing) {
+    // Гарантируем что mistakes сессия всегда использует flow-manager как активного агента
+    existing.activeAgentId = "flow-manager";
+    store.save(existing);
     res.json({
       id: existing.id,
       name: existing.name,

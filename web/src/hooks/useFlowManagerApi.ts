@@ -60,6 +60,17 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
             setFlowRunning(true);
           } else if (msg.type === "run_end") {
             setFlowRunning(false);
+          } else if (msg.type === "thinking_delta") {
+            // Стриминг размышлений — накапливаем в поле thinking последнего сообщения
+            setFlowMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last && last.role === "assistant" && last.agentId === msg.agentId) {
+                const updated = { ...last, thinking: (last.thinking ?? "") + msg.text };
+                return [...prev.slice(0, -1), updated];
+              }
+              // Если нет активного сообщения — создаём новое с только размышлениями
+              return [...prev, { role: "assistant", agentId: msg.agentId, text: "", thinking: msg.text, ts: Date.now() }];
+            });
           } else if (msg.type === "delta") {
             setFlowMessages((prev) => {
               const last = prev[prev.length - 1];
@@ -104,8 +115,9 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
           const msgsResponse = await fetch(`/api/contexts/${data.id}/messages`);
           if (msgsResponse.ok) {
             const msgsData = await msgsResponse.json();
+            // Все сообщения в mistakes сессии относятся к flow-manager диалогу,
+            // даже если agentId был сброшен на orchestrator во время тестирования
             const mapped: Message[] = (msgsData.messages || [])
-              .filter((m: any) => m.agentId === "flow-manager" || m.role === "user")
               .map((m: any, i: number) => ({
                 role: m.role,
                 agentId: m.agentId,
