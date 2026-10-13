@@ -83,6 +83,21 @@ export function ChatComponent({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [dragOver, setDragOver] = useState(false);
 
+  // Автофокус после завершения ответа агента
+  const [inputAutoFocus, setInputAutoFocus] = useState(false);
+  useEffect(() => {
+    if (!runningAgentId) {
+      // Агент завершил работу — фокусируем поле ввода для нового сообщения пользователя
+      setInputAutoFocus(true);
+    }
+  }, [runningAgentId]);
+  // Сбрасываем флаг после того как пользователь начнёт вводить
+  useEffect(() => {
+    if (input) {
+      setInputAutoFocus(false);
+    }
+  }, [input]);
+
   // Refs для скролла
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -265,6 +280,7 @@ export function ChatComponent({
         appliedSkills={appliedSkills}
         onApplySkills={onApplySkills}
         skillsDisabled={api.status !== "connected"}
+        autoFocus={inputAutoFocus}
       />
     </div>
   );

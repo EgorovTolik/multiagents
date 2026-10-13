@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { SkillInfo } from "../api";
 import { SkillPicker } from "./SkillPicker";
 
@@ -23,6 +23,7 @@ export function InputArea({
   appliedSkills,
   onApplySkills,
   skillsDisabled = false,
+  autoFocus = false,
 }: {
   input: string;
   onInputChange: (v: string) => void;
@@ -38,9 +39,18 @@ export function InputArea({
   onApplySkills: (ids: string[]) => void;
   /** Навыки применяются независимо от отправки сообщения — блокируем только при разрыве WS. */
   skillsDisabled?: boolean;
+  /** Автоматически фокусировать поле ввода когда значение меняется на true */
+  autoFocus?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Автофокус при изменении autoFocus
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus]);
 
   function autoExpand() {
     const el = textareaRef.current;
