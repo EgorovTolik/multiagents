@@ -550,8 +550,10 @@ app.get("/api/contexts/:id/messages", (req, res) => {
 });
 
 // ─── Work on mistakes API ──────────────────────────────────────────────────
-app.post("/api/work-on-mistakes/sessions", (req, res) => {
-  const analyzedCtxId = String(req.body?.analyzedCtxId ?? "");
+
+// Найти или создать сессию работы над ошибками для анализируемого контекста
+app.get("/api/work-on-mistakes/sessions/:analyzedCtxId", (req, res) => {
+  const analyzedCtxId = String(req.params.analyzedCtxId ?? "");
   if (!analyzedCtxId || !/^[a-f0-9]{8}$/.test(analyzedCtxId)) {
     res.status(400).json({ error: "Некорректный ID контекста задачи" });
     return;
@@ -562,13 +564,26 @@ app.post("/api/work-on-mistakes/sessions", (req, res) => {
     res.status(404).json({ error: `Контекст «${analyzedCtxId}» не найден` });
     return;
   }
-  // Создать сессию работы над ошибками (используем тот же ID что и анализируемая задача)
+  // Сначала ищем существующую сессию
+  const existing = store.findMistakesSession(analyzedCtxId);
+  if (existing) {
+    res.json({
+      id: existing.id,
+      name: existing.name,
+      analyzedCtxId,
+      activeAgentId: "flow-manager",
+      found: true
+    });
+    return;
+  }
+  // Если нет — создаём новую
   const mistakesSession = store.createMistakesSession(analyzedCtxId, analyzedCtx.name);
   res.status(201).json({
     id: mistakesSession.id,
     name: mistakesSession.name,
     analyzedCtxId,
-    activeAgentId: "flow-manager"
+    activeAgentId: "flow-manager",
+    found: false
   });
 });
 

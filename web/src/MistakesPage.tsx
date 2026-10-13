@@ -30,12 +30,12 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
     }
   }, [flowManagerApi, flowSentText]);
 
-  // Загрузить информацию об анализируемом контексте
+  // Загрузить информацию об анализируемом контексте и восстановить/создать mistakes сессию
   useEffect(() => {
     fetch(`/api/contexts/${analyzedCtxId}`)
       .then((r) => r.json())
       .then((data) => setAnalyzedCtx(data))
-      .catch(() => {});
+      .catch((e) => console.warn("Failed to load analyzed context info:", e));
     
     // Загрузить историю сообщений анализируемого контекста
     // Фильтруем flow-manager сообщения — они не должны отображаться в истории задачи
@@ -54,7 +54,11 @@ export default function MistakesPage({ analyzedCtxId, api }: MistakesPageProps) 
           }));
         setAnalyzedMessages(mapped);
       })
-      .catch(() => {});
+      .catch((e) => console.warn("Failed to load analyzed context messages:", e));
+
+    // Восстановить существующую mistakes сессию или создать новую
+    // Вызывается один раз при монтировании и изменении analyzedCtxId
+    flowManagerApi.loadExistingSession().catch((e) => console.warn("Failed to load/create mistakes session:", e));
   }, [analyzedCtxId]);
 
   const agentName = (id: string) => {

@@ -86,6 +86,48 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
     };
   }, []);
 
+  const loadExistingSession = useCallback(async (): Promise<string | null> => {
+    try {
+      // GET endpoint: find existing or create new
+      const response = await fetch(`/api/work-on-mistakes/sessions/${analyzedCtxId}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+      }
+
+      const data = await response.json();
+      setSessionId(data.id);
+
+      // If existing session was found, load its messages
+      if (data.found) {
+        try {
+          const msgsResponse = await fetch(`/api/contexts/${data.id}/messages`);
+          if (msgsResponse.ok) {
+            const msgsData = await msgsResponse.json();
+            const mapped: Message[] = (msgsData.messages || [])
+              .filter((m: any) => m.agentId === "flow-manager" || m.role === "user")
+              .map((m: any, i: number) => ({
+                role: m.role,
+                agentId: m.agentId,
+                text: m.text,
+                thinking: m.thinking,
+                ts: m.ts || Date.now(),
+                id: `msg-${i + 1}`,
+              }));
+            setFlowMessages(mapped);
+          }
+        } catch (e) {
+          console.warn("Failed to load existing mistakes session messages:", e);
+        }
+      }
+
+      return data.id;
+    } catch (error: any) {
+      console.error("Failed to load/create mistakes session:", error.message || error);
+      return null;
+    }
+  }, [analyzedCtxId]);
+
   const createSession = useCallback(async (): Promise<string | null> => {
     try {
       const response = await fetch("/api/work-on-mistakes/sessions", {
@@ -128,6 +170,7 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
 
   return {
     createSession,
+    loadExistingSession,
     getSessionId,
     send,
     getFlowMessages,

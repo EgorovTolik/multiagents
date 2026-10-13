@@ -129,6 +129,28 @@ export class ContextStore {
     return meta;
   }
 
+  /** Найти существующую сессию работы над ошибками для анализируемого контекста. */
+  findMistakesSession(analyzedCtxId: string): ContextMeta | null {
+    if (!fs.existsSync(this.mistakesRoot)) return null;
+    try {
+      const dirs = fs.readdirSync(this.mistakesRoot, { withFileTypes: true });
+      for (const e of dirs) {
+        if (!e.isDirectory()) continue;
+        try {
+          const meta = this.get(e.name);
+          if (meta && meta.flowMistakesOfCtxId === analyzedCtxId) {
+            return meta;
+          }
+        } catch (err) {
+          console.warn(`[context-store] Failed to read mistakes session ${e.name}:`, err);
+        }
+      }
+    } catch (err) {
+      console.warn(`[context-store] Failed to list mistakes sessions:`, err);
+    }
+    return null;
+  }
+
   list(): ContextMeta[] {
     if (!fs.existsSync(this.root)) return [];
     return fs
