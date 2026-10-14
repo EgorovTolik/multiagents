@@ -691,6 +691,8 @@ app.put("/api/config", (req, res) => {
     if (maxUploadSizeMb !== undefined) current.maxUploadSizeMb = maxUploadSizeMb;
     if (recoveryMode !== undefined) current.recoveryMode = recoveryMode === "orchestrator_check" ? "orchestrator_check" : "router_agent";
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2));
+    // Применить обновлённую конфигурацию в раннере (maxRecoveries и т.д.)
+    runner.updateSystemConfig();
     // Пересинхронизировать API-ключи
     syncAuthKeys();
     // Очистить кеш моделей при изменении провайдеров

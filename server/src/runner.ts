@@ -69,8 +69,8 @@ function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stall
 }
 
 const sysCfg = loadSystemConfig();
-const MAX_HANDOFFS = sysCfg.maxHandoffs;
-const MAX_RECOVERIES = sysCfg.maxRecoveries;
+let MAX_HANDOFFS = sysCfg.maxHandoffs;
+let MAX_RECOVERIES = sysCfg.maxRecoveries;
 const STALL_TIMEOUT_MS = sysCfg.stallTimeoutMs;
 const MAX_UPLOAD_SIZE_MB = sysCfg.maxUploadSizeMb;
 const RECOVERY_MODE: RecoveryMode = sysCfg.recoveryMode;
@@ -152,6 +152,13 @@ export interface PiToolGroup {
 }
 
 export class AgentRunner {
+  /** Перечитывает системную конфигурацию (maxRecoveries и т.д.) без перезапуска. */
+  updateSystemConfig() {
+    const cfg = loadSystemConfig();
+    MAX_HANDOFFS = cfg.maxHandoffs;
+    MAX_RECOVERIES = cfg.maxRecoveries;
+  }
+
   private sessions = new Map<string, AgentSession>();
   /** Чат → текущий агент. Цепочки из разных чатов идут параллельно. */
   private activeByCtx = new Map<string, string>();
@@ -1167,6 +1174,17 @@ export class AgentRunner {
   private forward(ctxId: string, agentId: string, ev: any) {
     if (ev.type === "message_update" || ev.type === "message_start" || ev.type === "message_end" || ev.type === "tool_execution_start" || ev.type === "tool_execution_end") {
       this.lastEventByCtx.set(ctxId, Date.now());
+    }
+    // Диагностика: логируем все события агентов
+    if (ev.type === "tool_execution_start") {
+      console.log(`[${agentId}] tool_call: ${ev.name || ev.tool_name}`);
+    } else if (ev.type === "tool_execution_end") {
+      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR - ${ev.error}` : "OK"}`);
+    } else if (ev.type === "message_start") {
+      console.log(`[${agentId}] message_start`);
+    } else if (ev.type === "message_end") {
+      const text = ev.message?.content?.[0]?.text || "";
+      console.log(`[${agentId}] message_end (${text.length} chars)`);
     }
     // Изображения из результатов инструментов (take_screenshot и т.п.) — сохраняем
     // в контекст, чтобы прикрепить к следующему сообщению этого агента
