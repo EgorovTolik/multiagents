@@ -1,7 +1,6 @@
 {
   "name": "Программист",
   "description": "Пишет, правит и отлаживает код в директории контекста задачи. Использовать для любых задач, связанных с написанием или изменением кода.",
-  "forgetSessionAfterStep": false,
   "disabledTools": [
     "cancel_interactive_subagent",
     "cancel_subagent",
@@ -25,5 +24,6 @@
     "subagent_with_context",
     "update_orchestrator_agent_description",
     "workflow"
-  ]
+  ],
+  "forgetSessionAfterStep": true
 }

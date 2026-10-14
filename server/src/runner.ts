@@ -840,7 +840,24 @@ export class AgentRunner {
             return;
           }
 
-          // Новый режим: запуск агента-маршрутизатора для разбора обрыва.
+          // ПЫТАЕМСЯ АВТОМАТИЧЕСКИ ВОССТАНОВИТЬ: проверяем, не остановился ли агент
+          // до завершения работы (нет result-файла для последней задачи).
+          const incomplete = this.detectIncompleteTask(ctxId, agentId, task);
+          if (incomplete) {
+            console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
+            const handoff: Handoff = {
+              from: "system",
+              to: agentId,
+              reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)",
+              context: incomplete.context,
+              ts: Date.now(),
+            };
+            ctx.recoveryCount = recoveries + 1;
+            this.doHandoff(ctxId, ctx, handoff, this.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
+            return;
+          }
+
+          // Автоматическое восстановление не сработало — передаём маршрутизатору.
           if (RECOVERY_MODE === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
             const handoff: Handoff = {
               from: agentId,
@@ -975,6 +992,126 @@ export class AgentRunner {
       `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ (разреши себе использовать read/bash для проверки состояния).\n` +
       `1. Если работа полностью завершена — кратко сообщи пользователю итог.\n` +
       `2. Если работа НЕ завершена — передай дальше по цепочке через route_to_agent с корректирующим промптом.`
+    );
+  }
+
+  /**
+   * Автоматическое обнаружение незавершённых задач при обрыве цепочки.
+   * Проверяет, есть ли result-файл для последней task-задачи агента.
+   * Если нет — агент остановился до завершения работы.
+   */
+  private detectIncompleteTask(
+    ctxId: string,
+    agentId: string,
+    lastTask: Handoff | undefined
+  ): { context: string; taskTitle?: string } | null {
+    try {
+      const ctx = this.store.get(ctxId);
+      if (!ctx) return null;
+      const ctxDir = this.getCtxDir(ctxId);
+      // Ищем последнее задание, которое передавалось этому агенту (по истории handoffs)
+      let targetHandoff = lastTask;
+      if (!targetHandoff || targetHandoff.to !== agentId) {
+        // Попробуем найти последний handoff к этому агенту в истории
+        for (let i = ctx.handoffs.length - 1; i >= 0; i--) {
+          if (ctx.handoffs[i].to === agentId) {
+            targetHandoff = ctx.handoffs[i];
+            break;
+          }
+        }
+      }
+      if (!targetHandoff) return null;
+
+      // Проверяем, упомянут ли файл task в контексте задания
+      const context = targetHandoff.context || "";
+      const taskFileMatch = context.match(/tasks\/task-[0-9]+\.md/);
+      if (!taskFileMatch) {
+        // Нет упоминания файла задачи — не можем определить, завершена ли она по файлам
+        return null;
+      }
+
+      const taskFilePath = path.join(ctxDir, taskFileMatch[0]);
+      // Проверяем существование task-файла
+      if (!fs.existsSync(taskFilePath)) {
+        console.log(`[runner] ${ctxId}/${agentId}: файл задачи не найден: ${taskFilePath}`);
+        return null;
+      }
+
+      // Читаем заголовок task-файла для идентификации
+      let taskTitle = "";
+      try {
+        const taskContent = fs.readFileSync(taskFilePath, "utf8");
+        const titleMatch = taskContent.match(/^# Задание: (.+)$/m);
+        if (titleMatch) taskTitle = titleMatch[1];
+      } catch (e) {
+        console.log(`[runner] ${ctxId}/${agentId}: не удалось прочитать файл задачи:`, e);
+      }
+
+      // Ищем соответствующий result-файл по времени создания (ближайший после task)
+      const resultsDir = path.join(ctxDir, "results");
+      let hasResult = false;
+      try {
+        if (fs.existsSync(resultsDir)) {
+          const resultFiles = fs.readdirSync(resultsDir).filter(f => f.startsWith("result-") && f.endsWith(".md"));
+          for (const rf of resultFiles) {
+            const resultPath = path.join(resultsDir, rf);
+            // Проверяем что result создан после task
+            try {
+              const taskStat = fs.statSync(taskFilePath);
+              const resultStat = fs.statSync(resultPath);
+              if (resultStat.mtimeMs >= taskStat.mtimeMs) {
+                // Проверяем, упоминается ли эта задача в result-файле
+                const resultContent = fs.readFileSync(resultPath, "utf8");
+                if (taskTitle && resultContent.includes(taskTitle)) {
+                  hasResult = true;
+                  break;
+                }
+              }
+            } catch { /* ignore individual file errors */ }
+          }
+        }
+      } catch (e) {
+        console.log(`[runner] ${ctxId}/${agentId}: ошибка при проверке result-файлов:`, e);
+        return null;
+      }
+
+      if (!hasResult) {
+        // Задача не завершена — нет соответствующего result-файла
+        return {
+          context: `Продолжи выполнение задачи. Файл задания: ${taskFilePath}`,
+          taskTitle: taskTitle || undefined,
+        };
+      }
+
+      return null; // Task completed (has corresponding result)
+    } catch (e) {
+      console.log(`[runner] ${ctxId}/${agentId}: ошибка в detectIncompleteTask:`, e);
+      return null;
+    }
+  }
+
+  /** Промпт для автоматического восстановления незавершённой задачи. */
+  private buildAutoRecoveryPrompt(
+    agentId: string,
+    originalTask: Handoff | undefined,
+    lastMsg: string | undefined,
+    incomplete: { context: string; taskTitle?: string }
+  ): string {
+    return (
+      `⚠️ АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ. Ты завершил предыдущий ход, не вызвав route_to_agent.\n` +
+      `Анализ показал: задача НЕ завершена (отсутствует result-файл).\n\n` +
+      `${incomplete.taskTitle ? `Задача: ${incomplete.taskTitle}\n\n` : ""}` +
+      `Изначальное задание:\n` +
+      `— От: ${originalTask?.from ?? "неизвестно"}\n` +
+      `— Причина: ${originalTask?.reason ?? "неизвестно"}\n` +
+      `— Контекст: ${originalTask?.context ?? "неизвестно"}\n\n` +
+      `Твоё последнее сообщение:\n${lastMsg ?? "(нет)"}\n\n` +
+      `## Что нужно сделать:\n` +
+      `1. Прочитай файл задания (указан в контексте выше)\n` +
+      `2. Продолжи выполнение задачи до конца\n` +
+      `3. По завершении вызови handoff_file(type="result", ...) для записи результата\n` +
+      `4. Вызови route_to_agent для передачи управления дальше по цепочке\n\n` +
+      `ВАЖНО: обязательно заверши работу и передай управление, иначе цепочка прервётся снова.`
     );
   }
 

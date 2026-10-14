@@ -20,5 +20,5 @@
     }
   },
   "recoveryMode": "router_agent",
-  "maxRecoveries": 4
+  "maxRecoveries": 40
 }
