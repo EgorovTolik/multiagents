@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Message } from "../api";
 import { MessageRow } from "./MessageRow";
+import { Lightbox } from "./Lightbox";
 
 interface SimpleChatProps {
   messages: Message[];
@@ -10,6 +11,7 @@ interface SimpleChatProps {
 }
 
 export default function SimpleChat({ messages, title, agentName, msgIds }: SimpleChatProps) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Автоскролл вниз
@@ -37,7 +39,7 @@ export default function SimpleChat({ messages, title, agentName, msgIds }: Simpl
               index={i}
               streaming={false}
               agentName={agentName}
-              onImageClick={() => {}}
+              onImageClick={(url) => setLightboxUrl(url)}
               onTruncate={() => {}}
               notify={() => {}}
               msgId={msgIds?.[i]}
@@ -45,6 +47,11 @@ export default function SimpleChat({ messages, title, agentName, msgIds }: Simpl
           ))
         )}
       </div>
+
+      {/* Fullscreen image viewer */}
+      {lightboxUrl && (
+        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
     </div>
   );
 }

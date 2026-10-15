@@ -3,6 +3,7 @@ import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, SkillInfo } f
 import { ChatHeader } from "./ChatHeader";
 import { MessageRow } from "./MessageRow";
 import { InputArea, type AttachedFile } from "./InputArea";
+import { Lightbox } from "./Lightbox";
 
 export interface ChatComponentProps {
   /** ID активного контекста */
@@ -82,6 +83,7 @@ export function ChatComponent({
   const [autoScroll, setAutoScroll] = useState(true);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [dragOver, setDragOver] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Автофокус после завершения ответа агента
   const [inputAutoFocus, setInputAutoFocus] = useState(false);
@@ -226,7 +228,7 @@ export function ChatComponent({
               index={i}
               streaming={i === streamingIdx}
               agentName={agentName}
-              onImageClick={() => {}}
+              onImageClick={(url) => setLightboxUrl(url)}
               onTruncate={handleTruncate}
               notify={() => {}}
             />
@@ -282,6 +284,11 @@ export function ChatComponent({
         skillsDisabled={api.status !== "connected"}
         autoFocus={inputAutoFocus}
       />
+
+      {/* Fullscreen image viewer */}
+      {lightboxUrl && (
+        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
     </div>
   );
 }
