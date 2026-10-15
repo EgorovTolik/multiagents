@@ -93,11 +93,11 @@ function extractText(msg: unknown): string {
 }
 
 function okText(text: string) {
-  return { content: [{ type: "text", text }], details: {} };
+  return { content: [{ type: "text" as const, text }], details: {} };
 }
 
 function errText(text: string) {
-  return { content: [{ type: "text", text: `Ошибка: ${text}` }], details: { isError: true } };
+  return { content: [{ type: "text" as const, text: `Ошибка: ${text}` }], details: { isError: true } };
 }
 
 function buildSystemPrompt(def: AgentDef, workdir: string, globalRules: string[]): string {
@@ -161,6 +161,22 @@ export class AgentRunner {
     const cfg = loadSystemConfig();
     MAX_HANDOFFS = cfg.maxHandoffs;
     MAX_RECOVERIES = cfg.maxRecoveries;
+  }
+
+  /** Сбросить модель агента, записав null в config.json и перезагрузив реестр. */
+  private resetAgentModel(agentId: string) {
+    try {
+      const agentDir = path.join(PROJECT_ROOT, "agents", agentId);
+      const configPath = path.join(agentDir, "config.json");
+      if (!fs.existsSync(configPath)) return;
+
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      config.model = null;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
+      this.registry.reload();
+    } catch (e) {
+      console.log(`[runner] ошибка сброса модели агента ${agentId}:`, e);
+    }
   }
 
   private sessions = new Map<string, AgentSession>();
@@ -412,7 +428,7 @@ export class AgentRunner {
       if (!available || available.size === 0) {
         // Провайдер не зарегистрирован или список пуст — сбросить
         console.log(`[runner] агент ${agent.id}: провайдер ${providerId} недоступен, модель сброшена`);
-        this.registry.updateAgent(agent.id, { model: null });
+        this.resetAgentModel(agent.id);
         corrected++;
         continue;
       }
@@ -423,7 +439,7 @@ export class AgentRunner {
 
       // Модель указана, но недоступна у провайдера
       const cfgPath = path.join(this.agentsDir, agent.id, "config.json");
-      let cfg = {};
+      let cfg: { model?: string | null } = {};
       try {
         cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
       } catch { /* ignore */ }
@@ -1146,8 +1162,6 @@ export class AgentRunner {
       this.makeListSkillsTool(),
       this.makeUseSkillTool(ctxId, agentId),
       this.makeSharedStoreTool(),
-      this.makeGetTaskFileNameTool(),
-      this.makeGetResultFileNameTool(),
     ];
     if (agentId === "agent-creator") {
       allCustomTools.push(this.makeCreateAgentTool());
@@ -1425,7 +1439,7 @@ export class AgentRunner {
           return errText("Этот диалог уже обрабатывает данный агент");
         }
         // ctx already fetched above for training check
-        if (ctx.handoffs.length >= MAX_HANDOFFS) {
+        if (!ctx || ctx.handoffs.length >= MAX_HANDOFFS) {
           return errText(
             `Достигнут лимит передач в цепочке (${MAX_HANDOFFS}). Продолжи работу сам.`,
           );
@@ -1519,23 +1533,42 @@ export class AgentRunner {
         }),
       }),
       execute: async (_id, params: { type: "task" | "result"; title: string; body: string }) => {
-        const ts = Date.now();
+        const ctxDir = this.getCtxDir(ctxId);
+        
+        // Загрузить контекст для получения счётчика задач
+        let meta = this.store.get(ctxId);
+        if (!meta) return errText(`Контекст ${ctxId} не найден`);
+
+        // Определить номер файла
+        let fileNum: number;
+        if (params.type === "task") {
+          // Для task — увеличить счётчик
+          meta.taskCounter = (meta.taskCounter ?? 0) + 1;
+          fileNum = meta.taskCounter;
+          this.store.save(meta);
+        } else {
+          // Для result — использовать текущий номер без изменения
+          fileNum = meta.taskCounter ?? 0;
+          if (fileNum === 0) {
+            return errText("Сначала создайте задачу через handoff_file(type='task')");
+          }
+        }
+
         const dirName = params.type === "task" ? "tasks" : "results";
-        const fileBase = `${params.type}-${ts}`;
-        const dirPath = path.join(this.getCtxDir(ctxId), dirName);
+        const dirPath = path.join(ctxDir, dirName);
         fs.mkdirSync(dirPath, { recursive: true });
+
+        // Сформировать имя файла с номером (task-001.md, result-001.md)
+        const filename = `${params.type}-${String(fileNum).padStart(3, "0")}.md`;
+        const filePath = path.join(dirPath, filename);
 
         const header = params.type === "task"
           ? `# Задание: ${params.title}\n\n`
           : `# Результат: ${params.title}\n\n`;
 
-        const filePath = path.join(dirPath, `${fileBase}.md`);
         fs.writeFileSync(filePath, header + params.body, "utf8");
 
-        return okText(
-          `Файл создан: ${filePath}\n` +
-          `Используй этот путь в route_to_agent (параметр context) и в сообщениях пользователю.`,
-        );
+        return { content: [{ type: "text" as const, text: `Файл создан: ${filePath}\nИспользуй этот путь в route_to_agent (параметр context) и в сообщениях пользователю.` }], details: {} };
       },
     });
   }
@@ -1676,7 +1709,19 @@ export class AgentRunner {
       }),
       execute: async (_id, params) => {
         try {
-          const def = this.registry.create(params);
+          // Преобразовать параметры для соответствия интерфейсу NewAgentParams
+          const agentParams: any = { ...params };
+          if (agentParams.rules && Array.isArray(agentParams.rules)) {
+            agentParams.rules = agentParams.rules.map((r: any) => r.content);
+          }
+          if (agentParams.skills && Array.isArray(agentParams.skills)) {
+            agentParams.skills = agentParams.skills.map((s: any) => ({
+              name: s.name,
+              description: s.description,
+              content: s.content,
+            }));
+          }
+          const def = this.registry.create(agentParams);
           // По умолчанию отключаем группу субагентов/workflows (логика проекта
           // не предполагает, что агенты запускают своих субагентов).
           try {
@@ -1763,88 +1808,5 @@ export class AgentRunner {
     return name || null;
   }
 
-  /** Получить текущий контекст и его метаданные для инструментов управления задачами. */
-  private getTaskContext() {
-    const ctx = this.currentCtx;
-    if (!ctx) return { error: "Неизвестный контекст" };
 
-    try {
-      const meta = this.store.get(ctx.id);
-      if (!meta) return { error: `Контекст ${ctx.id} не найден` };
-      return { ctx, meta };
-    } catch (e) {
-      return { error: String(e?.message ?? e) };
-    }
-  }
-
-  /**
-   * Инструмент: получить имя файла задания для текущей задачи.
-   * Увеличивает счётчик задач и возвращает путь к новому task-файлу.
-   */
-  private makeGetTaskFileNameTool() {
-    return defineTool({
-      name: "get_task_file_name",
-      label: "Имя файла задания",
-      description:
-        "Получить имя файла задания для текущей задачи. Возвращает путь к новому файлу, который вы должны создать через write/edit. Используйте этот инструмент при получении новой задачи от предыдущего агента.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        const result = this.getTaskContext();
-        if (result.error) return errText(result.error);
-
-        const { ctx, meta } = result;
-        // Увеличить счётчик задач
-        meta.taskCounter = (meta.taskCounter ?? 0) + 1;
-        this.store.save(meta);
-
-        const ctxDir = this.getCtxDir(ctx.id);
-        const filename = `task-${String(meta.taskCounter).padStart(3, "0")}.md`;
-        const filepath = path.join(ctxDir, "tasks", filename);
-
-        // Убедиться, что директория tasks существует
-        const tasksDir = path.join(ctxDir, "tasks");
-        if (!fs.existsSync(tasksDir)) {
-          fs.mkdirSync(tasksDir, { recursive: true });
-        }
-
-        return okText(JSON.stringify({ filename, path: filepath }));
-      },
-    });
-  }
-
-  /**
-   * Инструмент: получить имя файла результата для текущей задачи.
-   * Использует текущее значение счётчика задач без изменения.
-   */
-  private makeGetResultFileNameTool() {
-    return defineTool({
-      name: "get_result_file_name",
-      label: "Имя файла результата",
-      description:
-        "Получить имя файла результата для текущей задачи. Возвращает путь к файлу, в который вы должны записать результат через write/edit. Используйте перед передачей управления следующему агенту или завершением хода.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        const result = this.getTaskContext();
-        if (result.error) return errText(result.error);
-
-        const { ctx, meta } = result;
-        const counter = meta.taskCounter ?? 0;
-        if (counter === 0) {
-          return errText("Сначала создайте задачу через get_task_file_name");
-        }
-
-        const ctxDir = this.getCtxDir(ctx.id);
-        const filename = `result-${String(counter).padStart(3, "0")}.md`;
-        const filepath = path.join(ctxDir, "results", filename);
-
-        // Убедиться, что директория results существует
-        const resultsDir = path.join(ctxDir, "results");
-        if (!fs.existsSync(resultsDir)) {
-          fs.mkdirSync(resultsDir, { recursive: true });
-        }
-
-        return okText(JSON.stringify({ filename, path: filepath }));
-      },
-    });
-  }
 }
