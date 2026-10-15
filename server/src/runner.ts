@@ -126,6 +126,10 @@ function buildSystemPrompt(def: AgentDef, workdir: string, globalRules: string[]
     "Если следующий шаг задачи требует другой экспертизы, вызови инструмент route_to_agent — " +
     "диалог будет передан нужному агенту, а ты увидишь подтверждение. " +
     "Пользователь видит все передачи в интерфейсе и может их прерывать.";
+  p +=
+    "\n\n## Управление задачами\n\n" +
+    "При получении новой задачи от предыдущего агента вызови get_task_file_name — это создаст файл задания с уникальным номером. Запиши в него задачу через write/edit.\n" +
+    "После завершения работы вызови get_result_file_name — это вернёт путь к файлу результата для этой задачи. Запиши результат и передай управление следующему агенту или заверши ход.";
   return p;
 }
 
@@ -1006,77 +1010,39 @@ export class AgentRunner {
     lastTask: Handoff | undefined
   ): { context: string; taskTitle?: string } | null {
     try {
-      const ctx = this.store.get(ctxId);
-      if (!ctx) return null;
       const ctxDir = this.getCtxDir(ctxId);
-      // Ищем последнее задание, которое передавалось этому агенту (по истории handoffs)
-      let targetHandoff = lastTask;
-      if (!targetHandoff || targetHandoff.to !== agentId) {
-        // Попробуем найти последний handoff к этому агенту в истории
-        for (let i = ctx.handoffs.length - 1; i >= 0; i--) {
-          if (ctx.handoffs[i].to === agentId) {
-            targetHandoff = ctx.handoffs[i];
-            break;
-          }
-        }
-      }
-      if (!targetHandoff) return null;
+      // Найти последний файл задачи (с наибольшим номером)
+      const tasksDir = path.join(ctxDir, "tasks");
+      if (!fs.existsSync(tasksDir)) return null;
 
-      // Проверяем, упомянут ли файл task в контексте задания
-      const context = targetHandoff.context || "";
-      const taskFileMatch = context.match(/tasks\/task-[0-9]+\.md/);
-      if (!taskFileMatch) {
-        // Нет упоминания файла задачи — не можем определить, завершена ли она по файлам
-        return null;
-      }
+      const taskFiles = fs.readdirSync(tasksDir).filter(f => f.startsWith("task-") && f.endsWith(".md"));
+      if (taskFiles.length === 0) return null;
 
-      const taskFilePath = path.join(ctxDir, taskFileMatch[0]);
-      // Проверяем существование task-файла
-      if (!fs.existsSync(taskFilePath)) {
-        console.log(`[runner] ${ctxId}/${agentId}: файл задачи не найден: ${taskFilePath}`);
-        return null;
-      }
+      // Отсортировать по номеру (последний — самый большой)
+      taskFiles.sort((a, b) => {
+        const numA = parseInt(a.match(/task-(\d+)\.md/)?.[1] ?? "0");
+        const numB = parseInt(b.match(/task-(\d+)\.md/)?.[1] ?? "0");
+        return numB - numA;
+      });
 
-      // Читаем заголовок task-файла для идентификации
-      let taskTitle = "";
-      try {
-        const taskContent = fs.readFileSync(taskFilePath, "utf8");
-        const titleMatch = taskContent.match(/^# Задание: (.+)$/m);
-        if (titleMatch) taskTitle = titleMatch[1];
-      } catch (e) {
-        console.log(`[runner] ${ctxId}/${agentId}: не удалось прочитать файл задачи:`, e);
-      }
-
-      // Ищем соответствующий result-файл по времени создания (ближайший после task)
+      // Проверить последний task-файл на наличие result-файла
+      const lastTaskFile = taskFiles[0];
+      const taskNum = parseInt(lastTaskFile.match(/task-(\d+)\.md/)?.[1] ?? "0");
+      const resultFileName = `result-${String(taskNum).padStart(3, "0")}.md`;
       const resultsDir = path.join(ctxDir, "results");
-      let hasResult = false;
-      try {
-        if (fs.existsSync(resultsDir)) {
-          const resultFiles = fs.readdirSync(resultsDir).filter(f => f.startsWith("result-") && f.endsWith(".md"));
-          for (const rf of resultFiles) {
-            const resultPath = path.join(resultsDir, rf);
-            // Проверяем что result создан после task
-            try {
-              const taskStat = fs.statSync(taskFilePath);
-              const resultStat = fs.statSync(resultPath);
-              if (resultStat.mtimeMs >= taskStat.mtimeMs) {
-                // Проверяем, упоминается ли эта задача в result-файле
-                const resultContent = fs.readFileSync(resultPath, "utf8");
-                if (taskTitle && resultContent.includes(taskTitle)) {
-                  hasResult = true;
-                  break;
-                }
-              }
-            } catch { /* ignore individual file errors */ }
-          }
-        }
-      } catch (e) {
-        console.log(`[runner] ${ctxId}/${agentId}: ошибка при проверке result-файлов:`, e);
-        return null;
-      }
+      const hasResult = fs.existsSync(path.join(resultsDir, resultFileName));
 
       if (!hasResult) {
         // Задача не завершена — нет соответствующего result-файла
+        const taskFilePath = path.join(tasksDir, lastTaskFile);
+        let taskTitle = "";
+        try {
+          const taskContent = fs.readFileSync(taskFilePath, "utf8");
+          const titleMatch = taskContent.match(/^# Задание: (.+)$/m);
+          if (titleMatch) taskTitle = titleMatch[1];
+        } catch { /* ignore */ }
+
+        console.log(`[runner] ${ctxId}/${agentId}: обнаружена незавершённая задача: ${lastTaskFile}`);
         return {
           context: `Продолжи выполнение задачи. Файл задания: ${taskFilePath}`,
           taskTitle: taskTitle || undefined,
@@ -1180,6 +1146,8 @@ export class AgentRunner {
       this.makeListSkillsTool(),
       this.makeUseSkillTool(ctxId, agentId),
       this.makeSharedStoreTool(),
+      this.makeGetTaskFileNameTool(),
+      this.makeGetResultFileNameTool(),
     ];
     if (agentId === "agent-creator") {
       allCustomTools.push(this.makeCreateAgentTool());
@@ -1793,5 +1761,88 @@ export class AgentRunner {
       name += "…";
     }
     return name || null;
+  }
+
+  /**
+   * Инструмент: получить имя файла задания для текущей задачи.
+   * Увеличивает счётчик задач и возвращает путь к новому task-файлу.
+   */
+  private makeGetTaskFileNameTool() {
+    return defineTool({
+      name: "get_task_file_name",
+      label: "Имя файла задания",
+      description:
+        "Получить имя файла задания для текущей задачи. Возвращает путь к новому файлу, который вы должны создать через write/edit. Используйте этот инструмент при получении новой задачи от предыдущего агента.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const ctx = this.currentCtx;
+        if (!ctx) return errText("Неизвестный контекст");
+
+        try {
+          const meta = this.store.get(ctx.id);
+          if (!meta) return errText(`Контекст ${ctx.id} не найден`);
+
+          // Увеличить счётчик задач
+          meta.taskCounter = (meta.taskCounter ?? 0) + 1;
+          this.store.save(meta);
+
+          const ctxDir = this.getCtxDir(ctx.id);
+          const filename = `task-${String(meta.taskCounter).padStart(3, "0")}.md`;
+          const filepath = path.join(ctxDir, "tasks", filename);
+
+          // Убедиться, что директория tasks существует
+          const tasksDir = path.join(ctxDir, "tasks");
+          if (!fs.existsSync(tasksDir)) {
+            fs.mkdirSync(tasksDir, { recursive: true });
+          }
+
+          return okText(JSON.stringify({ filename, path: filepath }));
+        } catch (e) {
+          return errText(String(e?.message ?? e));
+        }
+      },
+    });
+  }
+
+  /**
+   * Инструмент: получить имя файла результата для текущей задачи.
+   * Использует текущее значение счётчика задач без изменения.
+   */
+  private makeGetResultFileNameTool() {
+    return defineTool({
+      name: "get_result_file_name",
+      label: "Имя файла результата",
+      description:
+        "Получить имя файла результата для текущей задачи. Возвращает путь к файлу, в который вы должны записать результат через write/edit. Используйте перед передачей управления следующему агенту или завершением хода.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const ctx = this.currentCtx;
+        if (!ctx) return errText("Неизвестный контекст");
+
+        try {
+          const meta = this.store.get(ctx.id);
+          if (!meta) return errText(`Контекст ${ctx.id} не найден`);
+
+          const counter = meta.taskCounter ?? 0;
+          if (counter === 0) {
+            return errText("Сначала создайте задачу через get_task_file_name");
+          }
+
+          const ctxDir = this.getCtxDir(ctx.id);
+          const filename = `result-${String(counter).padStart(3, "0")}.md`;
+          const filepath = path.join(ctxDir, "results", filename);
+
+          // Убедиться, что директория results существует
+          const resultsDir = path.join(ctxDir, "results");
+          if (!fs.existsSync(resultsDir)) {
+            fs.mkdirSync(resultsDir, { recursive: true });
+          }
+
+          return okText(JSON.stringify({ filename, path: filepath }));
+        } catch (e) {
+          return errText(String(e?.message ?? e));
+        }
+      },
+    });
   }
 }
