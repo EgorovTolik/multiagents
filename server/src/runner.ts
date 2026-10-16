@@ -15,12 +15,21 @@ import {
   ModelRuntime,
   SessionManager,
   type AgentSession,
+  type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 
 import { AgentRegistry, type AgentDef } from "./registry";
+import type { ProjectConfig } from "./api-types";
+import {
+  agentStalledError,
+  agentRunError,
+  chainBrokenError,
+  internalError,
+} from "./error-types";
 import { RecoveryEngine, ORCHESTRATOR_ID, CHAIN_ROUTER_ID } from "./recovery.js";
 import { MutexManager } from "./mutex.js";
 import { SkillInjector } from "./skills-injector.js";
+import type { SkillRegistry } from "./skill-registry";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
 import { ProviderRegistry } from "./providers.js";
 import { QueueManager } from "./queue.js";
@@ -30,6 +39,18 @@ import { ImageManager, fmtSize } from "./image-manager.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
 
 export type Emit = (msg: unknown) => void;
+
+/** Информация об инструменте pi. */
+export interface PiToolInfo {
+  name: string;
+  description?: string;
+}
+
+/** Группа инструментов (для API /api/tools). */
+export interface ToolGroup {
+  id: string;
+  tools: PiToolInfo[];
+}
 
 /** Изображение, присланное пользователем в чат. */
 export interface FileAttachment {
@@ -52,7 +73,8 @@ function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stall
       maxUploadSizeMb: cfg.maxUploadSizeMb ?? 50,
       recoveryMode: cfg.recoveryMode === "orchestrator_check" ? "orchestrator_check" : "router_agent",
     };
-  } catch {
+  } catch (e) {
+    console.warn("Не удалось загрузить config.json, использую значения по умолчанию:", e);
     return { maxHandoffs: 200, maxRecoveries: 2, stallTimeoutMs: 3 * 60 * 1000, maxUploadSizeMb: 50, recoveryMode: "router_agent" };
   }
 }
@@ -76,11 +98,12 @@ export class AgentRunner {
   private providerRegistry!: ProviderRegistry;
   private pendingThinking = new Map<string, string>();
   private pendingText = new Map<string, string>();
+  piToolsFetchedAtValue: number | null = null;
 
   constructor(
     private registry: AgentRegistry,
     private store: ContextStore,
-    private skillRegistry: any,
+    private skillRegistry: SkillRegistry,
     private agentsDir: string,
     private systemDir: string,
     private sharedDir: string,
@@ -125,7 +148,8 @@ export class AgentRunner {
         const last = this.lastEventByCtx.get(ctxId);
         if (last === undefined || Date.now() - last < STALL_TIMEOUT_MS) continue;
         console.error(`[runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
-        this.emit({ type: "error", ctxId, message: `Агент ${agentId} завис — ход прерван watchdog'ом. Отправьте сообщение ещё раз.` });
+        const err = agentStalledError(agentId, STALL_TIMEOUT_MS);
+        this.emit({ type: "error", ctxId, message: err.message, error: err });
         this.lastEventByCtx.set(ctxId, Date.now());
         const session = this.sessions.get(this.key(ctxId, agentId));
         void session?.abort();
@@ -314,11 +338,12 @@ export class AgentRunner {
         ? { images: imageFiles.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mediaType })) }
         : undefined;
       await session.prompt(injection.text, promptOpts);
-    } catch (e: any) {
+    } catch (e) {
       const ctxNow = this.store.get(ctxId);
       if (!ctxNow?.awaitingUser && !ctxNow?.aborted) {
         console.error("[runner] run error:", e);
-        this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
+        const err = agentRunError(agentId, typeof e === "string" ? e : (e as any)?.message ?? String(e));
+        this.emit({ type: "error", ctxId, message: err.message, error: err });
       }
     } finally {
       this.mutexManager.releaseAgent(agentId);
@@ -374,7 +399,8 @@ export class AgentRunner {
           return;
         }
 
-        const sysMsg: Message = { role: "system", text: `⚠️ Цепочка прервалась ${MAX_RECOVERIES} раза подряд — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`, ts: Date.now() };
+        const chainErr = chainBrokenError(agentId, MAX_RECOVERIES);
+        const sysMsg: Message = { role: "system", text: `⚠️ ${chainErr.message} — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`, ts: Date.now() };
         this.store.appendMessage(ctxId, sysMsg);
         this.emit({ type: "message", ctxId, message: sysMsg });
       }
@@ -489,25 +515,25 @@ export class AgentRunner {
     try {
       const history = this.store.readMessages(ctxId).filter((m) => m.role === "user" || m.role === "assistant");
       if (history.length > 0) {
-        session.agent.state.messages = history.map((m) => ({ role: m.role, content: [{ type: "text", text: m.text }] })) as any;
+        (session as any).agent.state.messages = history.map((m) => ({ role: m.role, content: [{ type: "text", text: m.text }] }));
       }
     } catch { /* ignore */ }
 
-    session.subscribe((ev: any) => this.forward(ctxId, agentId, ev));
+    session.subscribe((ev: AgentSessionEvent) => this.forward(ctxId, agentId, ev));
     this.sessions.set(k, session);
-    console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${(model as any).provider ?? "?"}/${(model as any).id ?? "?"}` : "default"} thinking=${def.thinkingLevel ?? "-"}`);
+    console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${model.provider}/${model.id}` : "default"} thinking=${def.thinkingLevel ?? "-"}`);
     return session;
   }
 
-  private forward(ctxId: string, agentId: string, ev: any) {
+  private forward(ctxId: string, agentId: string, ev: AgentSessionEvent) {
     if (["message_update", "message_start", "message_end", "tool_execution_start", "tool_execution_end"].includes(ev.type)) {
       this.lastEventByCtx.set(ctxId, Date.now());
     }
 
     if (ev.type === "tool_execution_start") {
-      console.log(`[${agentId}] tool_call: ${ev.name || ev.tool_name}`);
+      console.log(`[${agentId}] tool_call: ${ev.toolName}`);
     } else if (ev.type === "tool_execution_end") {
-      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR - ${ev.error}` : "OK"}`);
+      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR` : "OK"}`);
       if (!ev.isError) {
         const md = this.imageManager.saveToolImages(ctxId, ev.result);
         if (md.length > 0) {
@@ -517,7 +543,15 @@ export class AgentRunner {
     } else if (ev.type === "message_start") {
       console.log(`[${agentId}] message_start`);
     } else if (ev.type === "message_end") {
-      const text = ev.message?.content?.[0]?.text || "";
+      const msg = ev.message;
+      let text = "";
+      if (msg && typeof msg === "object" && "content" in msg && Array.isArray((msg as { content: unknown[] }).content)) {
+        for (const part of (msg as { content: unknown[] }).content) {
+          if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
+            text += part.text;
+          }
+        }
+      }
       console.log(`[${agentId}] message_end (${text.length} chars)`);
     }
 
@@ -575,15 +609,16 @@ export class AgentRunner {
   async defaultDisabledToolNames(): Promise<string[]> {
     try {
       const groups = await this.listPiTools();
-      return (groups.find((g: any) => g.id === "subagents")?.tools ?? []).map((t: any) => t.name);
+      return (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name);
     } catch {
       return [];
     }
   }
 
-  private piToolGroupsCache: any[] | null = null;
-  async listPiTools(force = false): Promise<any[]> {
+  private piToolGroupsCache: ToolGroup[] | null = null;
+  async listPiTools(force = false): Promise<ToolGroup[]> {
     if (!force && this.piToolGroupsCache) return this.piToolGroupsCache;
+    const startTime = Date.now();
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
     try {
       const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });
@@ -596,9 +631,10 @@ export class AgentRunner {
       try {
         await session.bindExtensions({});
       } catch { /* без MCP-инициализации список всё равно доступен */ }
-      const all = (session as any).getAllTools?.() ?? [];
-      this.piToolGroupsCache = all.map((t: any) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined }));
-      try { (session as any).dispose?.(); } catch { /* ignore */ }
+      const all = session.getAllTools?.() ?? [];
+      this.piToolGroupsCache = [{ id: "all", tools: all.map((t) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })) }];
+      this.piToolsFetchedAtValue = Date.now();
+      try { session.dispose?.(); } catch { /* ignore */ }
     } finally {
       fs.rmSync(probeDir, { recursive: true, force: true });
     }
@@ -628,7 +664,7 @@ export class AgentRunner {
   }
 
   async reloadProjectConfig(configPath: string, broadcastFn?: (msg: unknown) => void): Promise<void> {
-    let cfg: any;
+    let cfg: ProjectConfig;
     try {
       cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
     } catch { return; }

@@ -9,30 +9,57 @@ import { AgentRegistry } from "./registry";
 import { SkillRegistry } from "./skill-registry";
 import { ContextStore } from "./context-store";
 import { AgentRunner } from "./runner";
+import {
+  notFoundError,
+  validationError,
+  conflictError,
+  internalError,
+  networkError,
+  toErrorObject,
+} from "./error-types";
 import { validateParam, parseModelList, readMarkdownDir, syncMarkdownDir, readJson } from "./utils";
+import type { ClientToServerMessage, ArchiveState } from "./ws-types";
+import type {
+  FilesQuery,
+  ArchiveQuery,
+  RenameContextBody,
+  SkillBody,
+  UpdateAgentBody,
+  UpdateConfigBody,
+  AgentDetailResponse,
+  ModelsResponse,
+  ToolsGroupsResponse,
+} from "./api-types";
 
 /** Требует существующую обучающую сессию; если не найдена — отвечает 400/404 и завершает запрос. */
 function requireTrainingSession(sessionId: string, res: express.Response) {
   if (!validateParam(sessionId)) {
-    res.status(400).json({ error: "Некорректный ID сессии" });
+    res.status(400).json(validationError("Некорректный ID сессии"));
     return null;
   }
   const ctx = store.getTraining(sessionId);
   if (!ctx) {
-    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    res.status(404).json(notFoundError(`Сессия «${sessionId}» не найдена`));
     return null;
   }
   if (!ctx.trainingAgentId) {
-    res.status(400).json({ error: "Это не обучающая сессия" });
+    res.status(400).json(validationError("Это не обучающая сессия"));
     return null;
   }
   return ctx;
 }
 
+interface ServerConfig {
+  port?: number;
+  model?: string;
+  providers?: Record<string, { url?: string; apiKey?: string }>;
+  apiKeys?: Record<string, string>;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..", "..");
 
-const config = readJson(path.join(root, "config.json"), {});
+const config: ServerConfig = readJson(path.join(root, "config.json"), {});
 
 const PORT = config.port ?? 3000;
 const AGENTS_DIR = path.join(root, "agents");
@@ -90,7 +117,7 @@ const broadcast = (msg: unknown) => {
 };
 
 // === Очередь подготовки архивов контекстов (FIFO, по одному за раз) ===
-type ArchiveState = "queued" | "preparing" | "ready" | "error";
+
 
 function zipDir(srcDir: string, outPath: string, topFolder: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -161,9 +188,10 @@ class ArchiveQueue {
       await zipDir(ctxDir, outPath, ctxId);
       this.pending.delete(ctxId);
       this.status(ctxId, "ready", { url: `/api/archive?ctx=${encodeURIComponent(ctxId)}&file=${encodeURIComponent(file)}` });
-    } catch (e: any) {
+    } catch (e) {
       this.pending.delete(ctxId);
-      this.status(ctxId, "error", { error: String(e?.message ?? e) });
+      const err = toErrorObject(e);
+      this.status(ctxId, "error", { error: err.message });
     }
   }
 }
@@ -202,20 +230,21 @@ const wss = new WebSocketServer({ server });
 
 // Скачивание файлов из директории контекста (без выхода за её пределы)
 app.get("/api/files", (req, res) => {
-  const ctxId = String(req.query.ctx ?? "");
-  const rel = String(req.query.path ?? "");
+  const query = req.query as unknown as FilesQuery;
+  const ctxId = String(query.ctx ?? "");
+  const rel = String(query.path ?? "");
   if (!ctxId || !rel) {
-    res.status(400).json({ error: "missing ctx or path" });
+    res.status(400).json(validationError("missing ctx or path"));
     return;
   }
   const ctxDir = path.join(CONTEXTS_DIR, ctxId);
   const full = path.resolve(ctxDir, rel);
   if (full !== ctxDir && !full.startsWith(ctxDir + path.sep)) {
-    res.status(400).json({ error: "bad path" });
+    res.status(400).json(validationError("bad path"));
     return;
   }
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
-    res.status(404).json({ error: "not found" });
+    res.status(404).json(notFoundError("Файл не найден"));
     return;
   }
   res.download(full);
@@ -234,20 +263,21 @@ app.get("/api/context-sizes", (_req, res) => {
 
 // Скачивание готового архива контекста
 app.get("/api/archive", (req, res) => {
-  const ctxId = String(req.query.ctx ?? "");
-  const file = String(req.query.file ?? "");
+  const query = req.query as unknown as ArchiveQuery;
+  const ctxId = String(query.ctx ?? "");
+  const file = String(query.file ?? "");
   if (!ctxId || !file) {
-    res.status(400).json({ error: "missing ctx or file" });
+    res.status(400).json(validationError("missing ctx or file"));
     return;
   }
   // Файл должен принадлежать этому контексту и быть zip-архивом
   if (!file.startsWith(ctxId + "-") || !file.endsWith(".zip") || file.includes("/") || file.includes("..") || file.includes("\\")) {
-    res.status(400).json({ error: "bad file" });
+    res.status(400).json(validationError("bad file name"));
     return;
   }
   const full = path.join(ARCHIVES_DIR, file);
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
-    res.status(404).json({ error: "not found" });
+    res.status(404).json(notFoundError("Архив не найден"));
     return;
   }
   res.download(full, file);
@@ -258,12 +288,12 @@ const PREVIEWS_DIR = path.join(root, "previews");
 app.get("/api/previews/:name", (req, res) => {
   const name = String(req.params.name ?? "");
   if (!name || name.includes("..") || name.includes("/")) {
-    res.status(400).json({ error: "bad name" });
+    res.status(400).json(validationError("bad file name"));
     return;
   }
   const full = path.join(PREVIEWS_DIR, name);
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
-    res.status(404).json({ error: "not found" });
+    res.status(404).json(notFoundError("Файл превью не найден"));
     return;
   }
   const ext = path.extname(name).toLowerCase();
@@ -297,18 +327,18 @@ function isAgentAvailableForTraining(agentId: string): { available: boolean; rea
 app.post("/api/training/sessions/:agentId", (req, res) => {
   const agentId = String(req.params.agentId ?? "");
   if (!validateParam(agentId)) {
-    res.status(400).json({ error: "Некорректный ID агента" });
+    res.status(400).json(validationError("Некорректный ID агента"));
     return;
   }
   // Проверить, существует ли агент
   const def = registry.get(agentId);
   if (!def) {
-    res.status(404).json({ error: `Агент «${agentId}» не найден` });
+    res.status(404).json(notFoundError(`Агент «${agentId}» не найден`));
     return;
   }
   // Проверить доступность для обучения (занят в пайпе?)
   if (runner.activeByCtx.has(agentId)) {
-    res.status(409).json({ error: `Агент «${def.name}» занят в задаче` });
+    res.status(409).json(conflictError(`Агент «${def.name}» занят в задаче`));
     return;
   }
   // Создать обучающую сессию (в отдельном хранилище training/)
@@ -330,7 +360,7 @@ app.post("/api/training/sessions/:agentId", (req, res) => {
 app.get("/api/training/sessions/:sessionId", async (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
   if (!validateParam(sessionId)) {
-    res.status(400).json({ error: "Некорректный ID сессии" });
+    res.status(400).json(validationError("Некорректный ID сессии"));
     return;
   }
   
@@ -338,7 +368,7 @@ app.get("/api/training/sessions/:sessionId", async (req, res) => {
   const ctx = store.getTraining(sessionId);
   if (ctx) {
     if (!ctx.trainingAgentId) {
-      res.status(404).json({ error: "Это не обучающая сессия" });
+      res.status(404).json(notFoundError("Это не обучающая сессия"));
       return;
     }
     res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt, agentId: ctx.trainingAgentId, completed: !!ctx.completed });
@@ -361,7 +391,7 @@ app.get("/api/training/sessions/:sessionId", async (req, res) => {
   } catch { /* ignore */ }
   
   // Ни сессия, ни агент — возвращаем 404
-  res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+  res.status(404).json(notFoundError(`Сессия «${sessionId}» не найдена`));
 });
 
 // Mark training session as completed (don't delete history)
@@ -396,21 +426,22 @@ app.delete("/api/training/sessions/:sessionId", (req, res) => {
 app.put("/api/training/sessions/:sessionId/rename", (req, res) => {
   const sessionId = String(req.params.sessionId ?? "");
   if (!sessionId || sessionId.includes("..") || sessionId.includes("/")) {
-    res.status(400).json({ error: "Некорректный ID сессии" });
+    res.status(400).json(validationError("Некорректный ID сессии"));
     return;
   }
-  const { name } = req.body ?? {};
+  const body = req.body as unknown as RenameContextBody;
+  const { name } = body ?? {};
   if (typeof name !== "string" || !name.trim()) {
-    res.status(400).json({ error: "Имя не указано" });
+    res.status(400).json(validationError("Имя не указано"));
     return;
   }
   const ctx = store.getTraining(sessionId);
   if (!ctx) {
-    res.status(404).json({ error: `Сессия «${sessionId}» не найдена` });
+    res.status(404).json(notFoundError(`Сессия «${sessionId}» не найдена`));
     return;
   }
   if (!ctx.trainingAgentId) {
-    res.status(400).json({ error: "Это не обучающая сессия" });
+    res.status(400).json(validationError("Это не обучающая сессия"));
     return;
   }
   ctx.name = name.trim();
@@ -432,12 +463,20 @@ app.get("/api/agents/:id/detail", (req, res) => {
   const id = String(req.params.id ?? "");
   const dir = path.join(AGENTS_DIR, id);
   if (!id || id.includes("..") || id.includes("/") || !fs.existsSync(dir)) {
-    res.status(404).json({ error: "agent not found" });
+    res.status(404).json(notFoundError("Агент не найден"));
     return;
   }
   // config.json
   const cfgPath = path.join(dir, "config.json");
-  const cfg = readJson(cfgPath, {});
+  interface AgentConfig {
+    name?: string;
+    description?: string;
+    model?: string;
+    disabledTools?: string[];
+    thinkingLevel?: string;
+    forgetSessionAfterStep?: boolean;
+  }
+  const cfg: AgentConfig = readJson(cfgPath, {});
   // AGENT.md
   const promptPath = path.join(dir, "AGENT.md");
   const systemPrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf8") : "";
@@ -458,10 +497,11 @@ app.put("/api/agents/:id", (req, res) => {
   const id = String(req.params.id ?? "");
   const dir = path.join(AGENTS_DIR, id);
   if (!id || id.includes("..") || id.includes("/") || !fs.existsSync(dir)) {
-    res.status(404).json({ error: "agent not found" });
+    res.status(404).json(notFoundError("Агент не найден"));
     return;
   }
-  const { name, description, disabledTools, model, thinkingLevel, forgetSessionAfterStep, systemPrompt, rules, skills } = req.body;
+  const body = req.body as unknown as UpdateAgentBody;
+  const { name, description, disabledTools, model, thinkingLevel, forgetSessionAfterStep, systemPrompt, rules, skills } = body;
 
   // config.json
   const cfg: Record<string, unknown> = {};
@@ -500,7 +540,7 @@ app.get("/api/skills", (_req, res) => {
 app.get("/api/skills/:id/detail", (req, res) => {
   const sk = skillRegistry.get(String(req.params.id ?? ""));
   if (!sk) {
-    res.status(404).json({ error: "skill not found" });
+    res.status(404).json(notFoundError("Навык не найден"));
     return;
   }
   res.json(sk);
@@ -508,8 +548,9 @@ app.get("/api/skills/:id/detail", (req, res) => {
 
 app.post("/api/skills", (req, res) => {
   try {
-    const { id, name, description, autoApply, body, files } = req.body ?? {};
-    if (!name?.trim()) throw new Error("Укажите название навыка");
+    const skillBody = req.body as unknown as { id?: string } & SkillBody;
+    const { id, name, description, autoApply, body, files } = skillBody ?? {};
+    if (!name?.trim()) throw validationError("Укажите название навыка");
     const sk = skillRegistry.create(String(id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
@@ -519,8 +560,9 @@ app.post("/api/skills", (req, res) => {
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });
     res.json(sk);
-  } catch (e: any) {
-    res.status(400).json({ error: String(e?.message ?? e) });
+  } catch (e) {
+    const err = toErrorObject(e);
+    res.status(err.code === "VALIDATION_ERROR" ? 400 : 500).json(err);
   }
 });
 
@@ -528,7 +570,7 @@ app.post("/api/skills", (req, res) => {
 app.get("/api/contexts/:id", (req, res) => {
   const ctx = store.get(String(req.params.id ?? ""));
   if (!ctx) {
-    res.status(404).json({ error: "Context not found" });
+    res.status(404).json(notFoundError("Контекст не найден"));
     return;
   }
   res.json({ id: ctx.id, name: ctx.name, createdAt: ctx.createdAt });
@@ -555,13 +597,13 @@ app.get("/api/contexts/:id/messages", (req, res) => {
 app.get("/api/work-on-mistakes/sessions/:analyzedCtxId", (req, res) => {
   const analyzedCtxId = String(req.params.analyzedCtxId ?? "");
   if (!analyzedCtxId || !/^[a-f0-9]{8}$/.test(analyzedCtxId)) {
-    res.status(400).json({ error: "Некорректный ID контекста задачи" });
+    res.status(400).json(validationError("Некорректный ID контекста задачи"));
     return;
   }
   // Проверить, существует ли анализируемый контекст
   const analyzedCtx = store.get(analyzedCtxId);
   if (!analyzedCtx) {
-    res.status(404).json({ error: `Контекст «${analyzedCtxId}» не найден` });
+    res.status(404).json(notFoundError(`Контекст «${analyzedCtxId}» не найден`));
     return;
   }
   // Сначала ищем существующую сессию
@@ -592,8 +634,9 @@ app.get("/api/work-on-mistakes/sessions/:analyzedCtxId", (req, res) => {
 
 app.put("/api/skills/:id", (req, res) => {
   try {
-    const { name, description, autoApply, body, files } = req.body ?? {};
-    if (!name?.trim()) throw new Error("Укажите название навыка");
+    const skillBody = req.body as unknown as SkillBody;
+    const { name, description, autoApply, body, files } = skillBody ?? {};
+    if (!name?.trim()) throw validationError("Укажите название навыка");
     const sk = skillRegistry.update(String(req.params.id ?? ""), {
       name: String(name).trim(),
       description: String(description ?? "").trim(),
@@ -603,8 +646,9 @@ app.put("/api/skills/:id", (req, res) => {
     });
     broadcast({ type: "skills", skills: skillRegistry.list() });
     res.json(sk);
-  } catch (e: any) {
-    res.status(400).json({ error: String(e?.message ?? e) });
+  } catch (e) {
+    const err = toErrorObject(e);
+    res.status(err.code === "VALIDATION_ERROR" ? 400 : 500).json(err);
   }
 });
 
@@ -614,8 +658,9 @@ app.get("/api/tools", async (_req, res) => {
   try {
     const groups = await runner.listPiTools();
     res.json({ groups, fetchedAt: runner.piToolsFetchedAtValue });
-  } catch (e: any) {
-    res.status(500).json({ error: String(e?.message ?? e) });
+  } catch (e) {
+    const err = toErrorObject(e);
+    res.status(500).json(err);
   }
 });
 
@@ -625,27 +670,30 @@ app.post("/api/tools/refresh", async (_req, res) => {
   try {
     const groups = await runner.listPiTools(true);
     res.json({ groups, fetchedAt: runner.piToolsFetchedAtValue });
-  } catch (e: any) {
-    res.status(500).json({ error: String(e?.message ?? e) });
+  } catch (e) {
+    const err = toErrorObject(e);
+    res.status(500).json(err);
   }
 });
 
 // Статус сессий: какие цепочки активны прямо сейчас (для кнопки сброса в настройках)
 app.get("/api/sessions", (_req, res) => {
   const actives = runner.getActives();
-  res.json({ busy: actives.length > 0, active: actives });
+  const response = { busy: actives.length > 0, active: actives };
+  res.json(response);
 });
 
 // Полный сброс всех сессий — доступен только когда никто не работает и очередь пуста
 app.post("/api/sessions/reset", async (_req, res) => {
   if (runner.getActives().length > 0 || runner.hasQueued()) {
-    res.status(409).json({ error: "Агенты прямо сейчас работают — сброс недоступен. Попробуйте позже." });
+    res.status(409).json(conflictError("Агенты прямо сейчас работают — сброс недоступен. Попробуйте позже."));
     return;
   }
   const n = runner.resetAllSessions();
   // Перечитать конфигурацию: модель и провайдеры обновляются для новых сессий
   await runner.reloadProjectConfig(CONFIG_PATH, broadcast);
-  res.json({ ok: true, sessions: n });
+  const response = { ok: true, sessions: n };
+  res.json(response);
 });
 
 app.delete("/api/skills/:id", (req, res) => {
@@ -653,8 +701,9 @@ app.delete("/api/skills/:id", (req, res) => {
     skillRegistry.delete(String(req.params.id ?? ""));
     broadcast({ type: "skills", skills: skillRegistry.list() });
     res.json({ ok: true });
-  } catch (e: any) {
-    res.status(400).json({ error: String(e?.message ?? e) });
+  } catch (e) {
+    const err = toErrorObject(e);
+    res.status(400).json(err);
   }
 });
 
@@ -677,7 +726,8 @@ app.get("/api/config", (_req, res) => {
 app.put("/api/config", (req, res) => {
   try {
     const current = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    const { model, port, providers, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb, recoveryMode } = req.body;
+    const body = req.body as unknown as UpdateConfigBody;
+    const { model, port, providers, maxHandoffs, maxRecoveries, stallTimeoutMs, maxUploadSizeMb, recoveryMode } = body;
     if (model !== undefined) current.model = model;
     if (port !== undefined) current.port = port;
     if (providers !== undefined) {
@@ -701,7 +751,8 @@ app.put("/api/config", (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ error: String(e) });
+    const err = toErrorObject(e);
+    res.status(500).json(err);
   }
 });
 
@@ -709,7 +760,7 @@ app.put("/api/config", (req, res) => {
 app.get("/api/providers/:id/models", async (req, res) => {
   const providerId = String(req.params.id ?? "");
   if (!providerId || providerId.includes("..") || providerId.includes("/")) {
-    res.status(400).json({ error: "invalid provider id" });
+    res.status(400).json(validationError("invalid provider id"));
     return;
   }
 
@@ -722,7 +773,7 @@ app.get("/api/providers/:id/models", async (req, res) => {
   const providers = (cfg.providers ?? {}) as Record<string, { url?: string; apiKey?: string }>;
   const provider = providers[providerId];
   if (!provider?.url) {
-    res.status(404).json({ error: `provider "${providerId}" not found or has no url` });
+    res.status(404).json(notFoundError(`provider "${providerId}" not found or has no url`));
     return;
   }
 
@@ -749,10 +800,11 @@ app.get("/api/providers/:id/models", async (req, res) => {
 
     if (!resp.ok) {
       // Если API недоступно — возвращаем кеш (даже старый)
+      const httpErr = networkError(`Provider returned HTTP ${resp.status}`, { status: resp.status });
       if (cached) {
-        res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: `HTTP ${resp.status}` });
+        res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: httpErr.message });
       } else {
-        res.status(502).json({ error: `Provider returned HTTP ${resp.status}` });
+        res.status(502).json(httpErr);
       }
       return;
     }
@@ -764,10 +816,11 @@ app.get("/api/providers/:id/models", async (req, res) => {
     res.json({ models, cached: false, fetchedAt: Date.now() });
   } catch (e) {
     // Сеть недоступна — возвращаем кеш
+    const netErr = networkError("Cannot reach provider", { original: e });
     if (cached) {
-      res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: String(e) });
+      res.json({ models: cached.models, cached: true, stale: true, fetchedAt: cached.fetchedAt, error: netErr.message });
     } else {
-      res.status(502).json({ error: `Cannot reach provider: ${String(e)}` });
+      res.status(502).json(netErr);
     }
   }
 });
@@ -796,7 +849,7 @@ wss.on("connection", (ws) => {
   send({ type: "run_state", actives: runner.getActives() });
 
   ws.on("message", async (raw) => {
-    let msg: any;
+    let msg: ClientToServerMessage;
     try {
       msg = JSON.parse(String(raw));
     } catch {
@@ -884,12 +937,16 @@ wss.on("connection", (ws) => {
             store.save(trainingCtx, "training");
             broadcast({ type: "training_session_reopened", sessionId: msg.ctxId });
           }
-          await runner.handleMessage(msg.ctxId, msg.text, msg.files);
+          await runner.handleMessage(
+            msg.ctxId,
+            msg.text,
+            msg.files?.map((f) => ({ name: f.filename, data: f.content, mediaType: "", size: f.content.length }))
+          );
           break;
         }
         case "prepare_archive": {
           const added = archiveQueue.enqueue(String(msg.ctxId ?? ""));
-          if (!added) send({ type: "archive_status", ctxId: msg.ctxId, state: "queued" as const });
+          if (!added) send({ type: "archive_status", ctxId: msg.ctxId, state: "queued" as ArchiveState });
           break;
         }
         case "abort":
@@ -904,11 +961,15 @@ wss.on("connection", (ws) => {
           send({ type: "skills_applied", ctxId: meta.id, skills: meta.skills ?? [] });
           break;
         }
-        default:
-          send({ type: "error", message: "Неизвестный тип: " + msg.type });
+        default: {
+          const ex = msg as { type: string };
+          send({ type: "error", message: "Неизвестный тип: " + ex.type });
+          break;
+        }
       }
-    } catch (e: any) {
-      send({ type: "error", message: String(e?.message ?? e) });
+    } catch (e) {
+      const err = toErrorObject(e);
+      send({ type: "error", message: err.message, error: err });
     }
   });
 });

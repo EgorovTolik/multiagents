@@ -16,6 +16,10 @@ export interface Message {
   thinking?: string;
   ts: number;
   id?: string;
+  /** Флаг стриминга: true если сообщение ещё приходит (оканчивается на …). */
+  streaming?: boolean;
+  /** Сообщение завершено (получено assistant_end). */
+  completed?: boolean;
 }
 
 export interface ContextMeta {
@@ -68,6 +72,7 @@ export type ServerMsg =
   | { type: "context_renamed"; ctxId: string; name: string }
   | { type: "history_truncated"; ctxId: string }
   | { type: "archive_status"; ctxId: string; state: "queued" | "preparing" | "ready" | "error"; url?: string; error?: string }
+  | { type: "training_session_reopened" }
   | { type: "error"; ctxId?: string; message: string };
 
 export type ConnStatus = "connected" | "connecting" | "disconnected";
@@ -142,9 +147,11 @@ export interface TrainingSession {
   id: string;
   agentId: string;
   name?: string;
+  title?: string;
   createdAt: number;
   updatedAt?: number;
   status?: "active" | "completed";
+  completed?: boolean;
 }
 
 /** Создать обучающую сессию для агента */

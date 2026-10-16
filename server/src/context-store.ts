@@ -17,6 +17,8 @@ export interface Message {
   /** Рассуждения модели (thinking-блоки) — для отображения, в сессию pi не попадают. */
   thinking?: string;
   ts: number;
+  /** Отметка частичного сообщения во время стриминга ответа. */
+  streaming?: boolean;
 }
 
 export type ContextType = "work" | "training" | "mistakes";
@@ -53,6 +55,8 @@ export interface ContextMeta {
   aborted?: boolean;
   /** Сессия обучения завершена (не удалена, но помечена как completed). */
   completed?: boolean;
+  /** Время последнего обновления метаданных. */
+  updatedAt?: Date;
   /** ID анализируемой задачи (для сессий работы над ошибками). */
   flowMistakesOfCtxId?: string;
   /** Навыки (skills/), применённые к этому чату. */

@@ -27,7 +27,7 @@ export interface NewAgentParams {
   name: string;
   description: string;
   systemPrompt: string;
-  rules?: string[];
+  rules?: Array<{ name?: string; content: string }>;
   skills?: { name: string; description: string; content: string }[];
 }
 
@@ -53,8 +53,17 @@ export class AgentRegistry {
       if (!fs.existsSync(agentMd)) continue;
 
       const systemPrompt = fs.readFileSync(agentMd, "utf8");
+      interface AgentConfig {
+        name?: string;
+        description?: string;
+        model?: string;
+        disabledTools?: string[];
+        thinkingLevel?: string;
+        forgetSessionAfterStep?: boolean;
+      }
+
       const cfgPath = path.join(dir, "config.json");
-      const cfg = readJson(cfgPath, {});
+      const cfg: AgentConfig = readJson(cfgPath, {});
 
       const rules: string[] = [];
       const rulesDir = path.join(dir, "rules");
