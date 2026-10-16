@@ -8,6 +8,7 @@ shared/
 flow-ai/
 flow-mistakes/
 docs/
+todo-work/
 .pi/
 *.log
 .DS_Store

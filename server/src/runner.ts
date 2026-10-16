@@ -18,6 +18,7 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { AgentRegistry, type AgentDef } from "./registry";
+import { MutexManager } from "./mutex.js";
 import { SkillRegistry } from "./skill-registry";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
 
@@ -182,9 +183,8 @@ export class AgentRunner {
   private sessions = new Map<string, AgentSession>();
   /** Чат → текущий агент. Цепочки из разных чатов идут параллельно. */
   private activeByCtx = new Map<string, string>();
-  /** Агент → чат: агент выполняет ход (жёсткий лимит 1 на агента по всем чатам). */
-  private agentBusy = new Map<string, string>();
-  private agentWaiters = new Map<string, { ctxId: string; resolve: () => void }[]>();
+  /** Глобальный мьютекс агентов: один агент — один чат одновременно. */
+  private mutexManager!: MutexManager;
   private queue: { ctxId: string; text: string; files?: FileAttachment[] }[] = [];
   /** Последнее событие по чату (watchdog) — параллельные цепочки не маскируют друг друга. */
   private lastEventByCtx = new Map<string, number>();
@@ -207,6 +207,7 @@ export class AgentRunner {
     private providers: Record<string, { url?: string; apiKey?: string }> = {},
   ) {
     this.loadGlobalRules();
+    this.mutexManager = new MutexManager(this.emit);
   }
 
   /** Читает системные файлы правил (system/*.md) в алфавитном порядке. */
@@ -654,34 +655,6 @@ export class AgentRunner {
     this.emit({ type: "queued", ctxId, count });
   }
 
-  /** Забрать очередь на агента. Если агент занят в другом чате — ждём (FIFO на агента). */
-  private async acquireAgent(agentId: string, ctxId: string): Promise<void> {
-    if (!this.agentBusy.has(agentId)) {
-      this.agentBusy.set(agentId, ctxId);
-      return;
-    }
-    const waiters = this.agentWaiters.get(agentId) ?? [];
-    this.agentWaiters.set(agentId, waiters);
-    await new Promise<void>((resolve) => {
-      // Цепочка стоит: агент занят в другом чате — показываем ожидание в UI
-      this.emit({ type: "chain_waiting", ctxId, agentId });
-      waiters.push({ ctxId, resolve });
-    });
-    this.agentBusy.set(agentId, ctxId);
-  }
-
-  /** Освободить агента: передать владение следующему ждущему или снять полностью. */
-  private releaseAgent(agentId: string): void {
-    const waiters = this.agentWaiters.get(agentId) ?? [];
-    if (waiters.length > 0) {
-      const next = waiters.shift()!;
-      this.agentBusy.set(agentId, next.ctxId);
-      next.resolve();
-    } else {
-      this.agentBusy.delete(agentId);
-    }
-  }
-
   /** Запустить следующее сообщение из очереди: первое, чей чат свободен. */
   private dispatchQueue(): void {
     const idx = this.queue.findIndex((q) => !this.activeByCtx.has(q.ctxId));
@@ -775,7 +748,7 @@ export class AgentRunner {
     this.activeByCtx.set(ctxId, agentId);
     // Жёсткий лимит: агент не выполняет ходы в двух чатах одновременно.
     // Если он занят — цепочка ждёт здесь, другие чаты с другими агентами идут параллельно.
-    await this.acquireAgent(agentId, ctxId);
+    await this.mutexManager.acquireAgent(agentId, ctxId);
     this.emit({ type: "run_start", ctxId, agentId });
     // Навыки, применённые к контексту, но ещё не переданные этому агенту —
     // инжектим в промпт (останутся в истории pi-сессии на весь разговор)
@@ -814,7 +787,7 @@ export class AgentRunner {
     } finally {
       // Ход завершён — агент свободен (возможно, сразу забирает его другой чат).
       // activeByCtx при передаче НЕ снимаем: новая run() уже пометила чат новым агентом.
-      this.releaseAgent(agentId);
+      this.mutexManager.releaseAgent(agentId);
       this.flushPendingImages(ctxId, agentId);
       this.emit({ type: "run_end", ctxId, agentId });
 
