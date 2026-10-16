@@ -43,7 +43,8 @@ export class RecoveryEngine {
   detectIncompleteTask(
     ctxDir: string,
     agentId: string,
-    lastTask: Handoff | undefined
+    lastTask: Handoff | undefined,
+    ctxId?: string
   ): { context: string; taskTitle?: string } | null {
     try {
       const tasksDir = path.join(ctxDir, "tasks");
@@ -75,7 +76,7 @@ export class RecoveryEngine {
           if (titleMatch) taskTitle = titleMatch[1];
         } catch { /* ignore */ }
 
-        console.log(`[recovery] ${agentId}: обнаружена незавершённая задача: ${lastTaskFile}`);
+        console.log(`[${ctxId ? `ctxId:${ctxId}` : "system"}] [recovery] ${agentId}: обнаружена незавершённая задача: ${lastTaskFile}`);
         return {
           context: `Продолжи выполнение задачи. Файл задания: ${taskFilePath}`,
           taskTitle: taskTitle || undefined,
@@ -84,7 +85,7 @@ export class RecoveryEngine {
 
       return null;
     } catch (e) {
-      console.log(`[recovery] ${agentId}: ошибка в detectIncompleteTask:`, e);
+      console.log(`[${ctxId ? `ctxId:${ctxId}` : "system"}] [recovery] ${agentId}: ошибка в detectIncompleteTask:`, e);
       return null;
     }
   }
