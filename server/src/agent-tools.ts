@@ -189,8 +189,12 @@ export function makeCreateAgentTool(registry: AgentRegistry, agentsDir: string, 
       name: Type.String({ description: "ID агента: нижний регистр, дефисы (например code-reviewer)" }),
       description: Type.String({ description: "Короткое описание (1-2 предложения)" }),
       systemPrompt: Type.String({ description: "Системный промпт: роль, возможности, правила работы" }),
-      rules: Type.Optional(Type.Array(Type.Object({ name: Type.String(), content: Type.String() }))),
-      skills: Type.Optional(Type.Array(Type.Object({ name: Type.String(), description: Type.String(), content: Type.String() })))),
+      rules: Type.Optional(Type.Array(
+        Type.Object({ name: Type.String(), content: Type.String() })
+      )),
+      skills: Type.Optional(Type.Array(
+        Type.Object({ name: Type.String(), description: Type.String(), content: Type.String() })
+      )),
     }),
     execute: async (_id, params) => {
       try {

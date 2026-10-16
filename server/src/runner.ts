@@ -24,10 +24,10 @@ import { SkillInjector } from "./skills-injector.js";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
 import { ProviderRegistry } from "./providers.js";
 import { QueueManager } from "./queue.js";
-import { PromptBuilder } from "./prompt-builder.ts";
-import { buildAgentTools } from "./agent-tools.ts";
-import { ImageManager, fmtSize } from "./image-manager.ts";
-import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.ts";
+import { PromptBuilder } from "./prompt-builder.js";
+import { buildAgentTools } from "./agent-tools.js";
+import { ImageManager, fmtSize } from "./image-manager.js";
+import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
 
 export type Emit = (msg: unknown) => void;
 
@@ -88,15 +88,15 @@ export class AgentRunner {
     private emit: Emit,
     private providers: Record<string, { url?: string; apiKey?: string }> = {},
   ) {
+    const promptBuilder = new PromptBuilder([]);
+    this.promptBuilder = promptBuilder;
+    
     this.loadGlobalRules();
     this.skillInjector = new SkillInjector(this.skillRegistry, this.store, this.registry, this.emit);
     this.queue = new QueueManager();
     this.mutexManager = new MutexManager(this.emit);
     this.recoveryEngine = new RecoveryEngine(sysCfg.maxRecoveries);
     this.providerRegistry = new ProviderRegistry(this.providers, this.defaultModel, this.registry, this.agentsDir);
-
-    const promptBuilder = new PromptBuilder([]);
-    this.promptBuilder = promptBuilder;
     this.imageManager = new ImageManager({
       getCtxDir: (ctxId) => this.getCtxDir(ctxId),
       storeAppendMessage: (ctxId, msg) => this.store.appendMessage(ctxId, msg),
@@ -575,7 +575,7 @@ export class AgentRunner {
   async defaultDisabledToolNames(): Promise<string[]> {
     try {
       const groups = await this.listPiTools();
-      return (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name);
+      return (groups.find((g: any) => g.id === "subagents")?.tools ?? []).map((t: any) => t.name);
     } catch {
       return [];
     }
