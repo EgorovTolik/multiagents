@@ -74,7 +74,7 @@ function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stall
       recoveryMode: cfg.recoveryMode === "orchestrator_check" ? "orchestrator_check" : "router_agent",
     };
   } catch (e) {
-    console.warn("Не удалось загрузить config.json, использую значения по умолчанию:", e);
+    console.warn("[system] Не удалось загрузить config.json, использую значения по умолчанию:", e);
     return { maxHandoffs: 200, maxRecoveries: 2, stallTimeoutMs: 3 * 60 * 1000, maxUploadSizeMb: 50, recoveryMode: "router_agent" };
   }
 }
@@ -147,7 +147,7 @@ export class AgentRunner {
       for (const [ctxId, agentId] of this.activeByCtx) {
         const last = this.lastEventByCtx.get(ctxId);
         if (last === undefined || Date.now() - last < STALL_TIMEOUT_MS) continue;
-        console.error(`[runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
+        console.error(`[ctxId:${ctxId}] [runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
         const err = agentStalledError(agentId, STALL_TIMEOUT_MS);
         this.emit({ type: "error", ctxId, message: err.message, error: err });
         this.lastEventByCtx.set(ctxId, Date.now());
@@ -341,7 +341,7 @@ export class AgentRunner {
     } catch (e) {
       const ctxNow = this.store.get(ctxId);
       if (!ctxNow?.awaitingUser && !ctxNow?.aborted) {
-        console.error("[runner] run error:", e);
+        console.error(`[ctxId:${ctxId}] [runner] run error:`, e);
         const err = agentRunError(agentId, typeof e === "string" ? e : (e as any)?.message ?? String(e));
         this.emit({ type: "error", ctxId, message: err.message, error: err });
       }
@@ -377,7 +377,7 @@ export class AgentRunner {
             return;
           }
 
-          const incomplete = this.recoveryEngine.detectIncompleteTask(this.getCtxDir(ctxId), agentId, task);
+          const incomplete = this.recoveryEngine.detectIncompleteTask(this.getCtxDir(ctxId), agentId, task, ctxId);
           if (incomplete) {
             console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
             const handoff: Handoff = { from: "system", to: agentId, reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)", context: incomplete.context, ts: Date.now() };
@@ -493,7 +493,7 @@ export class AgentRunner {
       model = this.resolveModel(def.model);
     }
     if (def.model && !model) {
-      console.warn(`[runner] ⚠️ модель «${def.model}» не найдена — агент «${agentId}» будет работать с моделью по умолчанию`);
+      console.warn(`[ctxId:${ctxId}] [runner] ⚠️ модель «${def.model}» не найдена — агент «${agentId}» будет работать с моделью по умолчанию`);
     }
 
     const { session } = await createAgentSession({
@@ -509,7 +509,7 @@ export class AgentRunner {
     try {
       await session.bindExtensions({});
     } catch (e) {
-      console.error("bindExtensions failed:", e);
+      console.error(`[ctxId:${ctxId}] bindExtensions failed:`, e);
     }
 
     try {
@@ -531,9 +531,9 @@ export class AgentRunner {
     }
 
     if (ev.type === "tool_execution_start") {
-      console.log(`[${agentId}] tool_call: ${ev.toolName}`);
+      console.log(`[ctxId:${ctxId}] [${agentId}] tool_call: ${ev.toolName}`);
     } else if (ev.type === "tool_execution_end") {
-      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR` : "OK"}`);
+      console.log(`[ctxId:${ctxId}] [${agentId}] tool_result: ${ev.isError ? `ERROR` : "OK"}`);
       if (!ev.isError) {
         const md = this.imageManager.saveToolImages(ctxId, ev.result);
         if (md.length > 0) {
@@ -541,7 +541,7 @@ export class AgentRunner {
         }
       }
     } else if (ev.type === "message_start") {
-      console.log(`[${agentId}] message_start`);
+      console.log(`[ctxId:${ctxId}] [${agentId}] message_start`);
     } else if (ev.type === "message_end") {
       const msg = ev.message;
       let text = "";
@@ -552,7 +552,7 @@ export class AgentRunner {
           }
         }
       }
-      console.log(`[${agentId}] message_end (${text.length} chars)`);
+      console.log(`[ctxId:${ctxId}] [${agentId}] message_end (${text.length} chars)`);
     }
 
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
@@ -670,7 +670,7 @@ export class AgentRunner {
     } catch { return; }
     const newModel = cfg.model || undefined;
     if (newModel !== this.defaultModel) {
-      console.log(`[runner] модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${newModel ?? "(нет)"}`);
+      console.log("[system] Модель по умолчанию обновлена:", this.defaultModel ?? "(нет)", "→", newModel ?? "(нет)");
       this.defaultModel = newModel;
       this.providerRegistry.updateDefaultModel(newModel);
     }

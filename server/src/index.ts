@@ -2,6 +2,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import { WebSocketServer } from "ws";
 import * as archiver from "archiver";
@@ -224,6 +225,21 @@ const runner = new AgentRunner(
 );
 
 const app = express();
+
+// Correlation ID middleware — добавляет reqId к каждому запросу для трассировки логов
+app.use((req, res, next) => {
+  const reqId = randomUUID();
+  (req as any).id = reqId;
+  console.log(`[${reqId}] ${req.method} ${req.url}`);
+  
+  const startTime = Date.now();
+  res.on("finish", () => {
+    console.log(`[${reqId}] ${res.statusCode} in ${Date.now() - startTime}ms`);
+  });
+  
+  next();
+});
+
 app.use(express.json({ limit: "50mb" })); // JSON body parser (включая большие файлы)
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
