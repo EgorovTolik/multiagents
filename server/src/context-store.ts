@@ -47,6 +47,8 @@ export interface ContextMeta {
   awaitingUser?: { agentId: string; question: string };
   /** Время последнего сообщения (для авто-выбора контекста при загрузке). */
   lastMessageAt?: number;
+  /** Счётчик задач для именования файлов task-XXX/result-XXX */
+  taskCounter?: number;
   /** Пользователь нажал «Остановить» — не запускать recovery после abort. */
   aborted?: boolean;
   /** Сессия обучения завершена (не удалена, но помечена как completed). */
