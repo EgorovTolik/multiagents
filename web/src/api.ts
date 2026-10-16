@@ -73,6 +73,11 @@ export type ServerMsg =
   | { type: "history_truncated"; ctxId: string }
   | { type: "archive_status"; ctxId: string; state: "queued" | "preparing" | "ready" | "error"; url?: string; error?: string }
   | { type: "training_session_reopened" }
+  // Recovery events (real-time chain recovery notifications)
+  | { type: "recovery_started"; ctxId: string; brokenAgent: string; attempt: number; maxAttempts: number }
+  | { type: "recovery_decision"; ctxId: string; decision: string; targetAgent?: string; reason?: string }
+  | { type: "recovery_completed"; ctxId: string; success: boolean; count: number; reason?: string }
+  | { type: "agent_notification"; ctxId: string; message: string; sticky?: boolean }
   | { type: "error"; ctxId?: string; message: string };
 
 export type ConnStatus = "connected" | "connecting" | "disconnected";

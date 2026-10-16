@@ -40,6 +40,7 @@ const SYSTEM_TOOLS: { name: string; label: string; locked?: boolean }[] = [
   { name: "list_skills", label: "Список навыков" },
   { name: "use_skill", label: "Применить навык" },
   { name: "artifact_store", label: "Хранилище артефактов" },
+  { name: "notify", label: "Уведомление пользователю" },
 ];
 
 interface PiToolInfo {

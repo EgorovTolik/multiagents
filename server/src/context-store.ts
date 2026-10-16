@@ -10,6 +10,18 @@ export interface Handoff {
   ts: number;
 }
 
+/** Запись об одном событии восстановления цепочки. */
+export interface RecoveryEntry {
+  /** Время события (unix ms). */
+  timestamp: number;
+  /** ID агента, который не смог обработать задачу (проблемная модель/агент). */
+  brokenAgent: string;
+  /** Решение роутера — кто заменил сломанного агента. */
+  routerDecision?: string;
+  /** Результат восстановления. */
+  result: "success" | "fallback" | "limit_reached";
+}
+
 export interface Message {
   role: "user" | "assistant" | "system";
   agentId?: string;
@@ -41,6 +53,8 @@ export interface ContextMeta {
   inChain?: boolean;
   /** Сколько автоматических восстановлений уже было в текущей цепочке. */
   recoveryCount?: number;
+  /** История событий восстановления для этого контекста. */
+  recoveryLog?: RecoveryEntry[];
   /**
    * Агент вызвал ask_user и ждёт ответа пользователя на свой вопрос.
    * Ответ пользователя уходит этому агенту (не оркестратору),

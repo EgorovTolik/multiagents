@@ -1,12 +1,15 @@
 import type { ContextMeta, Handoff } from "../api";
 import type { ConnStatus } from "../api";
 import { agentColor } from "../utils/format";
+import { RecoveryBadge } from "./RecoveryBadge";
 
 export function ChatHeader({
   ctx,
   running,
   pending,
   wsStatus,
+  recoveryCount = 0,
+  onOpenRecoveryModal,
   onOpenSidebar,
   onCancelHandoff,
   onAbort,
@@ -18,6 +21,8 @@ export function ChatHeader({
   running: { ctxId?: string; agentId: string } | null;
   pending: Handoff | null;
   wsStatus: ConnStatus;
+  recoveryCount?: number;
+  onOpenRecoveryModal?: () => void;
   onOpenSidebar: () => void;
   onCancelHandoff: () => void;
   onAbort: () => void;
@@ -47,6 +52,9 @@ export function ChatHeader({
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
           {agentName(running.agentId)} работает…
         </span>
+      )}
+      {recoveryCount >= 0 && (
+        <RecoveryBadge count={recoveryCount} onClick={onOpenRecoveryModal} />
       )}
       <span
         className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ${
