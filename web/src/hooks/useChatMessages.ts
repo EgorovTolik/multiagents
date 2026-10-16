@@ -1,10 +1,11 @@
 import { useCallback, useEffect } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { Message, ServerMsg } from "../api";
 
 /** Общий хук для обработки WS-сообщений чата (стриминг, ошибки). */
 export function useChatMessages(
   ctxId: string | null,
-  setMessages: (msgs: Message[]) => void,
+  setMessages: Dispatch<SetStateAction<Message[]>>,
   onError: (msg: string) => void,
   onStatus?: (status: "typing" | null) => void,
 ) {

@@ -8,8 +8,9 @@ export function validateParam(value: string): boolean {
 
 /** Парсинг списка моделей из ответа OpenAI-compatible API (data или models). */
 export function parseModelList(data: any): string[] {
-  const arr = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-  return [...new Set(arr.map((m: any) => m.id ?? m.model ?? m.name).filter(Boolean))].sort();
+  const raw = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+  const arr: any[] = raw;
+  return [...new Set(arr.map((m) => String(m.id ?? m.model ?? m.name)).filter(Boolean))].sort();
 }
 
 /** Прочитать все *.md файлы из директории в {filename, content}. */
