@@ -370,32 +370,47 @@ export class AgentRunner {
           const task = ctx.handoffs[ctx.handoffs.length - 1];
           const lastMsg = this.lastAssistantMessage(ctxId, agentId);
 
+          // Notify: recovery started
+          this.emit({ type: "recovery_started", ctxId, brokenAgent: agentId, attempt: recoveries + 1, maxAttempts: MAX_RECOVERIES });
+
           if (agentId === CHAIN_ROUTER_ID) {
+            const decision = "router_fallback";
+            console.log(`[runner] ${ctxId}/${agentId}: маршрутизатор не принял решение — автопередача оркестратору`);
+            this.emit({ type: "recovery_decision", ctxId, decision, targetAgent: ORCHESTRATOR_ID, reason: "Маршрутизатор не принял решение" });
             const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Маршрутизатор не принял решение — автопередача", context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)", ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
             this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterFallbackPrompt(task, lastMsg));
+            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
             return;
           }
 
           const incomplete = this.recoveryEngine.detectIncompleteTask(this.getCtxDir(ctxId), agentId, task, ctxId);
           if (incomplete) {
             console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
+            this.emit({ type: "recovery_decision", ctxId, decision: "auto_recover_incomplete", targetAgent: agentId, reason: "Задача не завершена (нет result-файла)" });
             const handoff: Handoff = { from: "system", to: agentId, reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)", context: incomplete.context, ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
             this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
+            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
             return;
           }
 
           if (sysCfg.recoveryMode === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
+            console.log(`[runner] ${ctxId}/${agentId}: цепочка прервалась — передача маршрутизатору`);
+            this.emit({ type: "recovery_decision", ctxId, decision: "route_to_router", targetAgent: CHAIN_ROUTER_ID, reason: "Цепочка прервалась — разбор маршрута" });
             const handoff: Handoff = { from: agentId, to: CHAIN_ROUTER_ID, reason: "⚠️ Цепочка прервалась — разбор маршрута", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
             this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterPrompt(ctx, agentId, task, lastMsg, (id) => this.getCtxDir(id)));
+            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
             return;
           }
 
+          console.log(`[runner] ${ctxId}/${agentId}: цепочка прервалась — автопроверка оркестратором`);
+          this.emit({ type: "recovery_decision", ctxId, decision: "orchestrator_check", targetAgent: ORCHESTRATOR_ID, reason: "Цепочка прервалась — автопроверка" });
           const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Цепочка прервалась — автопроверка", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
           ctx.recoveryCount = recoveries + 1;
           this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRecoveryPrompt(agentId, task, lastMsg));
+          this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
           return;
         }
 
@@ -403,6 +418,7 @@ export class AgentRunner {
         const sysMsg: Message = { role: "system", text: `⚠️ ${chainErr.message} — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`, ts: Date.now() };
         this.store.appendMessage(ctxId, sysMsg);
         this.emit({ type: "message", ctxId, message: sysMsg });
+        this.emit({ type: "recovery_completed", ctxId, success: false, count: recoveries, reason: chainErr.message });
       }
 
       if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
@@ -632,13 +648,41 @@ export class AgentRunner {
         await session.bindExtensions({});
       } catch { /* без MCP-инициализации список всё равно доступен */ }
       const all = session.getAllTools?.() ?? [];
-      this.piToolGroupsCache = [{ id: "all", tools: all.map((t) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })) }];
+      this.piToolGroupsCache = this.groupPiTools(
+        all.map((t) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })),
+      );
       this.piToolsFetchedAtValue = Date.now();
       try { session.dispose?.(); } catch { /* ignore */ }
     } finally {
       fs.rmSync(probeDir, { recursive: true, force: true });
     }
     return this.piToolGroupsCache!;
+  }
+
+  /** Группировка инструментов для UI: по пакетам/префиксам, без хардкода имён. */
+  private groupPiTools(tools: PiToolInfo[]): ToolGroup[] {
+    const groups = new Map<string, { id: string; title: string; tools: PiToolInfo[] }>();
+    const ensure = (id: string, title: string) => {
+      let g = groups.get(id);
+      if (!g) {
+        g = { id, title, tools: [] };
+        groups.set(id, g);
+      }
+      return g;
+    };
+    for (const t of tools) {
+      let g;
+      if (/^gitlab_/.test(t.name)) g = ensure("gitlab", "GitLab");
+      else if (t.name === "mcp" || t.name === "mcpScript" || /^mcp__/.test(t.name)) g = ensure("mcp", "MCP");
+      else if (/subagent|workflow|orchestrator/i.test(t.name)) g = ensure("subagents", "Субагенты и workflows (pi-subagentura)");
+      else if (["read", "write", "edit", "bash", "find", "grep", "ls"].includes(t.name)) g = ensure("builtin", "Встроенные pi");
+      else g = ensure("other", "Прочее");
+      g.tools.push(t);
+    }
+    const order = ["builtin", "mcp", "gitlab", "subagents", "other"];
+    return [...groups.values()]
+      .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+      .map((g) => ({ ...g, tools: g.tools.sort((a, b) => a.name.localeCompare(b.name)) }));
   }
 
   resetAllSessions(): number {

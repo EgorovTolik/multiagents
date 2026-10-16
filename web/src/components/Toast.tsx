@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface ToastAction {
   label: string;
@@ -8,6 +8,7 @@ export interface ToastAction {
 export interface Toast {
   id: number;
   text: string;
+  createdAt: number;
   /** sticky: не закрывается по таймеру, только крестиком */
   sticky?: boolean;
   action?: ToastAction;
@@ -17,18 +18,37 @@ let nextId = 1;
 
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Используем ref для хранения всех активных таймеров
+  const timersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+  // Очищаем все таймеры при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
 
   const dismiss = useCallback((id: number) => {
+    // Отменяем таймер если он ещё не сработал
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
     setToasts((t) => t.filter((x) => x.id !== id));
   }, []);
 
   const notify = useCallback((text: string, opts?: { sticky?: boolean; action?: ToastAction }) => {
     const id = nextId++;
-    setToasts((t) => [...t, { id, text, sticky: opts?.sticky, action: opts?.action }]);
+    const now = Date.now();
+    setToasts((t) => [...t, { id, text, createdAt: now, sticky: opts?.sticky, action: opts?.action }]);
     if (!opts?.sticky) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        // Используем функциональную форму для получения актуального состояния
         setToasts((t) => t.filter((x) => x.id !== id));
+        timersRef.current.delete(id);
       }, 2500);
+      timersRef.current.set(id, timer);
     }
   }, []);
 

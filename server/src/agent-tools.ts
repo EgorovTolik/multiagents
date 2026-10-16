@@ -248,6 +248,27 @@ export function makeDeleteAgentTool(registry: AgentRegistry, emit: Emit) {
   });
 }
 
+export function makeNotifyTool(emit: Emit, ctxId: string) {
+  return defineTool({
+    name: "notify",
+    label: "Уведомление пользователю",
+    description:
+      "Отправляет короткое уведомление пользователю в чат (toast). Используйте для информирования о прогрессе, важных событиях или ошибках.",
+    parameters: Type.Object({
+      message: Type.String({ description: "Текст уведомления (кратко, до 100 символов)" }),
+      sticky: Type.Optional(
+        Type.Boolean({ description: "true — уведомление не закрывается автоматически (по умолчанию false)" })
+      ),
+    }),
+    execute: async (_id, params) => {
+      const msg = params.message as string;
+      const sticky = params.sticky as boolean | undefined;
+      emit({ type: "agent_notification", ctxId, message: msg, sticky });
+      return okText(`Уведомление отправлено: "${msg}"`);
+    },
+  });
+}
+
 /** Фабрика всех инструментов агента. */
 export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string) {
   const tools = [
@@ -258,6 +279,7 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     skillInjector.createListSkillsTool(),
     skillInjector.createUseSkillTool(ctxId, agentId),
     makeSharedStoreTool(sharedDir),
+    makeNotifyTool(emit, ctxId),
   ];
   if (agentId === "agent-creator") {
     tools.push(makeCreateAgentTool(registry, agentsDir, emit, defaultDisabledToolNames));

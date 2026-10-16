@@ -22,6 +22,12 @@ export interface ChatComponentProps {
   pending: Handoff | null;
   /** ID агента, который занят в другом чате (если этот чат ждёт) */
   waitingAgentId?: string | null;
+  /** Количество восстановлений цепочки в этом чате */
+  recoveryCount?: number;
+  /** История событий восстановления для этого чата */
+  recoveryHistory?: import("./RecoveryHistoryModal").RecoveryEntry[];
+  /** Колбэк открытия модалки истории восстановлений */
+  onOpenRecoveryModal?: () => void;
   /** Доступные навыки */
   skills: SkillInfo[];
   /** Применённые навыки */
@@ -63,6 +69,9 @@ export function ChatComponent({
   runningAgentId,
   pending,
   waitingAgentId,
+  recoveryCount = 0,
+  recoveryHistory = [],
+  onOpenRecoveryModal,
   skills,
   appliedSkills,
   input,
@@ -198,6 +207,8 @@ export function ChatComponent({
         running={runningAgentId ? { ctxId, agentId: runningAgentId } : null}
         pending={pending}
         wsStatus={api.status}
+        recoveryCount={recoveryCount}
+        onOpenRecoveryModal={onOpenRecoveryModal}
         onOpenSidebar={() => {}}
         onCancelHandoff={onCancelHandoff}
         onAbort={onAbort}

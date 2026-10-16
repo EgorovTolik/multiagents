@@ -9,6 +9,7 @@ import LearningPage from "./LearningPage";
 import MistakesPage from "./MistakesPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatComponent } from "./components/ChatComponent";
+import { RecoveryHistoryModal, type RecoveryEntry } from "./components/RecoveryHistoryModal";
 import { Lightbox } from "./components/Lightbox";
 import { ToastContainer, useToasts } from "./components/Toast";
 import type { ArchiveInfo } from "./components/Sidebar";
@@ -54,6 +55,12 @@ export default function App() {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [appliedSkills, setAppliedSkills] = useState<string[]>([]);
   const [contextSizes, setContextSizes] = useState<Record<string, number>>({});
+  // Recovery counters: ctxId → count of completed recoveries
+  const [recoveryCounts, setRecoveryCounts] = useState<Record<string, number>>({});
+  // Recovery history: ctxId → array of recovery events
+  const [recoveryHistories, setRecoveryHistories] = useState<Record<string, RecoveryEntry[]>>({});
+  // Modal state
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const { toasts, notify, dismiss } = useToasts();
 
   // Refs
@@ -78,6 +85,12 @@ export default function App() {
           break;
         case "contexts":
           setContexts(msg.contexts);
+          // Инициализируем recoveryCounts из context.json
+          const counts: Record<string, number> = {};
+          for (const ctx of msg.contexts) {
+            if (ctx.recoveryCount) counts[ctx.id] = ctx.recoveryCount;
+          }
+          setRecoveryCounts(counts);
           if (!activeCtx && msg.contexts.length > 0) {
             const latest = msg.contexts.reduce((a: ContextMeta, b: ContextMeta) =>
               (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a,
@@ -105,6 +118,10 @@ export default function App() {
             setActiveCtx(msg.context);
             setMessages(msg.messages);
             setAppliedSkills(msg.context.skills ?? []);
+            // Обновляем recoveryCount из загруженного контекста
+            if (msg.context.recoveryCount != null) {
+              setRecoveryCounts((rc) => ({ ...rc, [msg.context!.id]: msg.context!.recoveryCount! }));
+            }
           } else {
             setAppliedSkills([]);
           }
@@ -216,14 +233,85 @@ export default function App() {
             notify(`Не удалось подготовить архив: ${msg.error ?? "ошибка"}`, { sticky: true });
           }
           break;
+        case "recovery_started":
+          setRecoveryHistories((h) => ({
+            ...h,
+            [msg.ctxId]: [
+              ...(h[msg.ctxId] ?? []),
+              {
+                ts: Date.now(),
+                event: "started",
+                brokenAgent: msg.brokenAgent,
+                attempt: msg.attempt,
+                maxAttempts: msg.maxAttempts,
+              },
+            ],
+          }));
+          if (msg.ctxId === activeCtx?.id) {
+            notify(`⚠️ Цепочка прервалась (${msg.brokenAgent}) — восстанавливаю (попытка ${msg.attempt}/${msg.maxAttempts})`, { sticky: true });
+          }
+          break;
+        case "recovery_decision":
+          setRecoveryHistories((h) => ({
+            ...h,
+            [msg.ctxId]: [
+              ...(h[msg.ctxId] ?? []),
+              {
+                ts: Date.now(),
+                event: "decision",
+                decision: msg.decision,
+                targetAgent: msg.targetAgent,
+              },
+            ],
+          }));
+          if (msg.ctxId === activeCtx?.id) {
+            let decisionText = msg.decision;
+            switch (msg.decision) {
+              case "router_fallback": decisionText = "Маршрутизатор не принял решение — передача оркестратору"; break;
+              case "auto_recover_incomplete": decisionText = "Задача не завершена — возврат агенту для продолжения"; break;
+              case "route_to_router": decisionText = "Цепочка прервалась — разбор маршрута через chain-router"; break;
+              case "orchestrator_check": decisionText = "Цепочка прервалась — автопроверка оркестратором"; break;
+            }
+            const agentNamesRef = agents;
+            const targetName = msg.targetAgent ? (agentNamesRef.find((a) => a.id === msg.targetAgent)?.name ?? msg.targetAgent) : null;
+            notify(`🔄 Решение: ${decisionText}${targetName ? ` → ${targetName}` : ""}`, { sticky: true });
+          }
+          break;
+        case "recovery_completed":
+          setRecoveryHistories((h) => ({
+            ...h,
+            [msg.ctxId]: [
+              ...(h[msg.ctxId] ?? []),
+              {
+                ts: Date.now(),
+                event: "completed",
+                success: msg.success,
+                reason: msg.reason,
+              },
+            ],
+          }));
+          if (msg.success) {
+            setRecoveryCounts((prev) => ({ ...prev, [msg.ctxId]: msg.count }));
+            if (msg.ctxId === activeCtx?.id) {
+              notify(`✅ Восстановление цепочки завершено (всего: ${msg.count})`);
+            }
+          } else {
+            if (msg.ctxId === activeCtx?.id) {
+              notify(`❌ Восстановление не удалось: ${msg.reason ?? "лимит исчерпан"}`, { sticky: true });
+            }
+          }
+          break;
+        case "agent_notification":
+          if (msg.ctxId === activeCtx?.id) {
+            notify(msg.message, { sticky: msg.sticky });
+          }
+          break;
         case "error":
           setErrors((e) => [...e, msg.message]);
           setTimeout(() => setErrors((e) => e.slice(1)), 5000);
           break;
       }
-    },
-    [activeCtx?.id],
-  );
+    }, [activeCtx?.id, agents, notify]);
 
   const api = useServer(handle);
   apiRef.current = api;
@@ -362,6 +450,7 @@ export default function App() {
             runningAgentId={running?.agentId ?? null}
             pending={pending}
             waitingAgentId={waitingAgents[activeCtx.id] ?? null}
+            recoveryCount={recoveryCounts[activeCtx.id] ?? 0}
             skills={skills}
             appliedSkills={appliedSkills}
             input={input}
@@ -377,6 +466,8 @@ export default function App() {
             onApplySkills={applySkills}
             onCancelHandoff={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
             onAbort={() => api.send({ type: "abort", ctxId: activeCtx.id })}
+            recoveryHistory={recoveryHistories[activeCtx.id] ?? []}
+            onOpenRecoveryModal={() => setRecoveryModalOpen(true)}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center p-4">
@@ -396,6 +487,16 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Recovery History Modal */}
+      {activeCtx && (
+        <RecoveryHistoryModal
+          isOpen={recoveryModalOpen}
+          onClose={() => setRecoveryModalOpen(false)}
+          history={recoveryHistories[activeCtx.id] ?? []}
+          agentName={agentName}
+        />
+      )}
 
       {/* Lightbox */}
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}

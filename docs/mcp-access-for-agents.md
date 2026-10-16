@@ -24,7 +24,7 @@ MCP-серверы конфигурируются один раз на уров�
 
 ```
 allowlist = (tools из agents/<id>/config.json)
-          + системные инструменты (route_to_agent, list_agents, ask_user, handoff_file)
+          + системные инструменты (route_to_agent, list_agents, ask_user, handoff_file, notify)
 ```
 
 Если в `config.json` агента нет поля `tools`, используется дефолтный набор
