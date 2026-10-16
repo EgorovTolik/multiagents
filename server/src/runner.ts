@@ -6,53 +6,42 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
+
 import { Type } from "typebox";
-import { parseModelList } from "./utils";
 import {
   createAgentSession,
   DefaultResourceLoader,
-  defineTool,
   getAgentDir,
   ModelRuntime,
   SessionManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+
 import { AgentRegistry, type AgentDef } from "./registry";
-import { SkillRegistry } from "./skill-registry";
+import { RecoveryEngine, ORCHESTRATOR_ID, CHAIN_ROUTER_ID } from "./recovery.js";
+import { MutexManager } from "./mutex.js";
+import { SkillInjector } from "./skills-injector.js";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
+import { ProviderRegistry } from "./providers.js";
+import { QueueManager } from "./queue.js";
+import { PromptBuilder } from "./prompt-builder.js";
+import { buildAgentTools } from "./agent-tools.js";
+import { ImageManager, fmtSize } from "./image-manager.js";
+import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
 
 export type Emit = (msg: unknown) => void;
 
 /** Изображение, присланное пользователем в чат. */
 export interface FileAttachment {
-  name: string;       // filename, e.g. "screenshot.png"
-  mediaType: string;  // MIME, e.g. "image/png"
-  data: string;       // base64 (без префикса data:...)
-  size: number;       // bytes
+  name: string;
+  mediaType: string;
+  data: string;
+  size: number;
 }
 
-function isImage(att: FileAttachment): boolean {
-  return att.mediaType.startsWith("image/");
-}
-
-/** Расширение файла по MIME для сохраняемых изображений инструментов. */
-const IMAGE_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-};
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
-}
-
-/** Режим восстановления обрыва цепочки: агент-маршрутизатор или автопроверка оркестратором. */
+/** Режим восстановления обрыва цепочки. */
 export type RecoveryMode = "router_agent" | "orchestrator_check";
 
-/** Читаем системные настройки из config.json (с дефолтами). */
 function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stallTimeoutMs: number; maxUploadSizeMb: number; recoveryMode: RecoveryMode } {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, "config.json"), "utf8"));
@@ -72,184 +61,78 @@ const sysCfg = loadSystemConfig();
 let MAX_HANDOFFS = sysCfg.maxHandoffs;
 let MAX_RECOVERIES = sysCfg.maxRecoveries;
 const STALL_TIMEOUT_MS = sysCfg.stallTimeoutMs;
-const MAX_UPLOAD_SIZE_MB = sysCfg.maxUploadSizeMb;
-const RECOVERY_MODE: RecoveryMode = sysCfg.recoveryMode;
-
-/** ID оркестратора — хаб цепочки; его «обрыв» (ответ пользователю) не считается прерыванием. */
-const ORCHESTRATOR_ID = "orchestrator";
-/** ID системного агента-маршрутизатора (режим recoveryMode="router_agent"). */
-const CHAIN_ROUTER_ID = "chain-router";
-
-function extractText(msg: unknown): string {
-  const c = (msg as any)?.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("");
-  }
-  return "";
-}
-
-function okText(text: string) {
-  return { content: [{ type: "text" as const, text }], details: {} };
-}
-
-function errText(text: string) {
-  return { content: [{ type: "text" as const, text: `Ошибка: ${text}` }], details: { isError: true } };
-}
-
-function buildSystemPrompt(def: AgentDef, workdir: string, globalRules: string[]): string {
-  // Рабочая директория — динамическая, в самом начале, чтобы агент сразу знал, где работать.
-  let p = "# Рабочая директория\n\n" + workdir + "\n";
-  p += "\n" + def.systemPrompt;
-  if (def.rules.length > 0) {
-    p += "\n\n## Дополнительные правила\n\n" + def.rules.join("\n\n");
-  }
-  // Глобальные правила окружения (system/*.md) — общие для всех агентов.
-  // chain-router — системный агент: он не создаёт файлы и не задаёт вопросы
-  // пользователю, поэтому правила окружения (handoff_file, ask_user) ему не нужны.
-  if (globalRules.length > 0 && def.id !== "chain-router") {
-    p += "\n\n## Правила окружения\n\n" + globalRules.join("\n\n");
-  }
-  if (def.skills.length > 0) {
-    p +=
-      "\n\n## Навыки\n\n" +
-      def.skills
-        .map((s) => `- ${s.name}: ${s.description} (файл: ${s.path})`)
-        .join("\n") +
-      "\n\nПеред выполнением задачи, подходящей под навык, прочитай его файл.";
-  }
-  p +=
-    "\n\n## Передача работы\n\n" +
-    "Если следующий шаг задачи требует другой экспертизы, вызови инструмент route_to_agent — " +
-    "диалог будет передан нужному агенту, а ты увидишь подтверждение. " +
-    "Пользователь видит все передачи в интерфейсе и может их прерывать.";
-  p +=
-    "\n\n## Управление задачами\n\n" +
-    "При получении новой задачи от предыдущего агента вызови get_task_file_name — это создаст файл задания с уникальным номером. Запиши в него задачу через write/edit.\n" +
-    "После завершения работы вызови get_result_file_name — это вернёт путь к файлу результата для этой задачи. Запиши результат и передай управление следующему агенту или заверши ход.";
-  return p;
-}
-
-/**
- * Ядро системы: запуск агентов поверх pi SDK.
- *
- * Глобальный мьютекс: в любой момент времени работает ровно один агент
- * (локальный сервер с одной моделью). Остальные сообщения — в очередь.
- *
- * Handoff: route_to_agent лишь планирует передачу (pendingHandoff).
- * Она выполняется после завершения текущего хода: сервер переключает
- * активного агента контекста и шлёт новому агенту промпт с контекстом.
- */
-/** Инструмент pi и группы инструментов (для UI редактора агентов и миграции). */
-export interface PiTool {
-  name: string;
-  description?: string;
-}
-
-export interface PiToolGroup {
-  id: string;
-  title: string;
-  tools: PiTool[];
-}
 
 export class AgentRunner {
-  /** Перечитывает системную конфигурацию (maxRecoveries и т.д.) без перезапуска. */
-  updateSystemConfig() {
-    const cfg = loadSystemConfig();
-    MAX_HANDOFFS = cfg.maxHandoffs;
-    MAX_RECOVERIES = cfg.maxRecoveries;
-  }
-
-  /** Сбросить модель агента, записав null в config.json и перезагрузив реестр. */
-  private resetAgentModel(agentId: string) {
-    try {
-      const agentDir = path.join(PROJECT_ROOT, "agents", agentId);
-      const configPath = path.join(agentDir, "config.json");
-      if (!fs.existsSync(configPath)) return;
-
-      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      config.model = null;
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
-      this.registry.reload();
-    } catch (e) {
-      console.log(`[runner] ошибка сброса модели агента ${agentId}:`, e);
-    }
-  }
-
+  private promptBuilder!: PromptBuilder;
+  private imageManager!: ImageManager;
+  private skillInjector!: SkillInjector;
   private sessions = new Map<string, AgentSession>();
-  /** Чат → текущий агент. Цепочки из разных чатов идут параллельно. */
-  private activeByCtx = new Map<string, string>();
-  /** Агент → чат: агент выполняет ход (жёсткий лимит 1 на агента по всем чатам). */
-  private agentBusy = new Map<string, string>();
-  private agentWaiters = new Map<string, { ctxId: string; resolve: () => void }[]>();
-  private queue: { ctxId: string; text: string; files?: FileAttachment[] }[] = [];
-  /** Последнее событие по чату (watchdog) — параллельные цепочки не маскируют друг друга. */
+  activeByCtx = new Map<string, string>();
+  private mutexManager!: MutexManager;
+  private recoveryEngine!: RecoveryEngine;
+  private queue!: QueueManager;
   private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
-  /** Какие модели каждого провайдера зарегистрированы в ModelRuntime (для до-регистрации новых). */
-  private knownModelIds = new Map<string, Set<string>>();
-  /** Глобальные правила окружения (system/*.md) — подставляются каждому агенту. */
-  private globalRules: string[] = [];
+  private providerRegistry!: ProviderRegistry;
+  private pendingThinking = new Map<string, string>();
+  private pendingText = new Map<string, string>();
 
   constructor(
     private registry: AgentRegistry,
     private store: ContextStore,
-    private skillRegistry: SkillRegistry,
+    private skillRegistry: any,
     private agentsDir: string,
     private systemDir: string,
     private sharedDir: string,
     private defaultModel: string | undefined,
     private emit: Emit,
-    /** Провайдеры проекта (config.json → providers) — регистрируются в pi SDK. */
     private providers: Record<string, { url?: string; apiKey?: string }> = {},
   ) {
+    const promptBuilder = new PromptBuilder([]);
+    this.promptBuilder = promptBuilder;
+    
     this.loadGlobalRules();
+    this.skillInjector = new SkillInjector(this.skillRegistry, this.store, this.registry, this.emit);
+    this.queue = new QueueManager();
+    this.mutexManager = new MutexManager(this.emit);
+    this.recoveryEngine = new RecoveryEngine(sysCfg.maxRecoveries);
+    this.providerRegistry = new ProviderRegistry(this.providers, this.defaultModel, this.registry, this.agentsDir);
+    this.imageManager = new ImageManager({
+      getCtxDir: (ctxId) => this.getCtxDir(ctxId),
+      storeAppendMessage: (ctxId, msg) => this.store.appendMessage(ctxId, msg),
+      emit: this.emit,
+    });
   }
 
-  /** Читает системные файлы правил (system/*.md) в алфавитном порядке. */
   private loadGlobalRules() {
-    this.globalRules = [];
+    const rules: string[] = [];
     if (!fs.existsSync(this.systemDir)) return;
     for (const f of fs.readdirSync(this.systemDir).sort()) {
       if (!f.endsWith(".md")) continue;
-      this.globalRules.push(fs.readFileSync(path.join(this.systemDir, f), "utf8"));
+      rules.push(fs.readFileSync(path.join(this.systemDir, f), "utf8"));
     }
+    this.promptBuilder.setGlobalRules(rules);
   }
 
   async init() {
     this.modelRuntime = await ModelRuntime.create();
-    // Регистрируем провайдеры проекта в pi SDK: иначе модели, которых нет в
-    // глобальном реестре pi (~/.pi/agent/models.json), резолвятся как undefined,
-    // и сессия молча падает на модель по умолчанию (чужой сервер).
-    await this.registerProjectProviders();
-    // Коррекция моделей агентов: если указанная модель недоступна — сбросить или выбрать единственную
-    this.correctAgentModels();
-    // Одноразовая миграция конфигов агентов: allowlist (tools) → denylist (disabledTools)
-    try {
-      const n = await this.migrateToolConfigs();
-      if (n > 0) console.log(`[runner] мигрировано конфигов инструментов: ${n}`);
-    } catch (e) {
-      console.error("[runner] миграция конфигов инструментов не удалась:", e);
-    }
-    // Watchdog: если активная сессия не генерирует событий дольше STALL_TIMEOUT_MS —
-    // прерываем её (зависший запрос к модели, SDK-зацикливание и т.п.)
+    await this.providerRegistry.registerProjectProviders(this.modelRuntime);
+    this.providerRegistry.correctAgentModels();
+
+    // Watchdog: если активная сессия не генерирует событий дольше STALL_TIMEOUT_MS — прерываем её
     setInterval(() => {
       for (const [ctxId, agentId] of this.activeByCtx) {
         const last = this.lastEventByCtx.get(ctxId);
         if (last === undefined || Date.now() - last < STALL_TIMEOUT_MS) continue;
         console.error(`[runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
         this.emit({ type: "error", ctxId, message: `Агент ${agentId} завис — ход прерван watchdog'ом. Отправьте сообщение ещё раз.` });
-        this.lastEventByCtx.set(ctxId, Date.now()); // не спамим, пока сессия реально не завершится
+        this.lastEventByCtx.set(ctxId, Date.now());
         const session = this.sessions.get(this.key(ctxId, agentId));
         void session?.abort();
       }
     }, 15000).unref();
   }
 
-  /** Все активные цепочки: { ctxId → agentId }. */
   getActives(): { ctxId: string; agentId: string }[] {
     return [...this.activeByCtx.entries()].map(([ctxId, agentId]) => ({ ctxId, agentId }));
   }
@@ -258,16 +141,14 @@ export class AgentRunner {
     return this.activeByCtx.get(ctxId);
   }
 
-  /** Есть ли сообщения в очереди на выполнение. */
   hasQueued(): boolean {
-    return this.queue.length > 0;
+    return this.queue.hasQueued();
   }
 
   private key(ctxId: string, agentId: string) {
     return `${ctxId}/${agentId}`;
   }
 
-  /** Сбросить все сессии контекста — при следующем обращении история будет перечитана из файла. */
   invalidateContext(ctxId: string) {
     const prefix = ctxId + "/";
     for (const [k, s] of [...this.sessions]) {
@@ -276,8 +157,6 @@ export class AgentRunner {
         this.sessions.delete(k);
       }
     }
-    // Инжектированные навыки жили только в старых сессиях — после сброса
-    // помечаем их как непереданные, чтобы они попали в новые сессии снова.
     const ctx = this.store.get(ctxId);
     if (ctx?.deliveredSkills) {
       ctx.deliveredSkills = {};
@@ -285,427 +164,15 @@ export class AgentRunner {
     }
   }
 
-  private piToolGroupsCache: PiToolGroup[] | null = null;
-  private piToolsFetchedAt = 0;
-
-  /** Метка времени последней сборки списка (для UI). */
-  get piToolsFetchedAtValue(): number {
-    return this.piToolsFetchedAt;
-  }
-
-  /** Полный список инструментов pi (встроенные + установленные через `pi install`), сгруппированный.
-   * Получается из «пробной» сессии без allowlist'а и кэшируется до перезапроса (force=true).
-   * Перезапрос нужен после изменения ~/.pi/agent/mcp.json или `pi install`. */
-  async listPiTools(force = false): Promise<PiToolGroup[]> {
-    if (!force && this.piToolGroupsCache) return this.piToolGroupsCache;
-    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
-    try {
-      const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });
-      await loader.reload();
-      const { session } = await createAgentSession({
-        cwd: probeDir,
-        resourceLoader: loader,
-        sessionManager: SessionManager.inMemory(probeDir),
-      });
-      try {
-        await session.bindExtensions({});
-      } catch { /* без MCP-инициализации список всё равно доступен */ }
-      const all = (session as any).getAllTools?.() ?? [];
-      this.piToolGroupsCache = this.groupPiTools(
-        all.map((t: any) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined })),
-      );
-      this.piToolsFetchedAt = Date.now();
-      try {
-        (session as any).dispose?.();
-      } catch { /* ignore */ }
-    } finally {
-      fs.rmSync(probeDir, { recursive: true, force: true });
-    }
-    return this.piToolGroupsCache!;
-  }
-
-  /** Группировка инструментов для UI: по пакетам/префиксам, без хардкода имён. */
-  private groupPiTools(tools: PiTool[]): PiToolGroup[] {
-    const groups = new Map<string, PiToolGroup>();
-    const ensure = (id: string, title: string): PiToolGroup => {
-      let g = groups.get(id);
-      if (!g) {
-        g = { id, title, tools: [] };
-        groups.set(id, g);
-      }
-      return g;
-    };
-    for (const t of tools) {
-      let g: PiToolGroup;
-      if (/^gitlab_/.test(t.name)) g = ensure("gitlab", "GitLab");
-      else if (t.name === "mcp" || t.name === "mcpScript" || /^mcp__/.test(t.name)) g = ensure("mcp", "MCP");
-      else if (/subagent|workflow|orchestrator/i.test(t.name)) g = ensure("subagents", "Субагенты и workflows (pi-subagentura)");
-      else if (["read", "write", "edit", "bash", "find", "grep", "ls"].includes(t.name)) g = ensure("builtin", "Встроенные pi");
-      else g = ensure("other", "Прочее");
-      g.tools.push(t);
-    }
-    const order = ["builtin", "mcp", "gitlab", "subagents", "other"];
-    return [...groups.values()]
-      .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
-      .map((g) => ({ ...g, tools: g.tools.sort((a, b) => a.name.localeCompare(b.name)) }));
-  }
-
-  /** Миграция конфигов агентов на обратную логику выдачи инструментов:
-   * allowlist (tools) → denylist (disabledTools). Все pi-инструменты включены по умолчанию,
-   * группа субагентов/workflows отключена по умолчанию. Идемпотентна. */
-  async migrateToolConfigs(): Promise<number> {
-    const groups = await this.listPiTools();
-    const subNames = new Set(
-      (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name),
-    );
-    if (!fs.existsSync(this.agentsDir)) return 0;
-    let changed = 0;
-    for (const entry of fs.readdirSync(this.agentsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const cfgPath = path.join(this.agentsDir, entry.name, "config.json");
-      if (!fs.existsSync(cfgPath)) continue;
-      let cfg: Record<string, unknown>;
-      try {
-        cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-      } catch { continue; }
-      const hadAllowlist = Array.isArray(cfg.tools);
-      const alreadyMigrated = !hadAllowlist && Array.isArray(cfg.disabledTools);
-      if (alreadyMigrated) continue;
-      const disabled: string[] = [
-        ...new Set([
-          ...(Array.isArray(cfg.disabledTools) ? (cfg.disabledTools as string[]) : []),
-          ...subNames,
-        ]),
-      ];
-      delete cfg.tools;
-      cfg.disabledTools = disabled;
-      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-      changed++;
-    }
-    if (changed > 0) this.registry.reload();
-    return changed;
-  }
-
-  /** Имена инструментов группы субагентов/workflows — отключаются по умолчанию у новых агентов. */
-  async defaultDisabledToolNames(): Promise<string[]> {
-    const groups = await this.listPiTools();
-    return (groups.find((g) => g.id === "subagents")?.tools ?? []).map((t) => t.name);
-  }
-
-  /** Полный сброс: закрыть все сессии всех контекстов. Только когда никто не работает (проверяет вызывающий). */
-  resetAllSessions(): number {
-    let n = 0;
-    for (const [k, s] of [...this.sessions]) {
-      try {
-        s.abort();
-        s.dispose();
-      } catch { /* ignore */ }
-      this.sessions.delete(k);
-      n++;
-    }
-    // Тела навыков живут только в сессиях — после сброса они должны переинжектиться
-    for (const ctx of this.store.list()) {
-      if (ctx.deliveredSkills && Object.keys(ctx.deliveredSkills).length > 0) {
-        this.store.resetDeliveredSkills(ctx);
-        this.store.save(ctx);
-      }
-    }
-    return n;
-  }
-
-  /** Коррекция моделей агентов: если указанная модель недоступна у провайдера —
-   * сбросить в null или выбрать единственную доступную модель. */
-  private correctAgentModels(): number {
-    let corrected = 0;
-    for (const agent of this.registry.list()) {
-      if (!agent.model) continue; // глобальная — ок
-      const slash = agent.model.indexOf("/");
-      if (slash < 0) continue; // формат не provider/model — пропустить
-      const providerId = agent.model.slice(0, slash);
-      const modelId = agent.model.slice(slash + 1);
-
-      const available = this.knownModelIds.get(providerId);
-      if (!available || available.size === 0) {
-        // Провайдер не зарегистрирован или список пуст — сбросить
-        console.log(`[runner] агент ${agent.id}: провайдер ${providerId} недоступен, модель сброшена`);
-        this.resetAgentModel(agent.id);
-        corrected++;
-        continue;
-      }
-
-      if (available.has(modelId)) {
-        continue; // модель доступна — ок
-      }
-
-      // Модель указана, но недоступна у провайдера
-      const cfgPath = path.join(this.agentsDir, agent.id, "config.json");
-      let cfg: { model?: string | null } = {};
-      try {
-        cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-      } catch { /* ignore */ }
-
-      if (available.size === 1) {
-        const onlyModel = [...available][0];
-        console.log(`[runner] агент ${agent.id}: модель «${modelId}» недоступна, выбрана единственная доступная «${onlyModel}»`);
-        cfg.model = `${providerId}/${onlyModel}`;
-      } else {
-        console.log(`[runner] агент ${agent.id}: модель «${modelId}» недоступна (сервер вернул ${available.size} моделей), сброшено в null`);
-        cfg.model = null;
-      }
-      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-      this.registry.reload();
-      corrected++;
-    }
-    return corrected;
-  }
-
-  /** Перечитать конфигурацию проекта: модель по умолчанию и провайдеры. */
-  async reloadProjectConfig(configPath: string, broadcastFn?: (msg: unknown) => void): Promise<void> {
-    let cfg: { model?: string; providers?: Record<string, { url?: string; apiKey?: string }> };
-    try {
-      cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    } catch {
-      return;
-    }
-    const newModel = cfg.model || undefined;
-    if (newModel !== this.defaultModel) {
-      console.log(`[runner] модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${newModel ?? "(нет)"}`);
-      this.defaultModel = newModel;
-    }
-    // Обновить провайдеры
-    if (cfg.providers) {
-      this.providers = cfg.providers;
-      this.registerProjectProviders();
-      this.correctAgentModels();
-    }
-    broadcastFn?.({ type: "system_notice", text: `Конфигурация перечитана. Модель: ${this.defaultModel ?? "(нет)"}` });
-  }
-
-  /** Запросить список моделей провайдера (OpenAI- и llama.cpp-native форматы). */
-  private async fetchProviderModels(baseUrl: string, apiKey?: string): Promise<string[]> {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 5000);
-      const resp = await fetch(`${baseUrl}/v1/models`, {
-        headers: { Authorization: `Bearer ${apiKey ?? ""}` },
-        signal: controller.signal,
-      });
-      clearTimeout(t);
-      if (!resp.ok) return [];
-      const data: any = await resp.json();
-      return parseModelList(data);
-    } catch {
-      return [];
-    }
-  }
-
-  /** Register провайдеры config.json в ModelRuntime со списком моделей с сервера. */
-  private async registerProjectProviders(): Promise<void> {
-    if (!this.modelRuntime) return;
-    for (const [id, cfg] of Object.entries(this.providers)) {
-      if (!cfg?.url) continue;
-      const baseUrl = cfg.url.replace(/\/$/, "");
-      // Живой список с сервера + fallback: модели, упомянутые в config.json
-      // (глобальная default и per-agent), чтобы резолв работал даже при недоступном сервере.
-      const live = await this.fetchProviderModels(baseUrl, cfg.apiKey);
-      const referenced = [this.defaultModel, ...this.registry.list().map((a) => a.model)]
-        .filter((s): s is string => !!s && s.startsWith(id + "/"))
-        .map((s) => s.slice(id.length + 1));
-      const allIds = [...new Set([...live, ...referenced])];
-      if (allIds.length === 0) continue;
-      this.registerProviderModels(id, allIds);
-      // В knownModelIds сохраняем только live модели — для коррекции моделей агентов
-      this.knownModelIds.set(id, new Set(live));
-      console.log(`[runner] провайдер ${id} зарегистрирован в pi SDK: ${allIds.length} моделей${live.length === 0 ? " (сервер недоступен — из config.json)" : ""}`);
-    }
-  }
-
-  /** Регистрирует провайдера в ModelRuntime с указанным списком моделей. */
-  private registerProviderModels(providerId: string, ids: string[]): void {
-    const cfg = this.providers[providerId];
-    if (!this.modelRuntime || !cfg?.url) return;
-    const baseUrl = cfg.url.replace(/\/$/, "");
-    this.modelRuntime.registerProvider(providerId, {
-      name: providerId,
-      baseUrl,
-      apiKey: cfg.apiKey,
-      api: "openai-completions",
-      models: ids.map((mid) => ({
-        id: mid,
-        name: mid.replace(/\.gguf$/, ""),
-        reasoning: false,
-        input: ["text", "image"] as ("text" | "image")[],
-        contextWindow: 262144,
-        maxTokens: 32768,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      })),
-    });
-  }
-
-  /** Гарантирует, что модель из конфига агента есть в ModelRuntime.
-   * Если её нет (конфиг меняли после старта сервера) — переспрашивает живой список
-   * у провайдера и до-регистрирует. Без этого SDK молча возьмёт модель по умолчанию. */
-  private async ensureModelRegistered(spec: string): Promise<boolean> {
-    const slash = spec.indexOf("/");
-    if (slash < 0) return false;
-    const providerId = spec.slice(0, slash);
-    const modelId = spec.slice(slash + 1);
-    if (this.modelRuntime?.getModel(providerId, modelId)) return true;
-    const pcfg = this.providers[providerId];
-    if (!pcfg?.url) {
-      console.warn(`[runner] провайдер «${providerId}» не найден в config.json — модель ${spec} недоступна`);
-      return false;
-    }
-    const live = await this.fetchProviderModels(pcfg.url.replace(/\/$/, ""), pcfg.apiKey);
-    const known = this.knownModelIds.get(providerId) ?? new Set<string>();
-    const ids = [...new Set([...known, ...live, modelId])];
-    this.registerProviderModels(providerId, ids);
-    console.log(`[runner] провайдер ${providerId} обновлён: ${ids.length} моделей (добавлена «${modelId}»)`);
-    return !!this.modelRuntime?.getModel(providerId, modelId);
-  }
-
-  private resolveModel(id?: string) {
-    if (!this.modelRuntime) return undefined;
-    const spec = id ?? this.defaultModel;
-    if (!spec) return undefined;
-    const slash = spec.indexOf("/");
-    if (slash < 0) return undefined;
-    return this.modelRuntime.getModel(spec.slice(0, slash), spec.slice(slash + 1));
-  }
-
-  /** Входящее сообщение пользователя. */
-  async handleMessage(ctxId: string, text: string, files?: FileAttachment[]) {
-    const ctx = this.store.get(ctxId);
-    if (!ctx) throw new Error("Контекст не найден: " + ctxId);
-
-    // Сохраняем файлы в папку контекста + копии в системную папку previews/
-    let savedPaths: string[] = [];
-    let mdLinks: string[] = [];
-    const PREVIEWS_DIR = path.join(PROJECT_ROOT, "previews");
-    if (files && files.length > 0) {
-      const filesDir = path.join(this.getCtxDir(ctxId), "files");
-      fs.mkdirSync(filesDir, { recursive: true });
-      fs.mkdirSync(PREVIEWS_DIR, { recursive: true });
-      for (const f of files) {
-        const ext = path.extname(f.name) || ".bin";
-        const now = new Date();
-        const p2 = (n: number) => String(n).padStart(2, "0");
-        const stamp = `${p2(now.getDate())}.${p2(now.getMonth()+1)}.${now.getFullYear()}-${p2(now.getHours())}.${p2(now.getMinutes())}.${p2(now.getSeconds())}`;
-        const fname = `${now.getTime()}-${stamp}${ext}`;
-        const buf = Buffer.from(f.data, "base64");
-        fs.writeFileSync(path.join(filesDir, fname), buf);
-        savedPaths.push(path.join("files", fname));
-        fs.writeFileSync(path.join(PREVIEWS_DIR, fname), buf);
-        if (isImage(f)) {
-          mdLinks.push(`![${fname}](/api/previews/${fname})`);
-        } else {
-          mdLinks.push(`[📄 ${fname} (${fmtSize(f.size)})](/api/previews/${fname})`);
-        }
-      }
-    }
-
-    const fullText = savedPaths.length > 0
-      ? (text + "\n\n" + mdLinks.join("\n") + "\n\n[Файлы: " + savedPaths.join(", ") + "]")
-      : text;
-
-    if (ctx.awaitingUser) {
-      const { agentId } = ctx.awaitingUser;
-      ctx.awaitingUser = undefined;
-      ctx.aborted = false;
-      ctx.activeAgentId = agentId;
-      this.store.save(ctx);
-      const msg: Message = { role: "user", agentId, text: fullText, ts: Date.now() };
-      this.store.appendMessage(ctxId, msg);
-      this.emit({ type: "message", ctxId, message: msg });
-      if (this.activeByCtx.has(ctxId)) {
-        this.queue.push({ ctxId, text: fullText, files });
-        this.emitQueued(ctxId);
-      } else {
-        void this.run(ctxId, fullText, files);
-      }
-      return;
-    }
-
-    if (ctx.activeAgentId === ORCHESTRATOR_ID) {
-      ctx.inChain = false;
-      ctx.recoveryCount = 0;
-    }
-    ctx.aborted = false;
-    this.store.save(ctx);
-    const msg: Message = {
-      role: "user",
-      agentId: ctx.activeAgentId,
-      text: fullText,
-      ts: Date.now(),
-    };
-    this.store.appendMessage(ctxId, msg);
-    this.emit({ type: "message", ctxId, message: msg });
-    if (this.activeByCtx.has(ctxId)) {
-      this.queue.push({ ctxId, text: fullText, files });
-      this.emitQueued(ctxId);
-    } else {
-      void this.run(ctxId, fullText, files);
-    }
-  }
-
-  /** Счётчик сообщений чата в очереди (для UI: «N в очереди»). */
-  private emitQueued(ctxId: string): void {
-    const count = this.queue.filter((q) => q.ctxId === ctxId).length;
-    this.emit({ type: "queued", ctxId, count });
-  }
-
-  /** Забрать очередь на агента. Если агент занят в другом чате — ждём (FIFO на агента). */
-  private async acquireAgent(agentId: string, ctxId: string): Promise<void> {
-    if (!this.agentBusy.has(agentId)) {
-      this.agentBusy.set(agentId, ctxId);
-      return;
-    }
-    const waiters = this.agentWaiters.get(agentId) ?? [];
-    this.agentWaiters.set(agentId, waiters);
-    await new Promise<void>((resolve) => {
-      // Цепочка стоит: агент занят в другом чате — показываем ожидание в UI
-      this.emit({ type: "chain_waiting", ctxId, agentId });
-      waiters.push({ ctxId, resolve });
-    });
-    this.agentBusy.set(agentId, ctxId);
-  }
-
-  /** Освободить агента: передать владение следующему ждущему или снять полностью. */
-  private releaseAgent(agentId: string): void {
-    const waiters = this.agentWaiters.get(agentId) ?? [];
-    if (waiters.length > 0) {
-      const next = waiters.shift()!;
-      this.agentBusy.set(agentId, next.ctxId);
-      next.resolve();
-    } else {
-      this.agentBusy.delete(agentId);
-    }
-  }
-
-  /** Запустить следующее сообщение из очереди: первое, чей чат свободен. */
-  private dispatchQueue(): void {
-    const idx = this.queue.findIndex((q) => !this.activeByCtx.has(q.ctxId));
-    if (idx === -1) return;
-    const [next] = this.queue.splice(idx, 1);
-    this.emitQueued(next.ctxId);
-    void this.run(next.ctxId, next.text, next.files);
-  }
-
-  /** Уничтожить сессии агентов контекста (при удалении контекста). */
   disposeContext(ctxId: string) {
     for (const [k, s] of [...this.sessions]) {
       if (k.startsWith(ctxId + "/")) {
-        try {
-          s.dispose();
-        } catch {
-          // ignore
-        }
+        try { s.dispose(); } catch { /* ignore */ }
         this.sessions.delete(k);
       }
     }
   }
 
-  /** Прервать текущий ход в конкретном чате (и отменить запланированную передачу). */
   abort(ctxId: string) {
     const agentId = this.activeByCtx.get(ctxId);
     if (!agentId) return;
@@ -717,11 +184,7 @@ export class AgentRunner {
       ctx.recoveryCount = 0;
       this.store.save(ctx);
       this.emit({ type: "handoff_cancelled", ctxId });
-      const sysMsg: Message = {
-        role: "system",
-        text: "⏹ Остановлено пользователем",
-        ts: Date.now(),
-      };
+      const sysMsg: Message = { role: "system", text: "⏹ Остановлено пользователем", ts: Date.now() };
       this.store.appendMessage(ctxId, sysMsg);
       this.emit({ type: "message", ctxId, message: sysMsg });
     }
@@ -729,7 +192,6 @@ export class AgentRunner {
     void session?.abort();
   }
 
-  /** Отменить запланированную передачу (текущий ход ещё идёт). */
   cancelHandoff(ctxId: string) {
     const ctx = this.store.get(ctxId);
     if (!ctx?.pendingHandoff) return;
@@ -738,12 +200,7 @@ export class AgentRunner {
     this.emit({ type: "handoff_cancelled", ctxId });
   }
 
-  /**
-   * Получить текущее стримящееся сообщение для контекста (если агент занят).
-   * Возвращает частичное сообщение или null если нет активного стрима.
-   */
   getPendingStream(ctxId: string): { agentId: string; text: string; thinking?: string } | null {
-    // Ищем в pendingText по key
     for (const [key, text] of this.pendingText.entries()) {
       if (key.startsWith(`${ctxId}|`)) {
         const agentId = key.split("|")[1];
@@ -752,7 +209,6 @@ export class AgentRunner {
         return { agentId, text: text || "", thinking: thinking || undefined };
       }
     }
-    // Если pendingText пуст (только thinking), ищем там
     for (const [key, thinking] of this.pendingThinking.entries()) {
       if (key.startsWith(`${ctxId}|`)) {
         const agentId = key.split("|")[1];
@@ -760,6 +216,74 @@ export class AgentRunner {
       }
     }
     return null;
+  }
+
+  /** Входящее сообщение пользователя. */
+  async handleMessage(ctxId: string, text: string, files?: FileAttachment[]) {
+    const ctx = this.store.get(ctxId);
+    if (!ctx) throw new Error("Контекст не найден: " + ctxId);
+
+    // Сохраняем файлы в папку контекста
+    let fullText = text;
+    if (files && files.length > 0) {
+      const filesDir = path.join(this.getCtxDir(ctxId), "files");
+      fs.mkdirSync(filesDir, { recursive: true });
+      fs.mkdirSync(path.join(PROJECT_ROOT, "previews"), { recursive: true });
+      const links: string[] = [];
+      for (const f of files) {
+        const ext = path.extname(f.name) || ".bin";
+        const now = new Date();
+        const p2 = (n: number) => String(n).padStart(2, "0");
+        const stamp = `${p2(now.getDate())}.${p2(now.getMonth()+1)}.${now.getFullYear()}-${p2(now.getHours())}.${p2(now.getMinutes())}.${p2(now.getSeconds())}`;
+        const fname = `${now.getTime()}-${stamp}${ext}`;
+        const buf = Buffer.from(f.data, "base64");
+        fs.writeFileSync(path.join(filesDir, fname), buf);
+        fs.writeFileSync(path.join(PROJECT_ROOT, "previews", fname), buf);
+        if (isImage(f)) {
+          links.push(`![${fname}](/api/previews/${fname})`);
+        } else {
+          links.push(`[📄 ${fname} (${fmtSize(f.size)})](/api/previews/${fname})`);
+        }
+      }
+      fullText = text + "\n\n" + links.join("\n");
+    }
+
+    let agentId = ctx.activeAgentId;
+    if (ctx.awaitingUser) {
+      agentId = ctx.awaitingUser.agentId;
+      ctx.awaitingUser = undefined;
+      ctx.activeAgentId = agentId;
+    }
+    if (agentId === ORCHESTRATOR_ID) {
+      ctx.inChain = false;
+      ctx.recoveryCount = 0;
+    }
+    ctx.aborted = false;
+    this.store.save(ctx);
+
+    const msg: Message = { role: "user", agentId, text: fullText, ts: Date.now() };
+    this.store.appendMessage(ctxId, msg);
+    this.emit({ type: "message", ctxId, message: msg });
+
+    if (this.activeByCtx.has(ctxId)) {
+      this.queue.push(ctxId, fullText, files);
+      this.emitQueued(ctxId);
+    } else {
+      void this.run(ctxId, fullText, files);
+    }
+  }
+
+  private emitQueued(ctxId: string): void {
+    const count = this.queue.countForCtx(ctxId);
+    this.emit({ type: "queued", ctxId, count });
+  }
+
+  private dispatchQueue(): void {
+    const idx = this.queue.findNextAvailable(this.activeByCtx);
+    if (idx === -1) return;
+    const next = this.queue.pop(idx)!;
+    this.emitQueued(next.ctxId);
+    void this.run(next.ctxId, next.text, next.files);
   }
 
   private async run(ctxId: string, text: string, files?: FileAttachment[]) {
@@ -771,165 +295,101 @@ export class AgentRunner {
       this.emit({ type: "error", ctxId, message: `Агент не найден: ${agentId}` });
       return;
     }
-    // Чат занят этой цепочкой (даже пока ждём освобождения агента)
+
     this.activeByCtx.set(ctxId, agentId);
-    // Жёсткий лимит: агент не выполняет ходы в двух чатах одновременно.
-    // Если он занят — цепочка ждёт здесь, другие чаты с другими агентами идут параллельно.
-    await this.acquireAgent(agentId, ctxId);
+    await this.mutexManager.acquireAgent(agentId, ctxId);
     this.emit({ type: "run_start", ctxId, agentId });
-    // Навыки, применённые к контексту, но ещё не переданные этому агенту —
-    // инжектим в промпт (останутся в истории pi-сессии на весь разговор)
-    const delivered = ctx.deliveredSkills?.[agentId] ?? [];
-    const pendingSkills = (ctx.skills ?? []).filter((id) => !delivered.includes(id) && this.skillRegistry.get(id));
-    if (pendingSkills.length > 0) {
-      const blocks = pendingSkills
-        .map((id) => {
-          const sk = this.skillRegistry.get(id)!;
-          return `### ${sk.name}\n\n${sk.body.trim()}`;
-        })
-        .join("\n\n---\n\n");
-      text = `⚡ Новые навыки. Запомни их и применяй в работе:\n\n${blocks}\n\n---\n\n${text}`;
-      ctx.deliveredSkills = { ...(ctx.deliveredSkills ?? {}), [agentId]: [...delivered, ...pendingSkills] };
-      this.store.save(ctx);
-      const names = pendingSkills.map((id) => `«${this.skillRegistry.get(id)!.name}»`).join(", ");
-      const sysMsg: Message = { role: "system", text: `⚡ Навык ${names} передан агенту «${def.name}»`, ts: Date.now() };
+
+    const injection = this.skillInjector.inject(ctx, agentId, text);
+    if (injection.changed) {
+      const sysMsg: Message = { role: "system", text: `⚡ Навыки переданы агенту «${def.name}»`, ts: Date.now() };
       this.store.appendMessage(ctxId, sysMsg);
       this.emit({ type: "message", ctxId, message: sysMsg });
     }
+
     try {
       const session = await this.getSession(ctxId, agentId, def);
-      // Только изображения передаём как мультимодальный ввод; файлы — через путь в тексте
       const imageFiles = files?.filter(isImage) ?? [];
       const promptOpts = imageFiles.length > 0
         ? { images: imageFiles.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mediaType })) }
         : undefined;
-      await session.prompt(text, promptOpts);
+      await session.prompt(injection.text, promptOpts);
     } catch (e: any) {
-      // Прерывание из-за ask_user или по кнопке — штатное завершение, не ошибка.
       const ctxNow = this.store.get(ctxId);
       if (!ctxNow?.awaitingUser && !ctxNow?.aborted) {
         console.error("[runner] run error:", e);
         this.emit({ type: "error", ctxId, message: String(e?.message ?? e) });
       }
     } finally {
-      // Ход завершён — агент свободен (возможно, сразу забирает его другой чат).
-      // activeByCtx при передаче НЕ снимаем: новая run() уже пометила чат новым агентом.
-      this.releaseAgent(agentId);
-      this.flushPendingImages(ctxId, agentId);
+      this.mutexManager.releaseAgent(agentId);
+      this.imageManager.flushPendingImages(ctxId, agentId);
       this.emit({ type: "run_end", ctxId, agentId });
 
-      // Перечитываем контекст с диска: route_to_agent мог запланировать
-      // передачу, записав её в другой экземпляр ContextMeta
       const ctx = this.store.get(ctxId)!;
       const pending = ctx.pendingHandoff;
       ctx.pendingHandoff = undefined;
       if (pending && this.registry.get(pending.to)) {
-        this.doHandoff(ctxId, ctx, pending, this.buildHandoffPrompt(pending));
+        this.doHandoff(ctxId, ctx, pending, this.promptBuilder.buildHandoffPrompt(pending));
         return;
       }
 
-      // Если agent-creator завершил ход — перечитываем реестр: агент мог создать
-      // агента вручную (bash/write), не через create_agent. Рассылаем обновлённый
-      // список, чтобы UI сразу отразил изменения.
       if (agentId === "agent-creator") {
         this.registry.reload();
         this.emit({ type: "agents", agents: this.registry.list() });
       }
 
-      // Обрыв цепочки: агент был «в цепочке» (ход запущен handoff'ом), но
-      // завершил ход без route_to_agent.
-      // Исключение: агент ждёт ответа пользователя (ask_user) — это не прерывание.
+      // Обрыв цепочки: агент был «в цепочке», но завершил ход без route_to_agent
       if (ctx.inChain && agentId !== ORCHESTRATOR_ID && !ctx.awaitingUser && !ctx.aborted) {
         const recoveries = ctx.recoveryCount ?? 0;
         if (recoveries < MAX_RECOVERIES) {
           const task = ctx.handoffs[ctx.handoffs.length - 1];
           const lastMsg = this.lastAssistantMessage(ctxId, agentId);
 
-          // Маршрутизатор завершил ход без route_to_agent — fallback:
-          // принудительно передаём оркестратору, чтобы не зациклиться.
           if (agentId === CHAIN_ROUTER_ID) {
-            const handoff: Handoff = {
-              from: agentId,
-              to: ORCHESTRATOR_ID,
-              reason: "⚠️ Маршрутизатор не принял решение — автопередача",
-              context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)",
-              ts: Date.now(),
-            };
+            const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Маршрутизатор не принял решение — автопередача", context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)", ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.buildRouterFallbackPrompt(task, lastMsg));
+            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterFallbackPrompt(task, lastMsg));
             return;
           }
 
-          // ПЫТАЕМСЯ АВТОМАТИЧЕСКИ ВОССТАНОВИТЬ: проверяем, не остановился ли агент
-          // до завершения работы (нет result-файла для последней задачи).
-          const incomplete = this.detectIncompleteTask(ctxId, agentId, task);
+          const incomplete = this.recoveryEngine.detectIncompleteTask(this.getCtxDir(ctxId), agentId, task);
           if (incomplete) {
             console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
-            const handoff: Handoff = {
-              from: "system",
-              to: agentId,
-              reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)",
-              context: incomplete.context,
-              ts: Date.now(),
-            };
+            const handoff: Handoff = { from: "system", to: agentId, reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)", context: incomplete.context, ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
+            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
             return;
           }
 
-          // Автоматическое восстановление не сработало — передаём маршрутизатору.
-          if (RECOVERY_MODE === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
-            const handoff: Handoff = {
-              from: agentId,
-              to: CHAIN_ROUTER_ID,
-              reason: "⚠️ Цепочка прервалась — разбор маршрута",
-              context: lastMsg ?? "(агент не оставил завершённого сообщения)",
-              ts: Date.now(),
-            };
+          if (sysCfg.recoveryMode === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
+            const handoff: Handoff = { from: agentId, to: CHAIN_ROUTER_ID, reason: "⚠️ Цепочка прервалась — разбор маршрута", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
             ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.buildRouterPrompt(ctx, agentId, task, lastMsg));
+            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterPrompt(ctx, agentId, task, lastMsg, (id) => this.getCtxDir(id)));
             return;
           }
 
-          // Старый режим: оркестратор сам делает автопроверку.
-          const handoff: Handoff = {
-            from: agentId,
-            to: ORCHESTRATOR_ID,
-            reason: "⚠️ Цепочка прервалась — автопроверка",
-            context: lastMsg ?? "(агент не оставил завершённого сообщения)",
-            ts: Date.now(),
-          };
+          const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Цепочка прервалась — автопроверка", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
           ctx.recoveryCount = recoveries + 1;
-          this.doHandoff(ctxId, ctx, handoff, this.buildRecoveryPrompt(agentId, task, lastMsg));
+          this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRecoveryPrompt(agentId, task, lastMsg));
           return;
         }
-        // Лимит восстановлений исчерпан — просим пользователя
-        const sysMsg: Message = {
-          role: "system",
-          text: `⚠️ Цепочка прервалась ${MAX_RECOVERIES} раза подряд — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`,
-          ts: Date.now(),
-        };
+
+        const sysMsg: Message = { role: "system", text: `⚠️ Цепочка прервалась ${MAX_RECOVERIES} раза подряд — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`, ts: Date.now() };
         this.store.appendMessage(ctxId, sysMsg);
         this.emit({ type: "message", ctxId, message: sysMsg });
       }
 
-      // Цепочка завершена (нет передачи, нет recovery)
-      if (ctx.trainingAgentId) {
-        // Обучающая сессия: не сбрасываем activeAgentId — пользователь общается
-        // напрямую с агентом. Просто оставляем в текущем состоянии.
-      } else if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
+      if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
         ctx.activeAgentId = ORCHESTRATOR_ID;
         ctx.inChain = false;
       }
       this.store.save(ctx);
-      // Чат свободен — запускаем следующее сообщение из очереди (свой или другого чата)
       this.activeByCtx.delete(ctxId);
       this.lastEventByCtx.delete(ctxId);
       this.dispatchQueue();
     }
   }
 
-  /** Последний завершённый ответ агента (для промпта восстановления). */
   private lastAssistantMessage(ctxId: string, agentId: string): string | undefined {
     const msgs = this.store.readMessages(ctxId);
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -939,198 +399,26 @@ export class AgentRunner {
     return undefined;
   }
 
-  /** Промпт для агента, которому передают диалог (обычный handoff). */
-  private buildHandoffPrompt(pending: Handoff): string {
-    return (
-      `Диалог передан агентом ${pending.from}.\n` +
-      `Причина: ${pending.reason}\n\n` +
-      `Контекст задачи:\n${pending.context}\n\n` +
-      `ВАЖНО: если в контексте указан путь к файлу ТЗ (tasks/task-<timestamp>.md) — сначала прочитай его, потом приступай к работе.\n` +
-      `По завершении вызови handoff_file(type="result", title="...", body="...") — инструмент создаст файл и вернёт путь. Упомяни путь в сообщении пользователю.\n` +
-      `Если следующий шаг требует другой экспертизы — вызови handoff_file(type="task", ...) и передай диалог через route_to_agent.`
-    );
-  }
-
-  /** Промпт для оркестратора при обрыве цепочки (режим восстановления). */
-  private buildRecoveryPrompt(agentId: string, task: Handoff | undefined, lastMsg: string | undefined): string {
-    return (
-      `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ. Агент ${agentId} завершил ход, не вызвав route_to_agent.\n\n` +
-      `Ему было передано задание от ${task?.from ?? "?"}:\n` +
-      `— Причина: ${task?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
-      `Последнее сообщение агента ${agentId}:\n${lastMsg ?? "(нет)"}\n\n` +
-      `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ. Проверь фактическое состояние (разреши себе использовать read/bash):\n` +
-      `1. Если работа полностью завершена — передай дальше по цепочке через route_to_agent (если есть следующий шаг) или кратко сообщи пользователю итог, если цепочка закончена.\n` +
-      `2. Если работа НЕ завершена — составь корректирующий промпт с учётом изначального задания и уже сделанного, и перезапусти агента ${agentId} через route_to_agent.`
-    );
-  }
-
-  /** Промпт для агента-маршрутизатора при обрыве цепочки (recoveryMode="router_agent"). */
-  private buildRouterPrompt(ctx: ContextMeta, brokenAgent: string, task: Handoff | undefined, lastMsg: string | undefined): string {
-    const ctxDir = this.getCtxDir(ctx.id);
-    const history = ctx.handoffs
-      .map((h, i) =>
-        `${i + 1}. [${new Date(h.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}] ${h.from} → ${h.to} — ${h.reason}`
-      )
-      .join("\n");
-    const listMd = (sub: string): string[] => {
-      try {
-        return fs.readdirSync(path.join(ctxDir, sub)).filter((f) => f.endsWith(".md")).sort();
-      } catch {
-        return [];
-      }
-    };
-    const taskFiles = listMd("tasks").map((f) => path.join(ctxDir, "tasks", f));
-    const resultFiles = listMd("results").map((f) => path.join(ctxDir, "results", f));
-    const files = [
-      taskFiles.length ? `Задания (tasks/):\n${taskFiles.map((p) => `- ${p}`).join("\n")}` : "",
-      resultFiles.length ? `Результаты (results/):\n${resultFiles.map((p) => `- ${p}`).join("\n")}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    return (
-      `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ. Агент ${brokenAgent} завершил ход, не вызвав route_to_agent.\n\n` +
-      `## История маршрутизации\n${history || "(передач ещё не было)"}\n\n` +
-      `## Файлы контекста\n${files || "(файлов заданий и результатов нет)"}\n\n` +
-      `## Задание, которое было передано агенту ${brokenAgent}\n` +
-      `— Причина: ${task?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
-      `## Последнее сообщение агента ${brokenAgent}\n${lastMsg ?? "(нет)"}\n\n` +
-      `Действуй по алгоритму из системного промпта: 1) list_agents, 2) прочитай файлы, 3) route_to_agent.`
-    );
-  }
-
-  /** Fallback-промпт для оркестратора: маршрутизатор не смог принять решение. */
-  private buildRouterFallbackPrompt(task: Handoff | undefined, lastMsg: string | undefined): string {
-    return (
-      `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ, и агент-маршрутизатор (chain-router) не смог принять решение о передаче.\n\n` +
-      `Задание, которое было передано предыдущему агенту:\n` +
-      `— Причина: ${task?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
-      `Последнее сообщение маршрутизатора:\n${lastMsg ?? "(нет)"}\n\n` +
-      `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ (разреши себе использовать read/bash для проверки состояния).\n` +
-      `1. Если работа полностью завершена — кратко сообщи пользователю итог.\n` +
-      `2. Если работа НЕ завершена — передай дальше по цепочке через route_to_agent с корректирующим промптом.`
-    );
-  }
-
-  /**
-   * Автоматическое обнаружение незавершённых задач при обрыве цепочки.
-   * Проверяет, есть ли result-файл для последней task-задачи агента.
-   * Если нет — агент остановился до завершения работы.
-   */
-  private detectIncompleteTask(
-    ctxId: string,
-    agentId: string,
-    lastTask: Handoff | undefined
-  ): { context: string; taskTitle?: string } | null {
-    try {
-      const ctxDir = this.getCtxDir(ctxId);
-      // Найти последний файл задачи (с наибольшим номером)
-      const tasksDir = path.join(ctxDir, "tasks");
-      if (!fs.existsSync(tasksDir)) return null;
-
-      const taskFiles = fs.readdirSync(tasksDir).filter(f => f.startsWith("task-") && f.endsWith(".md"));
-      if (taskFiles.length === 0) return null;
-
-      // Отсортировать по номеру (последний — самый большой)
-      taskFiles.sort((a, b) => {
-        const numA = parseInt(a.match(/task-(\d+)\.md/)?.[1] ?? "0");
-        const numB = parseInt(b.match(/task-(\d+)\.md/)?.[1] ?? "0");
-        return numB - numA;
-      });
-
-      // Проверить последний task-файл на наличие result-файла
-      const lastTaskFile = taskFiles[0];
-      const taskNum = parseInt(lastTaskFile.match(/task-(\d+)\.md/)?.[1] ?? "0");
-      const resultFileName = `result-${String(taskNum).padStart(3, "0")}.md`;
-      const resultsDir = path.join(ctxDir, "results");
-      const hasResult = fs.existsSync(path.join(resultsDir, resultFileName));
-
-      if (!hasResult) {
-        // Задача не завершена — нет соответствующего result-файла
-        const taskFilePath = path.join(tasksDir, lastTaskFile);
-        let taskTitle = "";
-        try {
-          const taskContent = fs.readFileSync(taskFilePath, "utf8");
-          const titleMatch = taskContent.match(/^# Задание: (.+)$/m);
-          if (titleMatch) taskTitle = titleMatch[1];
-        } catch { /* ignore */ }
-
-        console.log(`[runner] ${ctxId}/${agentId}: обнаружена незавершённая задача: ${lastTaskFile}`);
-        return {
-          context: `Продолжи выполнение задачи. Файл задания: ${taskFilePath}`,
-          taskTitle: taskTitle || undefined,
-        };
-      }
-
-      return null; // Task completed (has corresponding result)
-    } catch (e) {
-      console.log(`[runner] ${ctxId}/${agentId}: ошибка в detectIncompleteTask:`, e);
-      return null;
-    }
-  }
-
-  /** Промпт для автоматического восстановления незавершённой задачи. */
-  private buildAutoRecoveryPrompt(
-    agentId: string,
-    originalTask: Handoff | undefined,
-    lastMsg: string | undefined,
-    incomplete: { context: string; taskTitle?: string }
-  ): string {
-    return (
-      `⚠️ АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ. Ты завершил предыдущий ход, не вызвав route_to_agent.\n` +
-      `Анализ показал: задача НЕ завершена (отсутствует result-файл).\n\n` +
-      `${incomplete.taskTitle ? `Задача: ${incomplete.taskTitle}\n\n` : ""}` +
-      `Изначальное задание:\n` +
-      `— От: ${originalTask?.from ?? "неизвестно"}\n` +
-      `— Причина: ${originalTask?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${originalTask?.context ?? "неизвестно"}\n\n` +
-      `Твоё последнее сообщение:\n${lastMsg ?? "(нет)"}\n\n` +
-      `## Что нужно сделать:\n` +
-      `1. Прочитай файл задания (указан в контексте выше)\n` +
-      `2. Продолжи выполнение задачи до конца\n` +
-      `3. По завершении вызови handoff_file(type="result", ...) для записи результата\n` +
-      `4. Вызови route_to_agent для передачи управления дальше по цепочке\n\n` +
-      `ВАЖНО: обязательно заверши работу и передай управление, иначе цепочка прервётся снова.`
-    );
-  }
-
-  /** Выполнить передачу: переключить агента, записать в лог, запустить нового. */
   private doHandoff(ctxId: string, ctx: ContextMeta, handoff: Handoff, prompt: string) {
     ctx.activeAgentId = handoff.to;
     ctx.handoffs.push(handoff);
     ctx.inChain = true;
     this.store.save(ctx);
-    const sysMsg: Message = {
-      role: "system",
-      text: `Передача: ${handoff.from} → ${handoff.to} — ${handoff.reason}`,
-      ts: Date.now(),
-    };
+
+    const sysMsg: Message = { role: "system", text: `Передача: ${handoff.from} → ${handoff.to} — ${handoff.reason}`, ts: Date.now() };
     this.store.appendMessage(ctxId, sysMsg);
     this.emit({ type: "handoff", ctxId, handoff });
     this.emit({ type: "message", ctxId, message: sysMsg });
 
-    // «Забывать сессию после завершения шага»: исходный агент завершил свой ход,
-    // чат уходит другому — выбрасываем его pi-сессию (естественное сжатие контекста).
-    // История остаётся в messages.json; при возврате строится новая сессия из неё.
     if (handoff.to !== handoff.from) {
       const fromDef = this.registry.get(handoff.from);
       if (fromDef?.forgetSessionAfterStep) {
         const k = this.key(ctxId, handoff.from);
         const s = this.sessions.get(k);
         if (s) {
-          try {
-            s.dispose();
-          } catch {
-            // ignore
-          }
+          try { s.dispose(); } catch { /* ignore */ }
           this.sessions.delete(k);
         }
-        // Сессия сброшена — новая будет строиться из messages.jsonl, где тела
-        // навыков нет. Сбрасываем запись о передаче: при следующем запуске
-        // агента навыки контекста инжектятся заново (как в новом чате).
         if (ctx.deliveredSkills && ctx.deliveredSkills[handoff.from]?.length) {
           delete ctx.deliveredSkills[handoff.from];
           this.store.save(ctx);
@@ -1150,46 +438,32 @@ export class AgentRunner {
     const loader = new DefaultResourceLoader({
       cwd: ctxDir,
       agentDir: getAgentDir(),
-      systemPromptOverride: () => buildSystemPrompt(def, ctxDir, this.globalRules),
+      systemPromptOverride: () => this.promptBuilder.buildSystemPrompt(def, ctxDir),
     });
     await loader.reload();
 
-    const allCustomTools = [
-      this.makeListAgentsTool(),
-      this.makeRouteTool(ctxId, agentId),
-      this.makeAskUserTool(ctxId, agentId),
-      this.makeHandoffFileTool(ctxId),
-      this.makeListSkillsTool(),
-      this.makeUseSkillTool(ctxId, agentId),
-      this.makeSharedStoreTool(),
-    ];
-    if (agentId === "agent-creator") {
-      allCustomTools.push(this.makeCreateAgentTool());
-      allCustomTools.push(this.makeDeleteAgentTool());
-    }
-    // Системные инструменты тоже можно отключить через общий denylist
-    // (например, запретить агенту задавать вопросы пользователю — ask_user).
-    const deniedNames = new Set(def.disabledTools ?? []);
-    const customTools = allCustomTools.filter((t) => !deniedNames.has(t.name));
+    const customTools = buildAgentTools(
+      ctxId, agentId, def,
+      this.store, this.registry, this.emit,
+      (cid) => this.getCtxDir(cid),
+      this.sharedDir, this.agentsDir,
+      MAX_HANDOFFS,
+      () => this.defaultDisabledToolNames(),
+      this.skillInjector,
+      () => k
+    );
 
-    // Обратная логика выдачи: ВСЕ pi-инструменты включены по умолчанию,
-    // в конфиге агента хранится только список отключённых (denylist → excludeTools).
     let excludeTools = def.disabledTools ?? [];
-    // Во время обучающей сессии временно предоставляем все инструменты
-    // для работы с файлами, чтобы агент мог редактировать свой AGENT.md
     try {
       const ctx = this.store.get(ctxId);
       if (ctx?.trainingAgentId) {
-        // Исключаем из denylist только инструменты файлов, оставляя остальные ограничения
         excludeTools = excludeTools.filter((t: string) => !['read', 'write', 'edit', 'bash'].includes(t));
       }
     } catch { /* ignore */ }
 
-    // Модель агента: если её ещё нет в ModelRuntime (настройку меняли после старта
-    // сервера), до-регистрируем — иначе SDK молча возьмёт модель по умолчанию.
     let model = this.resolveModel(def.model);
     if (def.model && !model) {
-      await this.ensureModelRegistered(def.model);
+      await this.providerRegistry.ensureModelRegistered(this.modelRuntime, def.model);
       model = this.resolveModel(def.model);
     }
     if (def.model && !model) {
@@ -1206,55 +480,91 @@ export class AgentRunner {
       sessionManager: SessionManager.inMemory(ctxDir),
     });
 
-    // КРИТИЧНО для MCP: в headless-контексте SDK не отправляет событие
-    // session_start, а оно нужно расширениям (pi-mcp-adapter) для инициализации
-    // MCP-соединения. Вызываем bindExtensions с пустыми биндингами — это
-    // отправит session_start и запустит подключение к MCP-серверам.
     try {
       await session.bindExtensions({});
     } catch (e) {
-      // не критично — агент продолжит без MCP
       console.error("bindExtensions failed:", e);
     }
 
-    // Восстановление контекста после перезапуска сервера:
-    // проигрываем историю чата в новую сессию.
     try {
-      const history = this.store
-        .readMessages(ctxId)
-        .filter((m) => m.role === "user" || m.role === "assistant");
+      const history = this.store.readMessages(ctxId).filter((m) => m.role === "user" || m.role === "assistant");
       if (history.length > 0) {
-        session.agent.state.messages = history.map((m) => ({
-          role: m.role,
-          content: [{ type: "text", text: m.text }],
-        })) as any;
+        session.agent.state.messages = history.map((m) => ({ role: m.role, content: [{ type: "text", text: m.text }] })) as any;
       }
-    } catch {
-      // не критично — агент продолжит без истории
-    }
+    } catch { /* ignore */ }
 
     session.subscribe((ev: any) => this.forward(ctxId, agentId, ev));
     this.sessions.set(k, session);
-    console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${(model as any).provider ?? "?"}/${(model as any).id ?? "?"}` : "default (fallback)"} thinking=${def.thinkingLevel ?? "-"}`);
+    console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${(model as any).provider ?? "?"}/${(model as any).id ?? "?"}` : "default"} thinking=${def.thinkingLevel ?? "-"}`);
     return session;
   }
 
-  /** Изображения из результатов инструментов (например, MCP-скриншоты), ожидающие привязки к сообщению. */
-  private pendingImages = new Map<string, string[]>();
-  /** Накопленные рассуждения (thinking) — прикрепляются к следующему сообщению ассистента. */
-  private pendingThinking = new Map<string, string>();
-  private pendingText = new Map<string, string>();
+  private forward(ctxId: string, agentId: string, ev: any) {
+    if (["message_update", "message_start", "message_end", "tool_execution_start", "tool_execution_end"].includes(ev.type)) {
+      this.lastEventByCtx.set(ctxId, Date.now());
+    }
 
-  private keyFor(ctxId: string, agentId: string) {
-    return `${ctxId}/${agentId}`;
+    if (ev.type === "tool_execution_start") {
+      console.log(`[${agentId}] tool_call: ${ev.name || ev.tool_name}`);
+    } else if (ev.type === "tool_execution_end") {
+      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR - ${ev.error}` : "OK"}`);
+      if (!ev.isError) {
+        const md = this.imageManager.saveToolImages(ctxId, ev.result);
+        if (md.length > 0) {
+          this.imageManager.addPendingImages(ctxId, agentId, md);
+        }
+      }
+    } else if (ev.type === "message_start") {
+      console.log(`[${agentId}] message_start`);
+    } else if (ev.type === "message_end") {
+      const text = ev.message?.content?.[0]?.text || "";
+      console.log(`[${agentId}] message_end (${text.length} chars)`);
+    }
+
+    if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
+      const key = `${ctxId}|${agentId}`;
+      const d: string = ev.assistantMessageEvent.delta ?? "";
+      if (d) this.pendingText.set(key, (this.pendingText.get(key) ?? "") + d);
+      this.emit({ type: "delta", ctxId, agentId, text: d });
+    } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
+      const key = `${ctxId}|${agentId}`;
+      const d: string = ev.assistantMessageEvent.delta ?? "";
+      if (d) this.pendingThinking.set(key, (this.pendingThinking.get(key) ?? "") + d);
+      this.emit({ type: "thinking_delta", ctxId, agentId, text: d });
+    } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
+      const key = `${ctxId}|${agentId}`;
+      let text = this.pendingText.get(key) || extractText(ev.message);
+      if (!text) text = "";
+      this.pendingText.delete(key);
+
+      // Применяем накопленные изображения
+      text = this.imageManager.withPendingImages(ctxId, agentId, text);
+
+      const thinking = this.pendingThinking.get(key) || "";
+      this.pendingThinking.delete(key);
+
+      text = sanitizeFileLinks(this.getCtxDir(ctxId), text);
+
+      if (!text && !thinking) return;
+      const msg: Message = { role: "assistant", agentId, text, thinking: thinking || undefined, ts: Date.now() };
+      this.store.appendMessage(ctxId, msg);
+      this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text), thinking });
+    }
   }
 
-  /** Путь к рабочей директории контекста (учитывает обучающие сессии). */
+  private resolveModel(id?: string) {
+    if (!this.modelRuntime) return undefined;
+    const spec = id ?? this.defaultModel;
+    if (!spec) return undefined;
+    const slash = spec.indexOf("/");
+    if (slash < 0) return undefined;
+    return this.modelRuntime.getModel(spec.slice(0, slash), spec.slice(slash + 1));
+  }
+
   private getCtxDir(ctxId: string): string {
     if (this.store.isTrainingContext(ctxId)) {
       return this.store.trainingDir(ctxId);
     }
-    // Check for mistakes session
     const { type } = this.store.resolveDir(ctxId);
     if (type === "mistakes") {
       return this.store.mistakesDir(ctxId);
@@ -1262,551 +572,82 @@ export class AgentRunner {
     return this.store.dir(ctxId);
   }
 
-  /** Сохраняет image-блоки из результата инструмента в contexts/<id>/attachments/ и возвращает markdown-ссылки. */
-  private saveToolImages(ctxId: string, result: any): string[] {
-    const content = Array.isArray(result?.content) ? result.content : [];
-    const images = content.filter((b: any) => b?.type === "image" && typeof b.data === "string" && b.data.length > 0);
-    if (images.length === 0) return [];
-    const dir = path.join(this.getCtxDir(ctxId), "attachments");
-    fs.mkdirSync(dir, { recursive: true });
-    const ts = Date.now();
-    return images.map((b: any, i: number) => {
-      const ext = IMAGE_EXT[b.mimeType] ?? "png";
-      const fname = `img-${ts}-${i}.${ext}`;
-      fs.writeFileSync(path.join(dir, fname), Buffer.from(b.data, "base64"));
-      // markdown-ссылка: фронтенд рендерит как миниатюру, клик — Lightbox (полный размер).
-      // Кодируем только query-параметр, а не весь URL — иначе браузер запросит %2Fapi...
-      const url = `/api/files?ctx=${ctxId}&path=attachments/${encodeURIComponent(fname)}`;
-      return `![скриншот](${url})`;
-    });
+  async defaultDisabledToolNames(): Promise<string[]> {
+    try {
+      const groups = await this.listPiTools();
+      return (groups.find((g: any) => g.id === "subagents")?.tools ?? []).map((t: any) => t.name);
+    } catch {
+      return [];
+    }
   }
 
-  /** Проставляет накопленные изображения в сообщение ассистента (при пустом буфере возвращает text как есть). */
-  private withPendingImages(ctxId: string, agentId: string, text: string): string {
-    const key = this.keyFor(ctxId, agentId);
-    const imgs = this.pendingImages.get(key) ?? [];
-    if (imgs.length === 0) return text;
-    this.pendingImages.delete(key);
-    return text + "\n\n" + imgs.join("\n");
+  private piToolGroupsCache: any[] | null = null;
+  async listPiTools(force = false): Promise<any[]> {
+    if (!force && this.piToolGroupsCache) return this.piToolGroupsCache;
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
+    try {
+      const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });
+      await loader.reload();
+      const { session } = await createAgentSession({
+        cwd: probeDir,
+        resourceLoader: loader,
+        sessionManager: SessionManager.inMemory(probeDir),
+      });
+      try {
+        await session.bindExtensions({});
+      } catch { /* без MCP-инициализации список всё равно доступен */ }
+      const all = (session as any).getAllTools?.() ?? [];
+      this.piToolGroupsCache = all.map((t: any) => ({ name: String(t.name), description: t.description ? String(t.description) : undefined }));
+      try { (session as any).dispose?.(); } catch { /* ignore */ }
+    } finally {
+      fs.rmSync(probeDir, { recursive: true, force: true });
+    }
+    return this.piToolGroupsCache!;
   }
 
-  private forward(ctxId: string, agentId: string, ev: any) {
-    if (ev.type === "message_update" || ev.type === "message_start" || ev.type === "message_end" || ev.type === "tool_execution_start" || ev.type === "tool_execution_end") {
-      this.lastEventByCtx.set(ctxId, Date.now());
+  resetAllSessions(): number {
+    let n = 0;
+    for (const [k, s] of [...this.sessions]) {
+      try { s.abort(); s.dispose(); } catch { /* ignore */ }
+      this.sessions.delete(k);
+      n++;
     }
-    // Диагностика: логируем все события агентов
-    if (ev.type === "tool_execution_start") {
-      console.log(`[${agentId}] tool_call: ${ev.name || ev.tool_name}`);
-    } else if (ev.type === "tool_execution_end") {
-      console.log(`[${agentId}] tool_result: ${ev.isError ? `ERROR - ${ev.error}` : "OK"}`);
-    } else if (ev.type === "message_start") {
-      console.log(`[${agentId}] message_start`);
-    } else if (ev.type === "message_end") {
-      const text = ev.message?.content?.[0]?.text || "";
-      console.log(`[${agentId}] message_end (${text.length} chars)`);
-    }
-    // Изображения из результатов инструментов (take_screenshot и т.п.) — сохраняем
-    // в контекст, чтобы прикрепить к следующему сообщению этого агента
-    if (ev.type === "tool_execution_end" && !ev.isError) {
-      const md = this.saveToolImages(ctxId, ev.result);
-      if (md.length > 0) {
-        const key = this.keyFor(ctxId, agentId);
-        this.pendingImages.set(key, [...(this.pendingImages.get(key) ?? []), ...md]);
+    for (const ctx of this.store.list()) {
+      if (ctx.deliveredSkills && Object.keys(ctx.deliveredSkills).length > 0) {
+        this.store.resetDeliveredSkills(ctx);
+        this.store.save(ctx);
       }
     }
-    if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
-      // Накопление стримящегося текста для восстановления при переподключении клиента
-      const key = this.keyFor(ctxId, agentId);
-      const d: string = ev.assistantMessageEvent.delta ?? "";
-      if (d) this.pendingText.set(key, (this.pendingText.get(key) ?? "") + d);
-      this.emit({ type: "delta", ctxId, agentId, text: d });
-    } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
-      // Рассуждения модели — стримим в UI в реальном времени + накапливаем для истории
-      const key = this.keyFor(ctxId, agentId);
-      const d: string = ev.assistantMessageEvent.delta ?? "";
-      if (d) this.pendingThinking.set(key, (this.pendingThinking.get(key) ?? "") + d);
-      this.emit({ type: "thinking_delta", ctxId, agentId, text: d });
-    } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
-      // Используем накопленный стримящийся текст вместо извлечения из события
-      const key = this.keyFor(ctxId, agentId);
-      let text = this.pendingText.get(key) || extractText(ev.message);
-      if (!text) text = "";
-      this.pendingText.delete(key);
-      // прикладываем накопленные изображения к этому сообщению
-      text = this.withPendingImages(ctxId, agentId, text);
-      // рассуждения, накопленные с начала хода (или с прошлого сообщения)
-      const thinking = this.pendingThinking.get(key) || "";
-      this.pendingThinking.delete(key);
-      // убираем ссылки на несуществующие файлы (модель могла их выдумать)
-      text = this.sanitizeFileLinks(ctxId, text);
-      if (!text && !thinking) return;
-      const msg: Message = { role: "assistant", agentId, text, thinking: thinking || undefined, ts: Date.now() };
-      this.store.appendMessage(ctxId, msg);
-      // клиенту — без локальных путей, со ссылками на скачивание
-      this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text), thinking });
+    return n;
+  }
+
+  updateSystemConfig() {
+    const cfg = loadSystemConfig();
+    MAX_HANDOFFS = cfg.maxHandoffs;
+    this.recoveryEngine.setMaxRecoveries(cfg.maxRecoveries);
+  }
+
+  async reloadProjectConfig(configPath: string, broadcastFn?: (msg: unknown) => void): Promise<void> {
+    let cfg: any;
+    try {
+      cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    } catch { return; }
+    const newModel = cfg.model || undefined;
+    if (newModel !== this.defaultModel) {
+      console.log(`[runner] модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${newModel ?? "(нет)"}`);
+      this.defaultModel = newModel;
+      this.providerRegistry.updateDefaultModel(newModel);
     }
-  }
-
-  /**
-   * Удаляет markdown-ссылки на несуществующие файлы текущего контекста.
-   * Модель подглядывает формат /api/files из истории и иногда выдумывает имена файлов
-   * (файла нет → битая картинка/ссылка в чате). Проверяем каждый такой линк по диску:
-   * существует — оставляем, нет — убираем (картинку целиком, обычную ссылку — с сохранением текста).
-   */
-  private sanitizeFileLinks(ctxId: string, text: string): string {
-    const dir = this.getCtxDir(ctxId);
-    return text.replace(
-      /(!?)(\[[^\]]*\]\()\/api\/files\?ctx=[^&]+&path=([^)\s]+)(\))/g,
-      (m: string, bang: string, label: string, encodedRel: string) => {
-        let rel: string;
-        try { rel = decodeURIComponent(encodedRel); } catch { return m; }
-        const full = path.resolve(dir, rel);
-        if (full.startsWith(dir + path.sep) && fs.existsSync(full)) return m;
-        // битая ссылка: картинку убираем целиком, текст ссылки — оставляем
-        return bang ? "" : label.slice(1, -2).replace(/\)$/, "");
-      },
-    );
-  }
-
-  /** Остаток изображений без завершающего сообщения (ход оборвался) — отправляем отдельным сообщением. */
-  private flushPendingImages(ctxId: string, agentId: string) {
-    const key = this.keyFor(ctxId, agentId);
-    const imgs = this.pendingImages.get(key);
-    if (!imgs || imgs.length === 0) return;
-    this.pendingImages.delete(key);
-    const msg: Message = { role: "assistant", agentId, text: imgs.join("\n"), ts: Date.now() };
-    this.store.appendMessage(ctxId, msg);
-    this.emit({ type: "assistant_end", ctxId, agentId, text: msg.text });
-  }
-
-  // ─── Инструменты агентов ───────────────────────────────────────────────
-
-  private makeListAgentsTool() {
-    return defineTool({
-      name: "list_agents",
-      label: "Список агентов",
-      description:
-        "Показывает всех агентов системы с их описаниями. Вызывай перед route_to_agent, чтобы выбрать, кому передать диалог.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        const lines = this.registry
-          .list()
-          .map((a) => `- ${a.id}: ${a.description}`);
-        return okText("Агенты системы:\n" + lines.join("\n"));
-      },
-    });
-  }
-
-  private makeRouteTool(ctxId: string, agentId: string) {
-    return defineTool({
-      name: "route_to_agent",
-      label: "Передача диалога",
-      description:
-        "Передаёт диалог другому агенту с более подходящей экспертизой. Вызывай, когда следующий шаг задачи требует другой компетенции. " +
-        "Текущий ход завершится, и целевой агент продолжит работу с переданным контекстом.",
-      parameters: Type.Object({
-        agentId: Type.String({
-          description: "ID целевого агента (см. list_agents)",
-        }),
-        reason: Type.String({
-          description: "Одно короткое предложение — причина передачи (покажется пользователю в интерфейсе)",
-        }),
-        context: Type.String({
-          description:
-            "Короткое описание задачи (1-3 предложения) + абсолютный путь к файлу ТЗ (вернёт handoff_file). НЕ пересказывай всё задание — агент сам прочитает файл. Укажи инструкции: прочитай ТЗ, результат запиши через handoff_file(type='result').",
-        }),
-      }),
-      execute: async (_id, params: { agentId: string; reason: string; context: string }) => {
-        // Во время обучающей сессии блокируем передачу работы другим агентам
-        const ctx = this.store.get(ctxId);
-        if (ctx?.trainingAgentId) {
-          return errText(
-            `Во время обучающей сессии передача задач другим агентам запрещена. ` +
-            `Объясни пользователю, что ты сам продолжишь работу.`,
-          );
-        }
-
-        const target = this.registry.get(params.agentId);
-        if (!target) {
-          return errText(
-            `Агент "${params.agentId}" не найден. Доступны: ${this.registry
-              .list()
-              .map((a) => a.id)
-              .join(", ")}`,
-          );
-        }
-        if (params.agentId === agentId) {
-          return errText("Этот диалог уже обрабатывает данный агент");
-        }
-        // ctx already fetched above for training check
-        if (!ctx || ctx.handoffs.length >= MAX_HANDOFFS) {
-          return errText(
-            `Достигнут лимит передач в цепочке (${MAX_HANDOFFS}). Продолжи работу сам.`,
-          );
-        }
-        const handoff: Handoff = {
-          from: agentId,
-          to: params.agentId,
-          reason: params.reason,
-          context: params.context,
-          ts: Date.now(),
-        };
-        ctx.pendingHandoff = handoff;
-        this.store.save(ctx);
-        this.emit({ type: "handoff_pending", ctxId, handoff });
-        return okText(
-          `Передача запланирована: после завершения текущего шага диалог будет передан агенту "${params.agentId}" (${target.description}). ` +
-            `Пользователь видит передачу в интерфейсе и может её отменить. Заверши текущий ход.`,
-        );
-      },
-    });
-  }
-
-  /**
-   * ask_user: агент задаёт вопрос пользователю и ждёт ответа.
-   * Ставит флаг awaitingUser — обрыв хода НЕ считается прерыванием цепочки,
-   * а ответ пользователя уходит этому агенту (см. handleMessage).
-   */
-  private makeAskUserTool(ctxId: string, agentId: string) {
-    return defineTool({
-      name: "ask_user",
-      label: "Спросить пользователя",
-      description:
-        "Задаёт вопрос пользователю и ждёт его ответа. Вызывай, когда не хватает информации для продолжения (уточнение требований, выбор варианта, подтверждение). " +
-        "Текущий ход завершится, пользователь увидит вопрос и ответит. Ответ придёт тебе в следующем сообщении — продолжи работу с ним.",
-      parameters: Type.Object({
-        question: Type.String({
-          description: "Вопрос к пользователю (чёткий, конкретный, с вариантами если есть)",
-        }),
-      }),
-      execute: async (_id, params: { question: string }) => {
-        const ctx = this.store.get(ctxId)!;
-        ctx.awaitingUser = { agentId, question: params.question };
-        this.store.save(ctx);
-        this.emit({ type: "ask_user", ctxId, agentId, question: params.question });
-        // Системное сообщение, чтобы оркестратор (в режиме восстановления)
-        // понимал, что агент спрашивал пользователя, а не «запутался».
-        const sysMsg: Message = {
-          role: "system",
-          text: `❓ ${agentId} задал вопрос пользователю: «${params.question}» — ждёт ответа. Это НЕ прерывание цепочки.`,
-          ts: Date.now(),
-        };
-        this.store.appendMessage(ctxId, sysMsg);
-        this.emit({ type: "message", ctxId, message: sysMsg });
-        // Жёсткая остановка хода: слабые модели могут игнорировать «заверши ход»
-        // и продолжить работу в том же run, выдумав ответ пользователя.
-        // Поэтому через микротаск прерываем сессию — следующий LLM-шаг не начнётся.
-        setTimeout(() => {
-          const s = this.sessions.get(this.key(ctxId, agentId));
-          if (s) void s.abort();
-        }, 0);
-        return okText(
-          `Вопрос отправлен пользователю: «${params.question}». ХОД ЗАВЕРШЁН — ответ пользователя придёт в следующем сообщении.`,
-        );
-      },
-    });
-  }
-
-  /**
-   * handoff_file: создаёт файл задания или результата с timestamp-именем.
-   * Агент не думает об именовании — инструмент сам генерирует имя и записывает файл.
-   */
-  private makeHandoffFileTool(ctxId: string) {
-    return defineTool({
-      name: "handoff_file",
-      label: "Файл задания/результата",
-      description:
-        "Создаёт файл задания (task) или результата (result) в рабочей директории контекста. " +
-        "Имя файла генерируется автоматически с timestamp (task-<ms>.md / result-<ms>.md). " +
-        "Возвращает абсолютный путь к созданному файлу — используй его в route_to_agent (context) и в сообщениях.",
-      parameters: Type.Object({
-        type: Type.Union([Type.Literal("task"), Type.Literal("result")], {
-          description: "task = файл задания для другого агента, result = файл с твоим результатом работы",
-        }),
-        title: Type.String({
-          description: "Краткое название (1-5 слов), станет заголовком файла. Пример: 'Создать REST API задач'",
-        }),
-        body: Type.String({
-          description:
-            "Полное содержимое файла в markdown. Для task: контекст, задача, файлы для работы, где записать результат. " +
-            "Для result: что сделано, детали, следующие шаги, список файлов.",
-        }),
-      }),
-      execute: async (_id, params: { type: "task" | "result"; title: string; body: string }) => {
-        const ctxDir = this.getCtxDir(ctxId);
-        
-        // Загрузить контекст для получения счётчика задач
-        let meta = this.store.get(ctxId);
-        if (!meta) return errText(`Контекст ${ctxId} не найден`);
-
-        // Определить номер файла
-        let fileNum: number;
-        if (params.type === "task") {
-          // Для task — увеличить счётчик
-          meta.taskCounter = (meta.taskCounter ?? 0) + 1;
-          fileNum = meta.taskCounter;
-          this.store.save(meta);
-        } else {
-          // Для result — использовать текущий номер без изменения
-          fileNum = meta.taskCounter ?? 0;
-          if (fileNum === 0) {
-            return errText("Сначала создайте задачу через handoff_file(type='task')");
-          }
-        }
-
-        const dirName = params.type === "task" ? "tasks" : "results";
-        const dirPath = path.join(ctxDir, dirName);
-        fs.mkdirSync(dirPath, { recursive: true });
-
-        // Сформировать имя файла с номером (task-001.md, result-001.md)
-        const filename = `${params.type}-${String(fileNum).padStart(3, "0")}.md`;
-        const filePath = path.join(dirPath, filename);
-
-        const header = params.type === "task"
-          ? `# Задание: ${params.title}\n\n`
-          : `# Результат: ${params.title}\n\n`;
-
-        fs.writeFileSync(filePath, header + params.body, "utf8");
-
-        return { content: [{ type: "text" as const, text: `Файл создан: ${filePath}\nИспользуй этот путь в route_to_agent (параметр context) и в сообщениях пользователю.` }], details: {} };
-      },
-    });
-  }
-
-  private makeListSkillsTool() {
-    return defineTool({
-      name: "list_skills",
-      label: "Список навыков",
-      description:
-        "Показывает все навыки, созданные в системе, с описаниями и флагом автоприменения (autoApply). " +
-        "Применить навык к себе можно инструментом use_skill — только если у него autoApply разрешено.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        const skills = this.skillRegistry.list();
-        if (skills.length === 0) return okText("В системе пока нет навыков.");
-        const lines = skills.map(
-          (s) => `- ${s.id}: «${s.name}» — ${s.description || "без описания"} [автоприменение: ${s.autoApply ? "разрешено" : "запрещено"}]`,
-        );
-        return okText("Навыки системы:\n" + lines.join("\n"));
-      },
-    });
-  }
-
-  private makeUseSkillTool(ctxId: string, agentId: string) {
-    return defineTool({
-      name: "use_skill",
-      label: "Применить навык",
-      description:
-        "Применяет навык к текущему контексту и к твоей работе в рамках сессии. Доступны только навыки, у которых разрешено автоприменение (autoApply). " +
-        "В результате вернётся полный текст навыка — применяй его правила дальше.",
-      parameters: Type.Object({
-        skillId: Type.String({ description: "ID навыка из list_skills" }),
-      }),
-      execute: async (_id, params: { skillId: string }) => {
-        const sk = this.skillRegistry.get(params.skillId);
-        if (!sk) return errText(`Навык не найден: ${params.skillId}. Посмотри доступные через list_skills.`);
-        if (!sk.autoApply) {
-          return errText(
-            `Навык «${sk.name}» не разрешает самоприменение агентом (автоприменение выключено). Попроси пользователя подключить его к чату вручную.`,
-          );
-        }
-        const ctx = this.store.get(ctxId);
-        if (!ctx) return errText("Контекст задачи недоступен.");
-        // Подключаем навык к контексту, если он ещё не подключён
-        if (!(ctx.skills ?? []).includes(sk.id)) {
-          ctx.skills = [...(ctx.skills ?? []), sk.id];
-        }
-        // Сбрасываем доставку для этого агента: при следующем запуске (новая сессия)
-        // тело навыка инжектится автоматически — как навыки, подключённые пользователем.
-        const delivered = ctx.deliveredSkills?.[agentId] ?? [];
-        if (delivered.includes(sk.id)) {
-          ctx.deliveredSkills = { ...(ctx.deliveredSkills ?? {}), [agentId]: delivered.filter((x) => x !== sk.id) };
-        }
-        this.store.save(ctx);
-        const def = this.registry.get(agentId);
-        const sysMsg: Message = {
-          role: "system",
-          text: `⚡ Агент «${def?.name ?? agentId}» применил навык «${sk.name}»`,
-          ts: Date.now(),
-        };
-        this.store.appendMessage(ctxId, sysMsg);
-        this.emit({ type: "message", ctxId, message: sysMsg });
-        return okText(`Навык «${sk.name}» применён к контексту и к твоей работе в этой сессии. Правила навыка:\n\n${sk.body.trim()}`);
-      },
-    });
-  }
-
-  /** Общее хранилище артефактов (shared/): возврат адреса + авто-создание индексного файла. */
-  private makeSharedStoreTool() {
-    return defineTool({
-      name: "artifact_store",
-      label: "Общее хранилище артефактов",
-      description:
-        "Возвращает путь к общему хранилищу артефактов — «долговременной памяти», доступной всем агентам во всех чатах. " +
-        "Использование не обязательно: применяй, когда хочешь сохранить результат работы (отчёты, данные, фрагменты кода, материалы) " +
-        "для других контекстов или для будущего обращения.",
-      parameters: Type.Object({}),
-      execute: async () => {
-        fs.mkdirSync(this.sharedDir, { recursive: true });
-        const indexPath = path.join(this.sharedDir, "INDEX.md");
-        if (!fs.existsSync(indexPath)) {
-          fs.writeFileSync(
-            indexPath,
-            "# Индекс хранилища артефактов\n\n" +
-              "Короткие пояснения к разделам. Начинай с этого файла — он быстрее, чем обход всего хранилища.\n\n" +
-              "Формат записи: `- <каталог>` — что внутри (контекст/задача, дата)\n\n---\n",
-            "utf8",
-          );
-        }
-        return okText(
-          `Общее хранилище артефактов: ${this.sharedDir}\n` +
-            `Индекс: ${indexPath}\n\n` +
-            `Протокол работы:\n` +
-            `1. Сначала прочитай INDEX.md — возможно, нужное уже лежит в хранилище (своё или чужое).\n` +
-            `2. Свои артефакты клади в отдельный подкаталог: строчные буквы, дефисы (например jira-456-push-fix/).\n` +
-            `3. После записи добавь в INDEX.md запись о своём каталоге — только дописывай, не правь чужие записи.`,
-        );
-      },
-    });
-  }
-
-  private makeCreateAgentTool() {
-    return defineTool({
-      name: "create_agent",
-      label: "Создать агента",
-      description:
-        "Создаёт нового агента в системе: записывает его системный промпт, правила и навыки в agents/<name>/ и регистрирует. " +
-        "Оркестратор сразу увидит нового агента через list_agents.",
-      parameters: Type.Object({
-        name: Type.String({
-          description: "ID агента: нижний регистр, дефисы (например code-reviewer)",
-        }),
-        description: Type.String({
-          description:
-            "Короткое описание (1-2 предложения). По нему оркестратор решает, когда передавать диалог этому агенту.",
-        }),
-        systemPrompt: Type.String({
-          description:
-            "Системный промпт: роль, возможности, правила работы. Должен быть самодостаточным.",
-        }),
-        rules: Type.Optional(
-          Type.Array(
-            Type.Object({
-              name: Type.String({ description: "Короткое имя правила" }),
-              content: Type.String({ description: "Текст правила" }),
-            }),
-          ),
-        ),
-        skills: Type.Optional(
-          Type.Array(
-            Type.Object({
-              name: Type.String({ description: "Имя навыка" }),
-              description: Type.String({ description: "Когда применять навык" }),
-              content: Type.String({ description: "Инструкция навыка (markdown)" }),
-            }),
-          ),
-        ),
-      }),
-      execute: async (_id, params) => {
-        try {
-          // Преобразовать параметры для соответствия интерфейсу NewAgentParams
-          const agentParams: any = { ...params };
-          if (agentParams.rules && Array.isArray(agentParams.rules)) {
-            agentParams.rules = agentParams.rules.map((r: any) => r.content);
-          }
-          if (agentParams.skills && Array.isArray(agentParams.skills)) {
-            agentParams.skills = agentParams.skills.map((s: any) => ({
-              name: s.name,
-              description: s.description,
-              content: s.content,
-            }));
-          }
-          const def = this.registry.create(agentParams);
-          // По умолчанию отключаем группу субагентов/workflows (логика проекта
-          // не предполагает, что агенты запускают своих субагентов).
-          try {
-            const disabled = await this.defaultDisabledToolNames();
-            if (disabled.length > 0) {
-              const cfgPath = path.join(this.agentsDir, def.id, "config.json");
-              const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-              cfg.disabledTools = disabled;
-              fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-            }
-          } catch (e) {
-            console.error("[runner] не удалось записать denylist нового агента:", e);
-          }
-          this.registry.reload();
-          // Рассылаем обновлённый список агентов, чтобы UI сразу показал нового.
-          this.emit({ type: "agents", agents: this.registry.list() });
-          return okText(
-            `Агент "${def.id}" создан и зарегистрирован. Директория: ${path.join(this.agentsDir, def.id)}. ` +
-              `Оркестратор уже видит его в list_agents.`,
-          );
-        } catch (e: any) {
-          return errText(String(e?.message ?? e));
-        }
-      },
-    });
-  }
-
-  /**
-   * delete_agent: агент-создатель удаляет агента.
-   * Программная защита: системные агенты (orchestrator, agent-creator) не удаляются —
-   * даже если пользователь очень сильно просит.
-   */
-  private makeDeleteAgentTool() {
-    return defineTool({
-      name: "delete_agent",
-      label: "Удалить агента",
-      description:
-        "Удаляет агента из системы (директорию agents/<name>/ и регистрацию). " +
-        "Системные агенты (orchestrator, agent-creator) удалить нельзя — инструмент вернёт ошибку. " +
-        "Перед удалением обязательно спроси пользователя через ask_user и получи подтверждение.",
-      parameters: Type.Object({
-        name: Type.String({
-          description: "ID агента для удаления",
-        }),
-      }),
-      execute: async (_id, params: { name: string }) => {
-        try {
-          this.registry.delete(params.name);
-          // Рассылаем обновлённый список агентов, чтобы UI сразу отразил удаление.
-          this.emit({ type: "agents", agents: this.registry.list() });
-          return okText(`Агент "${params.name}" удалён.`);
-        } catch (e: any) {
-          return errText(String(e?.message ?? e));
-        }
-      },
-    });
-  }
-
-  /**
-   * Генерирует короткое название контекста на основе первого сообщения.
-   * Использует отдельную сессию (не оркестратор), чтобы не мешать основному потоку.
-   */
-  /**
-   * Генерирует короткое название контекста из первого сообщения.
-   * Не использует модель — просто обрезает текст (локальная модель ненадёжна для этой задачи).
-   */
-  generateName(_ctxId: string, firstMessage: string): string | null {
-    // Убираем markdown, кавычки, лишние пробелы
-    const clean = firstMessage
-      .replace(/[#*`~>]/g, "")
-      .replace(/^[«"'"']+|[»"'"']+$/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!clean) return null;
-    // Берём до 40 символов, обрезаем по границе слова
-    const max = 40;
-    let name = clean;
-    if (name.length > max) {
-      name = name.slice(0, max);
-      const lastSpace = name.lastIndexOf(" ");
-      if (lastSpace > 15) name = name.slice(0, lastSpace);
-      name += "…";
+    if (cfg.providers) {
+      this.providers = cfg.providers;
+      this.providerRegistry.updateProviders(cfg.providers);
+      await this.providerRegistry.registerProjectProviders(this.modelRuntime);
+      this.providerRegistry.correctAgentModels();
     }
-    return name || null;
+    broadcastFn?.({ type: "system_notice", text: `Конфигурация перечитана. Модель: ${this.defaultModel ?? "(нет)"}` });
   }
 
-
+  generateName(ctxId: string, firstMessage: string): string | null {
+    return generateName(firstMessage);
+  }
 }
