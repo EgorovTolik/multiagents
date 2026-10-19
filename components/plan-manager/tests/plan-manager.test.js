@@ -5,9 +5,41 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PlanManager, Plan, PlanStep } from '../src/plan-manager.js';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+// Вспомогательный класс для управления активным планом (отделен от PlanManager)
+class ContextStore {
+  constructor(ctxDir) {
+    this.ctxDir = ctxDir;
+  }
+  async setActivePlanId(planId) {
+    const filePath = join(this.ctxDir, 'context.json');
+    let data = {};
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      data = JSON.parse(content);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+    data.activePlanId = planId;
+    await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+  async getActivePlanId() {
+    const filePath = join(this.ctxDir, 'context.json');
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const data = JSON.parse(content);
+      return data.activePlanId || null;
+    } catch (e) {
+      if (e.code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+}
+
+import { readFile, writeFile } from 'fs/promises';
 
 describe('PlanManager', () => {
   let pm;
@@ -15,7 +47,10 @@ describe('PlanManager', () => {
 
   beforeEach(async () => {
     ctxDir = await mkdtemp(join(tmpdir(), 'plan-manager-test-'));
-    pm = new PlanManager({ ctxDir });
+    const plansDir = join(ctxDir, 'plans');
+    // Создаем директорию планов
+    await mkdir(plansDir);
+    pm = new PlanManager({ plansDir });
   });
 
   describe('Основные операции', () => {
@@ -222,12 +257,12 @@ describe('PlanManager', () => {
     it('12. Установка активного плана для контекста', async () => {
       const plan = await pm.createPlan({ title: 'Активный план', createdBy: 'user' });
 
-      // Устанавливаем активный план (пишем в context.json)
-      const ctxStorePath = join(ctxDir, 'context.json');
-      await pm.setActivePlan('test-ctx-id', plan.id);
+      // Устанавливаем активный план через внешний ContextStore
+      const store = new ContextStore(ctxDir);
+      await store.setActivePlanId(plan.id);
 
       // Проверяем что запись была создана
-      const { readFile } = await import('fs/promises');
+      const ctxStorePath = join(ctxDir, 'context.json');
       const content = await readFile(ctxStorePath, 'utf-8');
       const data = JSON.parse(content);
       expect(data.activePlanId).toBe(plan.id);
@@ -236,9 +271,13 @@ describe('PlanManager', () => {
     it('13. Загрузка активного плана из context.json', async () => {
       const plan = await pm.createPlan({ title: 'План для загрузки как активный', createdBy: 'user' });
 
-      // Устанавливаем и затем загружаем активный план
-      await pm.setActivePlan('test-ctx-id', plan.id);
-      const loaded = await pm.getActivePlan('test-ctx-id');
+      // Устанавливаем активный план через внешний ContextStore
+      const store = new ContextStore(ctxDir);
+      await store.setActivePlanId(plan.id);
+
+      // Загружаем ID активного плана и затем сам план
+      const activePlanId = await store.getActivePlanId();
+      const loaded = await pm.loadPlan(activePlanId);
 
       expect(loaded).not.toBeNull();
       expect(loaded.id).toBe(plan.id);

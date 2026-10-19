@@ -179,11 +179,10 @@ export class Plan {
 export class PlanManager {
   /**
    * @param {object} options
-   * @param {string} options.ctxDir - Путь к директории контекста
+   * @param {string} options.plansDir - Путь к директории, где хранятся файлы планов
    */
   constructor(options) {
-    this.ctxDir = options.ctxDir;
-    this.plansDir = join(this.ctxDir, 'plans');
+    this.plansDir = options.plansDir;
   }
 
   /**
@@ -242,27 +241,7 @@ export class PlanManager {
     await writeFile(filePath, content, 'utf-8');
   }
 
-  /**
-   * Установить активный план для контекста (записать в context.json).
-   * @param {string} ctxId - ID контекста
-   * @param {string} planId - ID плана
-   */
-  async setActivePlan(ctxId, planId) {
-    const ctxStore = new ContextStore(this.ctxDir);
-    await ctxStore.setActivePlanId(planId);
-  }
 
-  /**
-   * Получить активный план контекста.
-   * @param {string} ctxId - ID контекста
-   * @returns {Plan|null}
-   */
-  async getActivePlan(ctxId) {
-    const ctxStore = new ContextStore(this.ctxDir);
-    const planId = await ctxStore.getActivePlanId();
-    if (!planId) return null;
-    return this.loadPlan(planId);
-  }
 
   /**
    * Список всех планов в контексте.
