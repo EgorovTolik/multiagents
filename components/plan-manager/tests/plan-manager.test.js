@@ -383,5 +383,27 @@ describe('PlanManager', () => {
       expect(reloaded.steps[0].steps.length).toBe(2);
       expect(reloaded.steps[0].steps[0].steps.length).toBe(1);
     });
+
+    it('Кэширование подпланов в PlanStep.plan', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const substep = await pm.addStep(subplan, 'Подшаг');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Перезагружаем основной план — должен кэшировать подплан в step.plan
+      const reloadedMain = await pm.loadPlan(mainPlan.id);
+      const cachedStep = reloadedMain.steps[0];
+      expect(cachedStep.plan).not.toBeNull();
+      expect(cachedStep.plan.title).toBe('Подплан');
+
+      // findStepById должен использовать кэш, не читая с диска
+      const found = await pm.findStepById(reloadedMain, substep.id);
+      expect(found).not.toBeNull();
+      expect(found.task).toBe('Подшаг');
+    });
   });
 });

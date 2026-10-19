@@ -223,10 +223,41 @@ export class PlanManager {
       const steps = (data.steps || []).map(s => this._deserializeStep(s));
       const plan = new Plan({ ...data, steps });
 
+      // Кэшируем подпланы в шагах
+      await this._cacheNestedPlans(plan);
+
       return plan;
     } catch (e) {
       if (e.code === 'ENOENT') return null;
       throw e;
+    }
+  }
+
+  /**
+   * Кэшировать подпланы в шагах плана.
+   * @param {Plan} plan
+   */
+  async _cacheNestedPlans(plan) {
+    for (const step of plan.steps) {
+      await this._cacheStepPlan(step);
+    }
+  }
+
+  /**
+   * Кэшировать подплан для шага.
+   * @param {PlanStep} step
+   */
+  async _cacheStepPlan(step) {
+    if (step.planFile && !step.plan) {
+      const subPlanId = this._extractPlanId(step.planFile);
+      if (subPlanId) {
+        try {
+          const subPlan = await this.loadPlan(subPlanId);
+          step.plan = subPlan;
+        } catch (e) {
+          // Подплан не найден или ошибка загрузки — пропускаем
+        }
+      }
     }
   }
 
@@ -294,12 +325,18 @@ export class PlanManager {
       const nested = this._findStepInSteps(step.steps, stepId);
       if (nested) return nested;
 
-      // Поиск во вложенном плане через planFile
-      if (step.planFile) {
+      // Поиск во вложенном плане через кэш или planFile
+      if (step.plan) {
+        // Используем кэшированный объект плана
+        const found = await this.findStepById(step.plan, stepId);
+        if (found) return found;
+      } else if (step.planFile) {
+        // Кэша нет — загружаем с диска и кэшируем
         try {
           const subPlanId = this._extractPlanId(step.planFile);
           if (subPlanId) {
             const subPlan = await this.loadPlan(subPlanId);
+            step.plan = subPlan;
             if (subPlan) {
               const found = await this.findStepById(subPlan, stepId);
               if (found) return found;
@@ -475,20 +512,27 @@ export class PlanManager {
       if (!step.planFile || visited.has(step.planFile)) return;
       visited.add(step.planFile);
 
-      try {
-        const subPlanId = this._extractPlanId(step.planFile);
-        if (subPlanId) {
-          const subPlan = await this.loadPlan(subPlanId);
-          if (subPlan) {
-            resolved.push(subPlan);
-            // Рекурсивно обрабатываем подпланы
-            for (const subStep of subPlan.steps) {
-              await visitStep(subStep);
-            }
+      // Используем кэш, если есть
+      let subPlan = step.plan;
+      if (!subPlan) {
+        try {
+          const subPlanId = this._extractPlanId(step.planFile);
+          if (subPlanId) {
+            subPlan = await this.loadPlan(subPlanId);
+            step.plan = subPlan;
           }
+        } catch (e) {
+          // Подплан не найден или ошибка загрузки — пропускаем
+          return;
         }
-      } catch (e) {
-        // Подплан не найден или ошибка загрузки — пропускаем
+      }
+
+      if (subPlan) {
+        resolved.push(subPlan);
+        // Рекурсивно обрабатываем подпланы
+        for (const subStep of subPlan.steps) {
+          await visitStep(subStep);
+        }
       }
     };
 
