@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Тёмная тема по умолчанию (как в основном проекте) */
+body {
+  @apply bg-slate-950 text-white;
+}
