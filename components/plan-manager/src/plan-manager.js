@@ -216,7 +216,9 @@ export class PlanManager {
   async loadPlan(planId) {
     const filePath = join(this.plansDir, `${planId}.json`);
     try {
+      console.log(`[plan-manager] Loading plan ${planId} from ${filePath}`);
       const content = await readFile(filePath, 'utf-8');
+      console.log(`[plan-manager] Read ${content.length} bytes for plan ${planId}`);
       const data = JSON.parse(content);
 
       // Восстанавливаем PlanStep объекты из данных
@@ -268,8 +270,15 @@ export class PlanManager {
   async savePlan(plan) {
     await mkdir(this.plansDir, { recursive: true });
     const filePath = join(this.plansDir, `${plan.id}.json`);
-    const content = JSON.stringify(plan.toJSON(), null, 2);
-    await writeFile(filePath, content, 'utf-8');
+    try {
+      const content = JSON.stringify(plan.toJSON(), null, 2);
+      console.log(`[plan-manager] Saving plan ${plan.id} to ${filePath} (${content.length} bytes)`);
+      await writeFile(filePath, content, 'utf-8');
+      console.log(`[plan-manager] Plan ${plan.id} saved successfully`);
+    } catch (err) {
+      console.error(`[plan-manager] Error saving plan ${plan.id}:`, err);
+      throw err;
+    }
   }
 
 

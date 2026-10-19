@@ -10,6 +10,8 @@ import MistakesPage from "./MistakesPage";
 import { Sidebar } from "./components/Sidebar";
 import { ChatComponent } from "./components/ChatComponent";
 import { RecoveryHistoryModal, type RecoveryEntry } from "./components/RecoveryHistoryModal";
+import { PlanEditorModal } from "./components/PlanEditorModal";
+import type { Plan } from "./api";
 import { Lightbox } from "./components/Lightbox";
 import { ToastContainer, useToasts } from "./components/Toast";
 import type { ArchiveInfo } from "./components/Sidebar";
@@ -61,6 +63,11 @@ export default function App() {
   const [recoveryHistories, setRecoveryHistories] = useState<Record<string, RecoveryEntry[]>>({});
   // Modal state
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
+
+  // Plan management state
+  const [activePlans, setActivePlans] = useState<Record<string, Plan | null>>({});
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
+
   const { toasts, notify, dismiss } = useToasts();
 
   // Refs
@@ -91,6 +98,12 @@ export default function App() {
             if (ctx.recoveryCount) counts[ctx.id] = ctx.recoveryCount;
           }
           setRecoveryCounts(counts);
+          // Инициализируем activePlans из context.json
+          const plans: Record<string, Plan | null> = {};
+          for (const ctx of msg.contexts) {
+            if (ctx.activePlanId) plans[ctx.id] = { id: ctx.activePlanId, title: "Загрузка...", status: "planning", steps: [], createdBy: "", createdAt: 0 };
+          }
+          setActivePlans(plans);
           if (!activeCtx && msg.contexts.length > 0) {
             const latest = msg.contexts.reduce((a: ContextMeta, b: ContextMeta) =>
               (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a,
@@ -121,6 +134,19 @@ export default function App() {
             // Обновляем recoveryCount из загруженного контекста
             if (msg.context.recoveryCount != null) {
               setRecoveryCounts((rc) => ({ ...rc, [msg.context!.id]: msg.context!.recoveryCount! }));
+            }
+            // Загружаем активный план если есть activePlanId
+            if (msg.context.activePlanId) {
+              setActivePlans((ap) => ({ ...ap, [msg.context!.id]: { id: msg.context!.activePlanId!, title: "Загрузка...", status: "planning", steps: [], createdBy: "", createdAt: 0 } }));
+              // Асинхронно загружаем данные плана
+              fetch(`/api/contexts/${msg.context.id}/active-plan`).then(async (res) => {
+                const data = await res.json();
+                console.log('Plan loaded for context', msg.context.id, 'steps:', data.plan?.steps?.length);
+                if (data.plan) {
+                  setActivePlans((ap) => ({ ...ap, [msg.context!.id]: data.plan }));
+                  console.log('Plan state updated for', msg.context.id);
+                }
+              }).catch((e) => console.error('Failed to load plan:', e));
             }
           } else {
             setAppliedSkills([]);
@@ -306,6 +332,25 @@ export default function App() {
             notify(msg.message, { sticky: msg.sticky });
           }
           break;
+        case "plan_created":
+          // Перезагружаем активный план при создании
+          setActivePlans((ap) => ({ ...ap, [msg.ctxId]: null }));
+          fetch(`/api/contexts/${msg.ctxId}/active-plan`).then(async (res) => {
+            const data = await res.json();
+            if (data.plan) {
+              setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
+            }
+          }).catch(() => {});
+          break;
+        case "plan_updated":
+          // Перезагружаем активный план при изменении
+          fetch(`/api/contexts/${msg.ctxId}/active-plan`).then(async (res) => {
+            const data = await res.json();
+            if (data.plan) {
+              setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
+            }
+          }).catch(() => {});
+          break;
         case "error":
           setErrors((e) => [...e, msg.message]);
           setTimeout(() => setErrors((e) => e.slice(1)), 5000);
@@ -354,6 +399,22 @@ export default function App() {
 
   // useCallback — чтобы memo(MessageRow) работал: идентичность колбэков стабильна
   const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
+
+  // Calculate plan progress (done/total steps)
+  function planProgress(plan: Plan | null) {
+    if (!plan || !plan.steps) return null;
+    let done = 0;
+    let total = 0;
+    const countSteps = (steps: any[]) => {
+      for (const step of steps) {
+        total++;
+        if (step.status === 'done') done++;
+        if (step.steps && step.steps.length > 0) countSteps(step.steps);
+      }
+    };
+    countSteps(plan.steps);
+    return { done, total, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
+  }
 
   // ─── Навыки ─────────────────────────────────────────────────────────────
   const applySkills = (ids: string[]) => {
@@ -451,6 +512,8 @@ export default function App() {
             pending={pending}
             waitingAgentId={waitingAgents[activeCtx.id] ?? null}
             recoveryCount={recoveryCounts[activeCtx.id] ?? 0}
+            planProgress={planProgress(activePlans[activeCtx.id])}
+            onOpenPlanEditor={() => setPlanEditorOpen(true)}
             skills={skills}
             appliedSkills={appliedSkills}
             input={input}
@@ -495,6 +558,19 @@ export default function App() {
           onClose={() => setRecoveryModalOpen(false)}
           history={recoveryHistories[activeCtx.id] ?? []}
           agentName={agentName}
+        />
+      )}
+
+      {/* Plan Editor Modal */}
+      {activeCtx && (
+        <PlanEditorModal
+          isOpen={planEditorOpen}
+          onClose={() => setPlanEditorOpen(false)}
+          plan={activePlans[activeCtx.id]}
+          onStatusChange={(stepId, status) => {
+            // TODO: Implement API call to update step status
+            console.log(`Update step ${stepId} to ${status}`);
+          }}
         />
       )}
 

@@ -27,6 +27,7 @@ import {
   internalError,
 } from "./error-types";
 import { RecoveryEngine, ORCHESTRATOR_ID, CHAIN_ROUTER_ID } from "./recovery.js";
+import { PlanService } from "./plan-service.js";
 import { MutexManager } from "./mutex.js";
 import { SkillInjector } from "./skills-injector.js";
 import type { SkillRegistry } from "./skill-registry";
@@ -92,6 +93,7 @@ export class AgentRunner {
   activeByCtx = new Map<string, string>();
   private mutexManager!: MutexManager;
   private recoveryEngine!: RecoveryEngine;
+  private planService!: PlanService;
   private queue!: QueueManager;
   private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
@@ -119,6 +121,7 @@ export class AgentRunner {
     this.queue = new QueueManager();
     this.mutexManager = new MutexManager(this.emit);
     this.recoveryEngine = new RecoveryEngine(sysCfg.maxRecoveries);
+    this.planService = new PlanService();
     this.providerRegistry = new ProviderRegistry(this.providers, this.defaultModel, this.registry, this.agentsDir);
     this.imageManager = new ImageManager({
       getCtxDir: (ctxId) => this.getCtxDir(ctxId),
@@ -167,6 +170,14 @@ export class AgentRunner {
 
   hasQueued(): boolean {
     return this.queue.hasQueued();
+  }
+
+  getPlanService(): PlanService {
+    return this.planService;
+  }
+
+  getContextStore(): ContextStore {
+    return this.store;
   }
 
   private key(ctxId: string, agentId: string) {
@@ -492,7 +503,8 @@ export class AgentRunner {
       MAX_HANDOFFS,
       () => this.defaultDisabledToolNames(),
       this.skillInjector,
-      () => k
+      () => k,
+      this.planService
     );
 
     let excludeTools = def.disabledTools ?? [];
@@ -611,7 +623,7 @@ export class AgentRunner {
     return this.modelRuntime.getModel(spec.slice(0, slash), spec.slice(slash + 1));
   }
 
-  private getCtxDir(ctxId: string): string {
+  public getCtxDir(ctxId: string): string {
     if (this.store.isTrainingContext(ctxId)) {
       return this.store.trainingDir(ctxId);
     }

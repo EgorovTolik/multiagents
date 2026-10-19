@@ -28,6 +28,10 @@ export interface ChatComponentProps {
   recoveryHistory?: import("./RecoveryHistoryModal").RecoveryEntry[];
   /** Колбэк открытия модалки истории восстановлений */
   onOpenRecoveryModal?: () => void;
+  /** Прогресс активного плана (null если плана нет) */
+  planProgress?: import("../api").PlanProgress | null;
+  /** Колбэк открытия редактора плана */
+  onOpenPlanEditor?: () => void;
   /** Доступные навыки */
   skills: SkillInfo[];
   /** Применённые навыки */
@@ -72,6 +76,8 @@ export function ChatComponent({
   recoveryCount = 0,
   recoveryHistory = [],
   onOpenRecoveryModal,
+  planProgress,
+  onOpenPlanEditor,
   skills,
   appliedSkills,
   input,
@@ -209,6 +215,8 @@ export function ChatComponent({
         wsStatus={api.status}
         recoveryCount={recoveryCount}
         onOpenRecoveryModal={onOpenRecoveryModal}
+        planProgress={planProgress}
+        onOpenPlanEditor={onOpenPlanEditor}
         onOpenSidebar={() => {}}
         onCancelHandoff={onCancelHandoff}
         onAbort={onAbort}

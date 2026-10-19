@@ -6,6 +6,12 @@ import type { AgentRegistry, AgentDef } from "./registry";
 import type { ContextStore, Handoff, Message } from "./context-store";
 import type { SkillInjector } from "./skills-injector.js";
 import type { Emit } from "./runner.ts";
+import { makeCreatePlanTool } from "./tools/create-plan";
+import { makeUpdatePlanStepTool } from "./tools/update-plan-step";
+import { makeAddSubtaskTool } from "./tools/add-subtask";
+import { makeEmbedSubplanTool } from "./tools/embed-subplan";
+import { makeGetPlanStatusTool } from "./tools/get-plan-status";
+import { makeAddStepTool } from "./tools/add-step";
 
 interface ToolContext {
   ctxId: string;
@@ -270,7 +276,7 @@ export function makeNotifyTool(emit: Emit, ctxId: string) {
 }
 
 /** Фабрика всех инструментов агента. */
-export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string) {
+export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string, planService: any) {
   const tools = [
     makeListAgentsTool(registry),
     makeRouteTool(ctxId, agentId, store, registry, emit, maxHandoffs),
@@ -280,6 +286,12 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     skillInjector.createUseSkillTool(ctxId, agentId),
     makeSharedStoreTool(sharedDir),
     makeNotifyTool(emit, ctxId),
+    makeCreatePlanTool(ctxId, store, planService, getCtxDir, emit),
+    makeUpdatePlanStepTool(ctxId, store, planService, getCtxDir, emit),
+    makeAddSubtaskTool(ctxId, store, planService, getCtxDir),
+    makeEmbedSubplanTool(ctxId, store, planService, getCtxDir, emit),
+    makeGetPlanStatusTool(ctxId, store, planService, getCtxDir),
+    makeAddStepTool(ctxId, store, planService, getCtxDir, emit),
   ];
   if (agentId === "agent-creator") {
     tools.push(makeCreateAgentTool(registry, agentsDir, emit, defaultDisabledToolNames));
