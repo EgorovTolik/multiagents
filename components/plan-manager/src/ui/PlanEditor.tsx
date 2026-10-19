@@ -48,7 +48,27 @@ const mockPlans: Record<string, Plan> = {
         status: 'pending',
         steps: [
           { id: 'step-3.1', task: 'Unit тесты', status: 'pending' },
-          { id: 'step-3.2', task: 'Интеграционные тесты', status: 'blocked' }
+          {
+            id: 'step-3.2',
+            task: 'Интеграционные тесты',
+            status: 'blocked',
+            steps: [
+              {
+                id: 'step-3.2.1',
+                task: 'Тесты API ↔ БД',
+                status: 'pending',
+                steps: [
+                  { id: 'step-3.2.1.1', task: 'Тест CREATE запроса', status: 'pending' },
+                  { id: 'step-3.2.1.2', task: 'Тест READ запроса', status: 'pending' }
+                ]
+              },
+              {
+                id: 'step-3.2.2',
+                task: 'Тесты API ↔ Сервисы',
+                status: 'blocked'
+              }
+            ]
+          }
         ]
       }
     ]
