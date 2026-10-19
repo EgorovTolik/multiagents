@@ -2,6 +2,14 @@
 
 Модуль для управления файлами планов в системе multiagents. Обеспечивает создание, загрузку, сохранение, модификацию и разрешение вложенных подпланов. Работает с JSON-файлами внутри директории контекста.
 
+## Архитектура
+
+Компонент спроектирован по принципу **Single Responsibility Principle**:
+- Принимает готовый путь к директории планов (`plansDir`)
+- Не знает о структуре директорий контекстов multiagents
+- Не зависит от ContextStore или других модулей системы
+- Самодостаточный и тестируемый без привязки к основной системе
+
 ## Структура файлов
 
 ```
@@ -16,11 +24,16 @@ components/plan-manager/
 
 ## API
 
-### Создание плана
+### Инициализация
 ```javascript
 import { PlanManager } from './src/plan-manager.js';
 
-const pm = new PlanManager({ ctxDir: '/path/to/contexts/<ctxId>' });
+// Принимает готовый путь к директории планов
+const pm = new PlanManager({ plansDir: '/path/to/plans' });
+```
+
+### Создание плана
+```javascript
 const plan = await pm.createPlan({
   title: 'Реализация API авторизации',
   description: 'План разработки модуля авторизации',
@@ -72,10 +85,14 @@ const progress = await pm.getOverallProgress(plan);
 // { done: 5, total: 12, percent: 41.7 }
 ```
 
-### Активный план контекста
+### Активный план (внешняя ответственность)
+Управление активным планом — задача внешнего кода, не PlanManager:
 ```javascript
-await pm.setActivePlan(ctxId, plan.id);
-const activePlan = await pm.getActivePlan(ctxId);
+import { ContextStore } from './path/to/context-store.js';
+const store = new ContextStore('/path/to/contexts');
+await store.setActivePlanId('plan-xyz');
+const activeId = await store.getActivePlanId();
+const plan = await pm.loadPlan(activeId);
 ```
 
 ### Валидация
@@ -111,8 +128,10 @@ npm run test:watch  # Режим watch
 
 ```
 contexts/<ctxId>/
-├── context.json              # Конфигурация контекста (activePlanId)
+├── context.json              # Конфигурация контекста (управляется внешним кодом)
 └── plans/
     ├── <plan-id>.json        # Основной план
     └── <subplan-id>.json     # Вложенный подплан
 ```
+
+PlanManager работает только с директорией `plans/`. Файлы в ней создаются автоматически при первом использовании.
