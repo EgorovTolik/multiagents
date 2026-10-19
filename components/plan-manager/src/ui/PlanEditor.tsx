@@ -55,6 +55,19 @@ const mockPlans: Record<string, Plan> = {
   }
 };
 
+// Chevron icon для expand/collapse
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`h-4 w-4 shrink-0 transition-transform duration-300 ease-in-out ${expanded ? 'rotate-90' : ''}`}
+      viewBox="0 0 20 20"
+      fill="currentColor"
+    >
+      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function StatusBadge({ status }: { status: StepStatus }) {
   const colors = {
     pending: 'bg-slate-600 text-slate-300',
@@ -82,22 +95,34 @@ function StepRow({ step, depth = 0, onToggle, expanded }: { step: PlanStep; dept
   const isExpanded = expanded.has(step.id);
 
   return (
-    <div>
-      <div className="flex items-center gap-2 px-4 py-2 hover:bg-slate-800/50" style={{ paddingLeft: `${depth * 1.5 + 1}rem` }}>
+    <div className="transition-all duration-300 ease-in-out">
+      {/* Row header */}
+      <div
+        className="group flex items-center gap-2 py-2 pr-4 hover:bg-slate-800/70 cursor-pointer"
+        style={{ paddingLeft: `${depth * 16 + 16}px` }}
+        onClick={() => hasChildren && onToggle(step.id)}
+      >
         {hasChildren ? (
-          <button onClick={() => onToggle(step.id)} className="text-slate-400 hover:text-white">
-            {isExpanded ? '▼' : '▶'}
-          </button>
+          <ChevronIcon expanded={isExpanded} />
         ) : (
-          <span className="w-3" />
+          <span className="w-4" />
         )}
-        <span className="flex-1 text-sm text-slate-200">{step.task}</span>
+
+        <span className={`flex-1 text-sm ${step.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-200'} transition-colors`}>{
+          step.task
+        }</span>
+
         <StatusBadge status={step.status} />
       </div>
 
-      {hasChildren && isExpanded && step.steps!.map(subStep => (
-        <StepRow key={subStep.id} step={subStep} depth={depth + 1} onToggle={onToggle} expanded={expanded} />
-      ))}
+      {/* Children */}
+      {hasChildren && (
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+          {step.steps!.map(subStep => (
+            <StepRow key={subStep.id} step={subStep} depth={depth + 1} onToggle={onToggle} expanded={expanded} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
