@@ -575,6 +575,22 @@ export class PlanManager {
     return { done, total, percent };
   }
 
+  /**
+   * Сбросить кэш вложенных планов.
+   * Рекурсивно обнуляет поле step.plan во всех шагах плана,
+   * чтобы при последующих операциях планы перечитывались с диска.
+   * @param {Plan} plan
+   */
+  resetCache(plan) {
+    for (const step of plan.steps) {
+      if (step.plan) {
+        // Рекурсивно сбрасываем кэш вложенного плана
+        this.resetCache(step.plan);
+        step.plan = null;
+      }
+    }
+  }
+
   // --- Private helpers ---
 
   _deserializeStep(data) {
