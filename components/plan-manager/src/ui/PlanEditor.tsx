@@ -58,22 +58,36 @@ const mockPlans: Record<string, Plan> = {
 // Chevron icon для expand/collapse
 function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
-    <svg
-      className={`h-4 w-4 shrink-0 transition-transform duration-300 ease-in-out ${expanded ? 'rotate-90' : ''}`}
-      viewBox="0 0 20 20"
-      fill="currentColor"
-    >
-      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-    </svg>
+    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition-all duration-300 ease-in-out hover:bg-slate-700 hover:text-white ${expanded ? 'rotate-90' : ''}`}>
+      <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: '14px', height: '14px' }}>
+        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+      </svg>
+    </span>
   );
 }
 
 function StatusBadge({ status }: { status: StepStatus }) {
-  const colors = {
-    pending: 'bg-slate-600 text-slate-300',
-    in_progress: 'bg-blue-600 text-white',
-    done: 'bg-emerald-600 text-white',
-    blocked: 'bg-rose-600 text-white'
+  const styles = {
+    pending: {
+      backgroundColor: 'rgba(51, 65, 85, 0.8)',
+      color: '#cbd5e1',
+      borderColor: '#475569'
+    },
+    in_progress: {
+      backgroundColor: 'rgba(59, 130, 246, 0.2)',
+      color: '#93c5fd',
+      borderColor: 'rgba(59, 130, 246, 0.4)'
+    },
+    done: {
+      backgroundColor: 'rgba(16, 185, 129, 0.2)',
+      color: '#6ee7b7',
+      borderColor: 'rgba(16, 185, 129, 0.4)'
+    },
+    blocked: {
+      backgroundColor: 'rgba(244, 63, 94, 0.2)',
+      color: '#fda4af',
+      borderColor: 'rgba(244, 63, 94, 0.4)'
+    }
   };
 
   const labels = {
@@ -84,7 +98,19 @@ function StatusBadge({ status }: { status: StepStatus }) {
   };
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colors[status]}`}>
+    <span 
+      className="inline-flex items-center font-semibold tracking-wide uppercase"
+      style={{
+        ...styles[status],
+        marginLeft: '16px',
+        flexShrink: 0,
+        borderRadius: '9999px',
+        border: '1px solid',
+        padding: '2px 10px',
+        fontSize: '11px',
+        lineHeight: '1.4'
+      }}
+    >
       {labels[status]}
     </span>
   );
@@ -95,32 +121,64 @@ function StepRow({ step, depth = 0, onToggle, expanded }: { step: PlanStep; dept
   const isExpanded = expanded.has(step.id);
 
   return (
-    <div className="transition-all duration-300 ease-in-out">
+    <div className="relative">
+      {/* Indentation guide line */}
+      {depth > 0 && (
+        <div 
+          className="absolute left-0 top-0 bottom-0 w-px bg-slate-700/50"
+          style={{ left: `${(depth - 1) * 24 + 16}px` }}
+        />
+      )}
+
       {/* Row header */}
       <div
-        className="group flex items-center gap-2 py-2 pr-4 hover:bg-slate-800/70 cursor-pointer"
-        style={{ paddingLeft: `${depth * 16 + 16}px` }}
+        className="flex items-center gap-3 py-3 pr-4 cursor-pointer transition-colors"
+        style={{ 
+          paddingLeft: `${depth * 24 + 16}px`,
+          backgroundColor: 'transparent'
+        }}
         onClick={() => hasChildren && onToggle(step.id)}
+        onMouseOver={(e) => {
+          (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(30, 41, 59, 0.6)';
+        }}
+        onMouseOut={(e) => {
+          (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+        }}
       >
         {hasChildren ? (
           <ChevronIcon expanded={isExpanded} />
         ) : (
-          <span className="w-4" />
+          <span className="flex h-5 w-5 items-center justify-center">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
+          </span>
         )}
 
-        <span className={`flex-1 text-sm ${step.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-200'} transition-colors`}>{
-          step.task
-        }</span>
+        <span 
+          className={`flex-1 text-sm transition-colors ${
+            step.status === 'done' 
+              ? 'text-slate-400 line-through decoration-slate-600' 
+              : step.status === 'in_progress'
+                ? 'text-white font-medium'
+                : 'text-slate-300'
+          }`}
+        >
+          {step.task}
+        </span>
 
         <StatusBadge status={step.status} />
       </div>
 
       {/* Children */}
       {hasChildren && (
-        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-          {step.steps!.map(subStep => (
-            <StepRow key={subStep.id} step={subStep} depth={depth + 1} onToggle={onToggle} expanded={expanded} />
-          ))}
+        <div 
+          className={`overflow-hidden transition-all duration-300 ease-in-out`} 
+          style={{ maxHeight: isExpanded ? '2000px' : '0px', opacity: isExpanded ? 1 : 0 }}
+        >
+          <div style={{ borderLeft: '1px solid rgba(100, 116, 139, 0.5)', marginLeft: '16px' }}>
+            {step.steps!.map(subStep => (
+              <StepRow key={subStep.id} step={subStep} depth={depth + 1} onToggle={onToggle} expanded={expanded} />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -199,7 +257,7 @@ export function PlanEditor({ planId, isOpen, onClose, onPlanChange }: PlanEditor
         </div>
 
         {/* Content */}
-        <div className="max-h-[calc(85vh-4rem)] overflow-y-auto">
+        <div className="max-h-[calc(85vh-6rem)] overflow-y-auto bg-slate-900/50">
           {loading ? (
             <div className="px-5 py-8 text-center text-slate-400">Загрузка...</div>
           ) : error ? (
@@ -208,13 +266,13 @@ export function PlanEditor({ planId, isOpen, onClose, onPlanChange }: PlanEditor
             <>
               {/* Описание плана */}
               {plan.description && (
-                <div className="border-b border-slate-700 px-5 py-3">
+                <div className="border-b border-slate-700/50 px-6 py-4">
                   <p className="text-sm text-slate-400">{plan.description}</p>
                 </div>
               )}
 
               {/* Шаги плана */}
-              <div className="divide-y divide-slate-700/50">
+              <div>
                 {plan.steps.map(step => (
                   <StepRow key={step.id} step={step} onToggle={handleToggleStep} expanded={expandedSteps} />
                 ))}
