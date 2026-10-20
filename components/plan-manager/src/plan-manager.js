@@ -540,11 +540,6 @@ export class PlanManager {
   async removeStep(plan, stepId) {
     const idx = plan.steps.findIndex(s => s.id === stepId);
     if (idx !== -1) {
-      const removedStep = plan.steps[idx];
-      // Если удаляемый шаг имеет встроенный подплан — очищаем его файл
-      if (removedStep.planFile) {
-        await this._cleanupEmbeddedPlan(removedStep.planFile);
-      }
       plan.steps.splice(idx, 1);
       await this.savePlan(plan);
       return;

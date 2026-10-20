@@ -526,7 +526,7 @@ describe('PlanManager', () => {
       expect(rawJson.steps[0].plan).toBeUndefined();
     });
 
-    it('Удаление шага с встроенным подпланом очищает orphan-файл', async () => {
+    it('Удаление шага с встроенным подпланом сохраняет файл для истории', async () => {
       // Создаём основной план
       const mainPlan = await pm.createPlan({ title: 'Main Plan', createdBy: 'user' });
       const stepWithSubplan = await pm.addStep(mainPlan, 'Шаг с подпланом');
@@ -543,8 +543,8 @@ describe('PlanManager', () => {
       // Удаляем шаг с встроенным подпланом
       await pm.removeStep(mainPlan, stepWithSubplan.id);
 
-      // Файл подплана должен быть удалён (не orphan)
-      expect(existsSync(subplanFilePath)).toBe(false);
+      // Файл подплана должен остаться для истории (orphan-файл)
+      expect(existsSync(subplanFilePath)).toBe(true);
     });
 
     it('add_subtask к шагу с подпланом не создаёт split-brain (прогресс корректный)', async () => {
