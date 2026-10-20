@@ -9,8 +9,9 @@ import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
 
 // Optimistic concurrency control for plans using version numbers.
-// Each save increments the version; if concurrent modification detected, an error is thrown.
-const loadedVersions = new Map(); // planId -> version at load time
+// Shared across ALL PlanManager instances in this process to detect conflicts
+// between separate tool calls that might modify the same plan concurrently.
+export const sharedLoadedVersions = new Map(); // planId -> version at load time
 
 // Типы статусов (JSDoc)
 /** @typedef {'pending'|'in_progress'|'done'|'blocked'} StepStatus */
@@ -276,8 +277,8 @@ export class PlanManager {
       const steps = (data.steps || []).map(s => this._deserializeStep(s));
       const plan = new Plan({ ...data, steps });
 
-      // Запоминаем версию для optimistic concurrency control
-      loadedVersions.set(plan.id, plan.version);
+      // Запоминаем версию в shared map'е для optimistic concurrency control
+      sharedLoadedVersions.set(plan.id, plan.version);
 
       // Кэшируем подпланы в шагах
       await this._cacheNestedPlans(plan);
@@ -328,7 +329,7 @@ export class PlanManager {
     const backupFilePath = `${filePath}.prev`;
 
     // Optimistic concurrency control: check if version changed since load
-    const loadedVersion = loadedVersions.get(plan.id);
+    const loadedVersion = sharedLoadedVersions.get(plan.id);
     if (loadedVersion !== undefined && loadedVersion !== plan.version) {
       throw new Error(`PLAN_VERSION_CONFLICT: Plan ${plan.id} was modified by another operation since it was loaded. Loaded version: ${loadedVersion}, current file version: ${plan.version}. Please reload and retry.`);
     }
@@ -366,8 +367,8 @@ export class PlanManager {
       // 5. Атомарное переименование временного файла в основной
       await rename(tempFilePath, filePath);
       
-      // Update tracked version after successful save
-      loadedVersions.set(plan.id, plan.version);
+      // Update tracked version in shared map after successful save
+      sharedLoadedVersions.set(plan.id, plan.version);
       console.log(`[plan-manager] Plan ${plan.id} saved successfully (atomic), version: ${plan.version}`);
     } catch (err) {
       // Очистка временного файла при ошибке
