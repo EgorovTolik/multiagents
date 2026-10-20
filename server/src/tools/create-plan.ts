@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 
 import type { Emit } from "../runner.ts";
 
@@ -23,8 +24,8 @@ export function makeCreatePlanTool(ctxId: string, store: ContextStore, planServi
       }
 
       try {
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.createPlan({
+        const manager = PlanManager.getInstance();
+        const plan = await manager.createPlan(ctxId, {
           title: params.title as string,
           description: (params.description as string) || undefined,
           createdBy: ctx.activeAgentId,

@@ -3,7 +3,9 @@
  * Покрывают все сценарии из спецификации docs/plan-manager-spec.md.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import path from 'path';
+import os from 'os';
 import pm from '../src/planmanager.js';
 import { Plan } from '../src/plan.js';
 import { PlanStep } from '../src/planstep.js';
@@ -47,6 +49,61 @@ import { readFile, writeFile } from 'fs/promises';
 
 let testCtxId = null;
 let planManager = null;
+
+describe('Фикс багов рефактора', () => {
+  let planManager = null;
+
+  beforeEach(async () => {
+    // Use the singleton like other tests do
+    planManager = pm;
+  });
+
+  it('Баг #2: шаги встроенного подплана должны учитываться в прогрессе верхнего плана', async () => {
+    const ctxId = `fix-test-${Date.now()}`;
+    // Создаём родительский план с одним шагом
+    const parentPlan = await planManager.createPlan(ctxId, { title: 'Parent', createdBy: 'test' });
+    const step1 = await parentPlan.addStep('Основной шаг');
+
+    // Создаём и встраиваем подплан в этот шаг
+    const subplan = await planManager.createPlan(ctxId, { title: 'Sub', createdBy: 'test' });
+    await parentPlan.embedSubplan(step1.id, subplan);
+
+    // Добавляем шаги во встроенный подплан
+    const subStep1 = await subplan.addStep('Подшаг 1');
+    const subStep2 = await subplan.addStep('Подшаг 2');
+
+    // Прогресс должен учитывать все шаги: 1 основной + 2 подшага = 3 всего
+    const reloadedParent = await planManager.loadPlan(ctxId, parentPlan.id);
+    const progress = await reloadedParent.getOverallProgress();
+    expect(progress.total).toBe(3); // Основной шаг + 2 шага подплана
+    expect(progress.done).toBe(0);
+  });
+
+  it('Баг #3: update_plan_step должен работать на шагах внутри встроенного подплана', async () => {
+    const ctxId = `fix-test-${Date.now()}`;
+    // Создаём родительский план с одним шагом
+    const parentPlan = await planManager.createPlan(ctxId, { title: 'Parent', createdBy: 'test' });
+    const step1 = await parentPlan.addStep('Основной шаг');
+
+    // Создаём и встраиваем подплан
+    const subplan = await planManager.createPlan(ctxId, { title: 'Sub', createdBy: 'test' });
+    await parentPlan.embedSubplan(step1.id, subplan);
+
+    // Добавляем шаг во встроенный подплан
+    const subStep = await subplan.addStep('Подшаг для обновления');
+    console.log('Created substep:', subStep.id, 'status:', subStep.status);
+
+    // Обновляем статус шага через родительский план (findStepById должен найти его во вложенном плане)
+    let found = await parentPlan.findStepById(subStep.id);
+    expect(found).not.toBeNull();
+    console.log('Found step in parent plan?', !!found, 'status:', found.status);
+
+    // Обновляем статус через родительский план
+    await parentPlan.updateStepStatus(subStep.id, 'done');
+    console.log('After update via parent, found step status:', found.status);
+    expect(found.status).toBe('done');
+  });
+});
 
 describe('PlanManager', () => {
   let ctxDir;
@@ -257,6 +314,39 @@ describe('PlanManager', () => {
       // Перезагружаем и проверяем
       const reloadedSub = await planManager.loadPlan(testCtxId, subplan.id);
       expect(reloadedSub.steps[0].status).toBe('in_progress');
+    });
+
+    it('12. Обновление описания задачи шага', async () => {
+      const plan = await planManager.createPlan(testCtxId, { title: 'План для обновления task', createdBy: 'user' });
+      const step = await plan.addStep('Исходное описание');
+
+      expect(step.task).toBe('Исходное описание');
+
+      // Обновляем описание задачи
+      await plan.updateStepTask(step.id, 'Новое описание');
+
+      // Перезагружаем и проверяем что изменение сохранилось
+      const reloaded = await planManager.loadPlan(testCtxId, plan.id);
+      const loadedStep = await reloaded.findStepById(step.id);
+      expect(loadedStep.task).toBe('Новое описание');
+    });
+
+    it('13. Обновление описания задачи шага во встроенном подплане', async () => {
+      const mainPlan = await planManager.createPlan(testCtxId, { title: 'Основной', createdBy: 'user' });
+      const step = await mainPlan.addStep('Шаг с подпланом');
+
+      const subplan = await planManager.createPlan(testCtxId, { title: 'Подплан', createdBy: 'user' });
+      const substep = await subplan.addStep('Исходное описание подшага');
+
+      await mainPlan.embedSubplan(step.id, subplan);
+
+      // Обновляем описание задачи шага во встроенном подплане через родительский план
+      await mainPlan.updateStepTask(substep.id, 'Обновлённое описание подшага');
+
+      // Перезагружаем и проверяем
+      const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
+      const loadedSubstep = await reloadedMain.findStepById(substep.id);
+      expect(loadedSubstep.task).toBe('Обновлённое описание подшага');
     });
   });
 

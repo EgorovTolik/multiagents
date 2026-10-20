@@ -21,31 +21,29 @@ interface Plan {
   createdAt: number;
   status: 'planning' | 'approved' | 'executing' | 'completed' | 'archived';
   steps: PlanStep[];
+  save(): Promise<void>;
+  addStep(task: string, index?: number): Promise<PlanStep>;
+  updateStepStatus(stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked'): Promise<void>;
+  findStepById(stepId: string): Promise<PlanStep | null>;
+  addSubtask(parentStepId: string, task: string): Promise<PlanStep>;
+  removeStep(stepId: string): Promise<void>;
+  embedSubplan(stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
+  getOverallProgress(): Promise<{ done: number; total: number }>;
+  _cacheNestedPlans(): Promise<void>;
 }
 
 class PlanManager {
-  constructor(options: { plansDir: string });
-  createPlan(data: { title: string; description?: string; createdBy: string }): Promise<Plan>;
-  loadPlan(planId: string): Promise<Plan | null>;
-  savePlan(plan: Plan): Promise<void>;
-  addStep(plan: Plan, task: string, index?: number): Promise<PlanStep>;
-  addSubtask(plan: Plan, parentStepId: string, task: string): Promise<PlanStep>;
-  updateStepStatus(plan: Plan, stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked'): Promise<void>;
-  findStepById(plan: Plan, stepId: string): Promise<PlanStep | null>;
-  removeStep(plan: Plan, stepId: string): Promise<void>;
-  attachTaskFile(plan: Plan, stepId: string, filePath: string): Promise<void>;
-  attachResultFile(plan: Plan, stepId: string, filePath: string): Promise<void>;
-  embedSubplan(plan: Plan, stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
-  resolveNestedPlans(plan: Plan): Promise<PlanManager[]>;
-  getOverallProgress(plan: Plan): Promise<{ done: number; total: number; percent: number }>;
-  resetCache(plan: Plan): void;
+  static getInstance(): PlanManager;
+  createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
+  loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
+  listPlans(ctxId: string): Promise<Plan[]>;
 }
 
 class PlanService {
   constructor();
-  getManager(ctxId: string, ctxDir: string): PlanManager;
-  destroyManager(ctxId: string): void;
-  getAllManagers(): Map<string, PlanManager>;
+  getManager(): PlanManager;
+  createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
+  loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
 }
 
 export { PlanManager, PlanService, PlanStep, Plan };

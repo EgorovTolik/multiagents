@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
 
 function okText(text: string) {
@@ -41,8 +42,8 @@ export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, planS
           return okText("Ошибка: для этого контекста нет активного плана. Создайте план через create_plan.");
         }
 
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(activePlanId);
+        const manager = PlanManager.getInstance();
+        const plan = await manager.loadPlan(ctxId, activePlanId);
         if (!plan) {
           return okText(`Ошибка: активный план ${activePlanId} не найден`);
         }
@@ -51,7 +52,8 @@ export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, planS
         const status = params.status as 'pending' | 'in_progress' | 'done' | 'blocked' | undefined;
 
         if (status) {
-          await manager.updateStepStatus(plan, stepId, status);
+          const planObj: any = plan;
+          await planObj.updateStepStatus(stepId, status);
           emit({ type: "plan_updated", ctxId, planId: activePlanId });
           return okText(`Статус шага ${stepId} обновлен на "${status}".`);
         } else {

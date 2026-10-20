@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 
 function okText(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
@@ -28,25 +29,17 @@ export function makeGetPlanStatusTool(ctxId: string, store: ContextStore, planSe
           return okText("Для этого контекста нет активного плана. Создайте план через create_plan.");
         }
 
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(activePlanId);
+        const manager = PlanManager.getInstance();
+        const plan: any = await manager.loadPlan(ctxId, activePlanId);
         if (!plan) {
           return okText(`Ошибка: активный план ${activePlanId} не найден`);
         }
 
-        // Рассчитать прогресс вручную (пока нет метода в PlanManager)
-        let done = 0;
-        let total = 0;
-        const countSteps = (steps: any[]) => {
-          for (const step of steps) {
-            total++;
-            if (step.status === 'done') done++;
-            if (step.steps && step.steps.length > 0) {
-              countSteps(step.steps);
-            }
-          }
-        };
-        countSteps(plan.steps);
+        // Использовать встроенный метод getOverallProgress плана
+        const planObj: any = plan;
+        const progress = await planObj.getOverallProgress();
+        const done = progress.done;
+        const total = progress.total;
 
         const percent = total > 0 ? Math.round((done / total) * 100) : 0;
         return okText(

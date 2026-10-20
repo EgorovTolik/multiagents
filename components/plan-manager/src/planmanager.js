@@ -148,8 +148,10 @@ export class PlanManager {
         }
       }
 
+      console.log(`[planmanager] Calling _cacheNestedPlans for plan ${plan.id}`);
       // Автоматически загружаем и кэшируем вложенные подпланы для всех планов
       await plan._cacheNestedPlans();
+      console.log(`[planmanager] _cacheNestedPlans completed for plan ${plan.id}`);
 
       return plan;
     } finally {

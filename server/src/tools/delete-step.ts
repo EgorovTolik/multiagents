@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
 
 function okText(text: string) {
@@ -36,8 +37,8 @@ export function makeDeleteStepTool(ctxId: string, store: ContextStore, planServi
           return okText("Ошибка: для этого контекста нет активного плана. Создайте план через create_plan.");
         }
 
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(activePlanId);
+        const manager = PlanManager.getInstance();
+        const plan = await manager.loadPlan(ctxId, activePlanId);
         if (!plan) {
           return okText(`Ошибка: активный план ${activePlanId} не найден`);
         }
@@ -45,13 +46,14 @@ export function makeDeleteStepTool(ctxId: string, store: ContextStore, planServi
         const stepId = params.stepId as string;
         
         // Проверить, существует ли шаг
-        const step = await manager.findStepById(plan, stepId);
+        const planObj: any = plan;
+        const step = await planObj.findStepById(stepId);
         if (!step) {
           return okText(`Ошибка: шага с ID ${stepId} не найден в плане`);
         }
 
         // Удалить шаг
-        await manager.removeStep(plan, stepId);
+        await planObj.removeStep(stepId);
         emit({ type: "plan_updated", ctxId, planId: activePlanId });
 
         return okText(`Шаг ${stepId} ("${step.task}") удалён из плана.`);

@@ -103,6 +103,15 @@ export class PlanStep {
    * Сериализация в объект.
    */
   toJSON() {
+    // Explicitly check if there's an embedded plan and include its steps
+    let nestedSteps = [];
+    if (this.plan && this.plan.steps) {
+      // Embedded subplan is loaded — serialize its steps
+      nestedSteps = this.plan.steps;
+    } else {
+      // No embedded plan or not loaded yet — use inline steps
+      nestedSteps = this._inlineSteps;
+    }
     return {
       id: this.id,
       task: this.task,
@@ -111,7 +120,7 @@ export class PlanStep {
       resultsFiles: this.resultsFiles,
       planFile: this.planFile,
       status: this.status,
-      steps: this.steps.map(s => s.toJSON())
+      steps: nestedSteps.map(s => s.toJSON())
     };
   }
 }

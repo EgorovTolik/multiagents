@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
 
 export function makeAddStepTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
@@ -36,13 +37,14 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, planService:
           return { content: [{ type: "text" as const, text: "Ошибка: для этого контекста нет активного плана и не указан planId. Создайте план через create_plan." }], details: {} };
         }
 
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(targetPlanId);
+        const manager = PlanManager.getInstance();
+        const plan = await manager.loadPlan(ctxId, targetPlanId);
         if (!plan) {
-          return { content: [{ type: "text" as const, text: `Ошибка: активный план ${activePlanId} не найден` }], details: {} };
+          return { content: [{ type: "text" as const, text: `Ошибка: активный план ${targetPlanId} не найден` }], details: {} };
         }
 
-        const step = await manager.addStep(plan, params.task, params.index);
+        const planObj: any = plan;
+        const step = await planObj.addStep(params.task, params.index);
         
         // Отправляем событие обновления плана в UI
         emit({ type: "plan_updated", ctxId, planId: targetPlanId });

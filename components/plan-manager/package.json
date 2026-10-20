@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "src/plan-manager.js",
+  "main": "src/index.js",
+  "types": "src/plan-manager.d.ts",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch"

@@ -102,7 +102,8 @@ export class Plan {
    * Сериализация в объект.
    */
   toJSON() {
-    return {
+    console.log(`[plan] toJSON called for plan ${this.id} with ${this.steps.length} top-level steps`);
+    const result = {
       id: this.id,
       title: this.title,
       description: this.description,
@@ -111,6 +112,8 @@ export class Plan {
       status: this.status,
       steps: this.steps.map(s => s.toJSON())
     };
+    console.log(`[plan] Plan ${this.id} serialized with ${result.steps.length} steps`);
+    return result;
   }
 
   /**
@@ -225,11 +228,45 @@ export class Plan {
   async updateStepStatus(stepId, status) {
     await acquirePlanLock(this.id);
     try {
+      // Ensure nested plans are cached so findStepById can search inside them
+      await this._cacheNestedPlans();
       const step = await this.findStepById(stepId);
       if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
       step.status = status;
+      // Save this plan and all cached nested plans to persist changes
       await this.save();
+      for (const s of this.steps) {
+        if (s.plan) {
+          await s.plan.save();
+        }
+      }
+    } finally {
+      releasePlanLock(this.id);
+    }
+  }
+
+  /**
+   * Обновить описание задачи шага (рекурсивно для вложенных планов).
+   * @param {string} stepId - ID шага
+   * @param {string} task - Новое описание задачи
+   */
+  async updateStepTask(stepId, task) {
+    await acquirePlanLock(this.id);
+    try {
+      // Ensure nested plans are cached so findStepById can search inside them
+      await this._cacheNestedPlans();
+      const step = await this.findStepById(stepId);
+      if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+
+      step.task = task;
+      // Save this plan and all cached nested plans to persist changes
+      await this.save();
+      for (const s of this.steps) {
+        if (s.plan) {
+          await s.plan.save();
+        }
+      }
     } finally {
       releasePlanLock(this.id);
     }
@@ -544,12 +581,19 @@ export class Plan {
   async _cacheStepPlan(step) {
     if (step.planFile && !step.plan && this.ctxId) {
       const subPlanId = this._extractPlanId(step.planFile);
+      console.log(`[plan] Caching nested plan for step ${step.id} (subplan ${subPlanId})`);
       if (subPlanId) {
         try {
           const pm = require('./planmanager.js').default;
+          console.log(`[plan] Calling pm.loadPlan(${this.ctxId}, ${subPlanId})`);
           const subPlan = await pm.loadPlan(this.ctxId, subPlanId);
-          step.plan = subPlan;
+          console.log(`[plan] pm.loadPlan returned:`, subPlan ? `Plan ${subPlan.id}` : 'null');
+          if (subPlan) {
+            console.log(`[plan] Loaded nested plan with ${subPlan.steps.length} steps`);
+            step.plan = subPlan;
+          }
         } catch (e) {
+          console.error(`[plan] Error loading nested plan for step ${step.id}:`, e);
           // Подплан не найден или ошибка загрузки — пропускаем
         }
       }

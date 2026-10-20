@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
 
 function okText(text: string) {
@@ -36,8 +37,8 @@ export function makeDeletePlanTool(ctxId: string, store: ContextStore, planServi
         // Загрузить план для проверки существования и получения названия
         let planTitle = "(неизвестный)";
         try {
-          const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-          const plan = await manager.loadPlan(planId);
+          const manager = PlanManager.getInstance();
+          const plan = await manager.loadPlan(ctxId, planId);
           if (plan) {
             planTitle = plan.title;
           }
@@ -48,7 +49,8 @@ export function makeDeletePlanTool(ctxId: string, store: ContextStore, planServi
         // Просто обнуляем ссылку на активный план, файл остаётся для истории
         const activePlanId = store.getActivePlanId(ctx);
         if (activePlanId === planId) {
-          store.setActivePlanId(ctx, null);
+          // Устанавливаем пустую строку как "нет активного плана"
+          ctx.activePlanId = undefined;
           store.save(ctx);
           emit({ type: "plan_deleted", ctxId });
           return okText(`Ссылка на активный план обнулена. План ${planId} ("${planTitle}") сохранён для истории.`);

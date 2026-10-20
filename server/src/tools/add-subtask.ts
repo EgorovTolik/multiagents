@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
+import { PlanManager } from "@multiagents/plan-manager";
 
 function okText(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
@@ -39,8 +40,8 @@ export function makeAddSubtaskTool(ctxId: string, store: ContextStore, planServi
           return okText("Ошибка: для этого контекста нет активного плана. Создайте план через create_plan.");
         }
 
-        const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(activePlanId);
+        const manager = PlanManager.getInstance();
+        const plan = await manager.loadPlan(ctxId, activePlanId);
         if (!plan) {
           return okText(`Ошибка: активный план ${activePlanId} не найден`);
         }
@@ -49,12 +50,13 @@ export function makeAddSubtaskTool(ctxId: string, store: ContextStore, planServi
         const task = params.task as string;
 
         // Проверить, существует ли родительский шаг
-        const parentStep = await manager.findStepById(plan, parentStepId);
+        const planObj: any = plan;
+        const parentStep = await planObj.findStepById(parentStepId);
         if (!parentStep) {
           return okText(`Ошибка: шага с ID ${parentStepId} не найден в плане`);
         }
 
-        const subtask = await manager.addSubtask(plan, parentStepId, task);
+        const subtask = await planObj.addSubtask(parentStepId, task);
         return okText(
           `Подзадача добавлена к шагу ${parentStepId}: "${task}" (ID: ${subtask.id})`
         );

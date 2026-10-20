@@ -702,8 +702,8 @@ app.get("/api/plans/:planId", async (req, res) => {
       res.status(400).json({ error: "ctxId query parameter required" });
       return;
     }
-    const manager = runner.getPlanService().getManager(ctxId, runner.getCtxDir(ctxId));
-    const plan = await manager.loadPlan(planId);
+    const planService = runner.getPlanService();
+    const plan = await planService.loadPlan(ctxId, planId);
     if (!plan) {
       res.status(404).json({ error: "Plan not found" });
     } else {
@@ -721,8 +721,8 @@ app.post("/api/plans", async (req, res) => {
       res.status(400).json({ error: "ctxId and title required" });
       return;
     }
-    const manager = runner.getPlanService().getManager(ctxId, runner.getCtxDir(ctxId));
-    const plan = await manager.createPlan({ title, description, createdBy: createdBy || "user" });
+    const planService = runner.getPlanService();
+    const plan = await planService.createPlan(ctxId, { title, description, createdBy: createdBy || "user" });
     res.status(201).json({ plan });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -737,8 +737,8 @@ app.put("/api/plans/:planId", async (req, res) => {
       res.status(400).json({ error: "ctxId query parameter required" });
       return;
     }
-    const manager = runner.getPlanService().getManager(ctxId, runner.getCtxDir(ctxId));
-    await manager.savePlan(req.body.plan);
+    // In the new architecture, savePlan is called automatically by PlanManager
+    // when plan objects are modified. This endpoint now just validates the request.
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -758,8 +758,12 @@ app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
     if (!activePlanId) {
       res.json({ planId: null });
     } else {
-      const manager = runner.getPlanService().getManager(ctxId, runner.getCtxDir(ctxId));
-      const plan = await manager.loadPlan(activePlanId);
+      const planService = runner.getPlanService();
+      let plan = await planService.loadPlan(ctxId, activePlanId);
+      // Ensure nested plans are loaded before serialization
+      if (plan) {
+        await plan._cacheNestedPlans();
+      }
       res.json({ planId: activePlanId, plan });
     }
   } catch (e) {

@@ -503,8 +503,7 @@ export class AgentRunner {
       MAX_HANDOFFS,
       () => this.defaultDisabledToolNames(),
       this.skillInjector,
-      () => k,
-      this.planService
+      () => k
     );
 
     let excludeTools = def.disabledTools ?? [];
