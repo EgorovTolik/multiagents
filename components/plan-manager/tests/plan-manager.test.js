@@ -406,6 +406,125 @@ describe('PlanManager', () => {
       expect(found.task).toBe('Подшаг');
     });
 
+    it('Встроенный подплан НЕ сериализуется в файл основного плана', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаем и заполняем подплан
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const substep1 = await pm.addStep(subplan, 'Подшаг 1');
+      const substep2 = await pm.addStep(subplan, 'Подшаг 2');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Читаем файл основного плана напрямую и проверяем, что нет сериализованного объекта plan
+      const mainPlanPath = join(pm.plansDir, `${mainPlan.id}.json`);
+      const fileContent = await readFile(mainPlanPath, 'utf-8');
+      const rawJson = JSON.parse(fileContent);
+
+      // В файле должно быть только поле planFile (ссылка), а не весь объект подплана
+      expect(rawJson.steps[0].planFile).toContain(subplan.id);
+      expect(rawJson.steps[0].plan).toBeUndefined();
+    });
+
+    it('При загрузке плана встроенный подплан загружается в память (step.plan)', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаем и заполняем подплан
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const substep1 = await pm.addStep(subplan, 'Подшаг 1');
+      const substep2 = await pm.addStep(subplan, 'Подшаг 2');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Загружаем план обратно — в памяти должен быть объект подплана
+      const loadedMain = await pm.loadPlan(mainPlan.id);
+      expect(loadedMain.steps[0].plan).not.toBeNull();
+      expect(loadedMain.steps[0].plan.title).toBe('Подплан');
+      expect(loadedMain.steps[0].plan.steps.length).toBe(2);
+
+      // Шаги подплана доступны через API
+      const foundSubstep = await pm.findStepById(loadedMain, substep1.id);
+      expect(foundSubstep).not.toBeNull();
+      expect(foundSubstep.task).toBe('Подшаг 1');
+    });
+
+    it('add_step с planId добавляет шаг в дочерний план', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаем и заполняем подплан
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const existingSubstep = await pm.addStep(subplan, 'Существующий подшаг');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Добавляем новый шаг в дочерний план через add_step с planId
+      const newStep = await pm.addStep(subplan, 'Новый подшаг через planId');
+      expect(newStep).toBeDefined();
+      expect(newStep.task).toBe('Новый подшаг через planId');
+
+      // Проверяем что шаг добавлен в дочерний план
+      const reloadedSub = await pm.loadPlan(subplan.id);
+      expect(reloadedSub.steps.length).toBe(2);
+      expect(reloadedSub.steps[1].task).toBe('Новый подшаг через planId');
+    });
+
+    it('Загрузка плана с изменениями не сериализует объекты подпланов обратно в файл', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаем и заполняем подплан
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const substep1 = await pm.addStep(subplan, 'Подшаг 1');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Загружаем план (подпланы кэшируются в памяти)
+      const loadedMain = await pm.loadPlan(mainPlan.id);
+      expect(loadedMain.steps[0].plan).not.toBeNull();
+
+      // Обновляем статус шага и сохраняем план
+      await pm.updateStepStatus(loadedMain, step.id, 'in_progress');
+
+      // Читаем файл основного плана — не должно быть сериализованного объекта подплана
+      const mainPlanPath = join(pm.plansDir, `${mainPlan.id}.json`);
+      const fileContent = await readFile(mainPlanPath, 'utf-8');
+      const rawJson = JSON.parse(fileContent);
+
+      expect(rawJson.steps[0].planFile).toContain(subplan.id);
+      expect(rawJson.steps[0].plan).toBeUndefined();
+    });
+
+    it('После add_step в дочерний план, основной план не содержит сериализованный объект подплана', async () => {
+      const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
+      const step = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаем и заполняем подплан
+      const subplan = await pm.createPlan({ title: 'Подплан', createdBy: 'user' });
+      const existingSubstep = await pm.addStep(subplan, 'Существующий подшаг');
+
+      // Встраиваем подплан
+      await pm.embedSubplan(mainPlan, step.id, subplan);
+
+      // Добавляем шаг в дочерний план
+      const newStep = await pm.addStep(subplan, 'Новый подшаг через planId');
+
+      // Читаем файл основного плана и проверяем что нет сериализованного объекта подплана
+      const mainPlanPath = join(pm.plansDir, `${mainPlan.id}.json`);
+      const fileContent = await readFile(mainPlanPath, 'utf-8');
+      const rawJson = JSON.parse(fileContent);
+
+      // В файле должно быть только поле planFile (ссылка), а не весь объект подплана
+      expect(rawJson.steps[0].planFile).toContain(subplan.id);
+      expect(rawJson.steps[0].plan).toBeUndefined();
+    });
+
     it('resetCache сбрасывает кэш вложенных планов', async () => {
       const mainPlan = await pm.createPlan({ title: 'Основной', createdBy: 'user' });
       const step = await pm.addStep(mainPlan, 'Шаг с подпланом');

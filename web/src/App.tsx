@@ -351,6 +351,14 @@ export default function App() {
             }
           }).catch(() => {});
           break;
+        case "plan_deleted":
+          // Очищаем план при удалении
+          setActivePlans((ap) => {
+            const updated = { ...ap };
+            delete updated[msg.ctxId];
+            return updated;
+          });
+          break;
         case "error":
           setErrors((e) => [...e, msg.message]);
           setTimeout(() => setErrors((e) => e.slice(1)), 5000);

@@ -49,7 +49,8 @@ export function makeDeletePlanTool(ctxId: string, store: ContextStore, planServi
         const activePlanId = store.getActivePlanId(ctx);
         if (activePlanId === planId) {
           store.setActivePlanId(ctx, null);
-          emit({ type: "plan_updated", ctxId, planId: null });
+          store.save(ctx);
+          emit({ type: "plan_deleted", ctxId });
           return okText(`Ссылка на активный план обнулена. План ${planId} ("${planTitle}") сохранён для истории.`);
         } else {
           return okText(`План ${planId} не был активным — ссылка не менялась.`);

@@ -3,7 +3,8 @@
  * Обеспечивает создание, загрузку, сохранение, модификацию и разрешение вложенных подпланов.
  */
 
-import { readFile, writeFile, mkdir, readdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, readdir, rename, unlink } from 'fs/promises';
+import fs from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -24,7 +25,7 @@ export class PlanStep {
    * @param {Array<{file: string, timestamp: number}>} [data.resultsFiles]
    * @param {string} [data.planFile] - Путь к вложенному подплану
    * @param {StepStatus} data.status
-   * @param {PlanStep[]} [data.steps] - Вложенные подзадачи
+   * @param {PlanStep[]} [data.steps] - Вложенные подзадачи (inline)
    */
   constructor(data) {
     this.id = data.id;
@@ -34,7 +35,22 @@ export class PlanStep {
     this.resultsFiles = data.resultsFiles || [];
     this.planFile = data.planFile;
     this.status = data.status;
-    this.steps = data.steps || [];
+    // Храним inline steps отдельно, getter для .steps вернёт либо их,
+    // либо шаги из встроенного подплана (если он есть)
+    this._inlineSteps = data.steps || [];
+  }
+
+  /**
+   * Getter для steps — возвращает inline steps или шаги из встроенного подплана.
+   * Это создаёт единое древовидное представление плана для потребителей API/UI.
+   */
+  get steps() {
+    // Если есть загруженный встроенный план — используем его шаги
+    if (this.plan && this.plan.steps) {
+      return this.plan.steps;
+    }
+    // Иначе возвращаем inline steps
+    return this._inlineSteps;
   }
 
   /**
@@ -215,23 +231,40 @@ export class PlanManager {
    */
   async loadPlan(planId) {
     const filePath = join(this.plansDir, `${planId}.json`);
+    const backupFilePath = `${filePath}.prev`;
+
     try {
       console.log(`[plan-manager] Loading plan ${planId} from ${filePath}`);
       const content = await readFile(filePath, 'utf-8');
       console.log(`[plan-manager] Read ${content.length} bytes for plan ${planId}`);
       
-      // Добавляем валидацию JSON перед парсингом
+      // Валидация JSON
       if (!content || content.trim() === '') {
         throw new Error(`Plan file is empty: ${filePath}`);
       }
-      
+
       let data;
       try {
         data = JSON.parse(content);
       } catch (parseError) {
         console.error(`[plan-manager] JSON parse error for plan ${planId}:`, parseError.message);
-        console.error(`[plan-manager] File content preview: ${content.substring(0, 200)}`);
-        throw new Error(`Failed to parse plan file ${planId}: ${parseError.message}`);
+        
+        // Пытаемся загрузить резервную копию
+        if (fs.existsSync(backupFilePath)) {
+          console.log(`[plan-manager] Trying backup file: ${backupFilePath}`);
+          try {
+            const backupContent = await readFile(backupFilePath, 'utf-8');
+            data = JSON.parse(backupContent);
+            console.log(`[plan-manager] Successfully loaded plan from backup`);
+            // Обновляем основной файл из бэкапа
+            await writeFile(filePath, backupContent, 'utf-8');
+          } catch (backupError) {
+            console.error(`[plan-manager] Failed to load from backup:`, backupError.message);
+            throw new Error(`Failed to parse plan file ${planId} and backup is also invalid: ${parseError.message}`);
+          }
+        } else {
+          throw new Error(`Failed to parse plan file ${planId} (no backup available): ${parseError.message}`);
+        }
       }
 
       // Восстанавливаем PlanStep объекты из данных
@@ -283,12 +316,48 @@ export class PlanManager {
   async savePlan(plan) {
     await mkdir(this.plansDir, { recursive: true });
     const filePath = join(this.plansDir, `${plan.id}.json`);
+    const tempFilePath = `${filePath}.tmp-${Date.now()}`;
+    const backupFilePath = `${filePath}.prev`;
+
     try {
+      // 1. Сериализация в JSON
       const content = JSON.stringify(plan.toJSON(), null, 2);
-      console.log(`[plan-manager] Saving plan ${plan.id} to ${filePath} (${content.length} bytes)`);
-      await writeFile(filePath, content, 'utf-8');
-      console.log(`[plan-manager] Plan ${plan.id} saved successfully`);
+      console.log(`[plan-manager] Saving plan ${plan.id} to temp file (${content.length} bytes)`);
+
+      // 2. Запись во временный файл
+      await writeFile(tempFilePath, content, 'utf-8');
+
+      // 3. Проверка целостности — читаем обратно и парсим
+      const verifyContent = await readFile(tempFilePath, 'utf-8');
+      JSON.parse(verifyContent);
+      console.log(`[plan-manager] Plan file integrity verified`);
+
+      // 4. Создание резервной копии текущего файла (если существует)
+      if (fs.existsSync(filePath)) {
+        try {
+          if (fs.existsSync(backupFilePath)) {
+            await unlink(backupFilePath); // Удаляем старую резервную копию
+          }
+          await rename(filePath, backupFilePath);
+          console.log(`[plan-manager] Backup created at ${backupFilePath}`);
+        } catch (backupErr) {
+          console.warn(`[plan-manager] Failed to create backup:`, backupErr);
+          // Продолжаем даже если бэкап не создан
+        }
+      }
+
+      // 5. Атомарное переименование временного файла в основной
+      await rename(tempFilePath, filePath);
+      console.log(`[plan-manager] Plan ${plan.id} saved successfully (atomic)`);
     } catch (err) {
+      // Очистка временного файла при ошибке
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await unlink(tempFilePath);
+        }
+      } catch (cleanupErr) {
+        // Игнорируем ошибки очистки
+      }
       console.error(`[plan-manager] Error saving plan ${plan.id}:`, err);
       throw err;
     }
@@ -394,9 +463,9 @@ export class PlanManager {
       }
       await this.savePlan(parent);
     } else if (parent instanceof PlanStep) {
-      if (!parent.steps) parent.steps = [];
-      if (index !== undefined && index >= 0 && index <= parent.steps.length) {
-        parent.steps.splice(index, 0, newStep);
+      if (!parent._inlineSteps) parent._inlineSteps = [];
+      if (index !== undefined && index >= 0 && index <= parent._inlineSteps.length) {
+        parent._inlineSteps.splice(index, 0, newStep);
       } else {
         parent.steps.push(newStep);
       }
@@ -416,6 +485,27 @@ export class PlanManager {
     const parentStep = await this.findStepById(plan, parentStepId);
     if (!parentStep) throw new Error(`STEP_NOT_FOUND: ${parentStepId}`);
 
+    // Если у шага есть встроенный подплан — добавляем subtask туда
+    if (parentStep.planFile) {
+      let childPlan = parentStep.plan;
+      if (!childPlan) {
+        // Загружаем дочерний план из файла
+        const subPlanId = this._extractPlanId(parentStep.planFile);
+        if (subPlanId) {
+          childPlan = await this.loadPlan(subPlanId);
+          parentStep.plan = childPlan;
+        }
+      }
+
+      if (childPlan) {
+        // Добавляем subtask в дочерний план и сохраняем его файл
+        const newStep = await this.addStep(childPlan, task);
+        await this.savePlan(childPlan);
+        return newStep;
+      }
+    }
+
+    // Иначе добавляем inline subtask к шагу
     const newStep = await this.addStep(parentStep, task);
     await this.savePlan(plan);
     return newStep;
@@ -509,6 +599,9 @@ export class PlanManager {
     const step = await this.findStepById(plan, stepId);
     if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
+    // Очищаем существующие inline steps — при встраивании подплана они не используются
+    step._inlineSteps = [];
+
     if (typeof subplanPathOrObject === 'string') {
       // Перегрузка 1 — путь к файлу
       step.planFile = subplanPathOrObject;
@@ -518,6 +611,8 @@ export class PlanManager {
       step.planFile = join(this.plansDir, `${subplanPathOrObject.id}.json`);
     }
 
+    // Сохраняем только ссылку на файл подплана, не кэшируем объект в памяти
+    // Кэширование происходит при загрузке плана (loadPlan)
     await this.savePlan(plan);
   }
 
@@ -571,7 +666,8 @@ export class PlanManager {
    * @returns {{done: number, total: number, percent: number}}
    */
   async getOverallProgress(plan) {
-    const subPlans = await this.resolveNestedPlans(plan);
+    // Загружаем вложенные планы чтобы их шаги были доступны через getter .steps
+    await this._cacheNestedPlans(plan);
 
     let done = 0;
     let total = 0;
@@ -580,6 +676,7 @@ export class PlanManager {
       for (const step of steps) {
         total++;
         if (step.status === 'done') done++;
+        // Рекурсивно считаем подшаги — getter .steps вернёт inline или шаги встроенного плана
         if (step.steps && step.steps.length > 0) {
           countSteps(step.steps);
         }
@@ -587,11 +684,6 @@ export class PlanManager {
     };
 
     countSteps(plan.steps);
-
-    // Учитываем шаги из подпланов
-    for (const subPlan of subPlans) {
-      countSteps(subPlan.steps);
-    }
 
     const percent = total > 0 ? Math.round((done / total) * 100) : 0;
     return { done, total, percent };

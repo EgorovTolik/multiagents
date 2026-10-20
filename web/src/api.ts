@@ -94,19 +94,7 @@ export interface PlanStep {
   planFile?: string;
   status: 'pending' | 'in_progress' | 'done' | 'blocked';
   steps?: PlanStep[];
-}
-
-// === Plan Management Types ===
-
-export interface PlanStep {
-  id: string;
-  task: string;
-  file?: string;
-  taskFiles?: Array<{ file: string; timestamp: number }>;
-  resultsFiles?: Array<{ file: string; timestamp: number }>;
-  planFile?: string;
-  status: 'pending' | 'in_progress' | 'done' | 'blocked';
-  steps?: PlanStep[];
+  plan?: Plan; // Embedded subplan (loaded from planFile)
 }
 
 export interface Plan {

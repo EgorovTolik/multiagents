@@ -14,8 +14,11 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, planService:
       index: Type.Optional(
         Type.Number({ description: "Позиция в списке (опционально, по умолчанию в конец)" })
       ),
+      planId: Type.Optional(
+        Type.String({ description: "ID целевого плана (опционально). Если не указан — используется активный план контекста. Используйте для добавления шагов во встроенные подпланы." })
+      ),
     }),
-    execute: async (_id, params: { task: string; index?: number }) => {
+    execute: async (_id, params: { task: string; index?: number; planId?: string }) => {
       // Валидация параметров
       if (!params.task || typeof params.task !== 'string' || params.task.trim() === '') {
         return { content: [{ type: "text" as const, text: "Ошибка: параметр 'task' должен быть непустой строкой с описанием задачи. Пример: add_step(task='Реализовать API авторизации')" }], details: {} };
@@ -27,13 +30,14 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, planService:
       }
 
       try {
-        const activePlanId = store.getActivePlanId(ctx);
-        if (!activePlanId) {
-          return { content: [{ type: "text" as const, text: "Ошибка: для этого контекста нет активного плана. Создайте план через create_plan." }], details: {} };
+        // Если указан planId — используем его, иначе активный план
+        let targetPlanId = params.planId || store.getActivePlanId(ctx);
+        if (!targetPlanId) {
+          return { content: [{ type: "text" as const, text: "Ошибка: для этого контекста нет активного плана и не указан planId. Создайте план через create_plan." }], details: {} };
         }
 
         const manager = planService.getManager(ctxId, getCtxDir(ctxId));
-        const plan = await manager.loadPlan(activePlanId);
+        const plan = await manager.loadPlan(targetPlanId);
         if (!plan) {
           return { content: [{ type: "text" as const, text: `Ошибка: активный план ${activePlanId} не найден` }], details: {} };
         }
@@ -41,9 +45,9 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, planService:
         const step = await manager.addStep(plan, params.task, params.index);
         
         // Отправляем событие обновления плана в UI
-        emit({ type: "plan_updated", ctxId, planId: activePlanId });
+        emit({ type: "plan_updated", ctxId, planId: targetPlanId });
 
-        return { content: [{ type: "text" as const, text: `Шаг добавлен: "${params.task}" (ID: ${step.id})` }], details: {} };
+        return { content: [{ type: "text" as const, text: `Шаг добавлен в план ${targetPlanId}: "${params.task}" (ID: ${step.id})` }], details: {} };
       } catch (err) {
         return { content: [{ type: "text" as const, text: `Ошибка добавления шага: ${String(err)}` }], details: {} };
       }

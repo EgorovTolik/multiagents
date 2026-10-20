@@ -10,6 +10,10 @@ function StepItem({
 }) {
   const [expanded, setExpanded] = useState(true);
 
+  // С getter'ом для step.steps нам не нужно различать inline и embedded —
+  // getter автоматически возвращает правильные шаги
+  const hasNested = step.steps && step.steps.length > 0;
+
   const statusColors: Record<string, string> = {
     pending: "text-slate-400",
     in_progress: "text-blue-400",
@@ -27,7 +31,7 @@ function StepItem({
   return (
     <div className="ml-4">
       <div className="flex items-center gap-2 py-1">
-        {step.steps && step.steps.length > 0 ? (
+        {hasNested ? (
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-slate-500 hover:text-slate-300"
@@ -61,8 +65,9 @@ function StepItem({
         </select>
       </div>
 
-      {expanded && step.steps && step.steps.length > 0 && (
+      {expanded && hasNested && (
         <div className="border-l border-slate-700/50 pl-4">
+          {/* Шаги (inline или из встроенного подплана — getter автоматически определит) */}
           {step.steps.map((sub) => (
             <StepItem key={sub.id} step={sub} onStatusChange={onStatusChange} />
           ))}
@@ -101,6 +106,7 @@ export function PlanEditorModal({
     for (const step of steps) {
       total++;
       if (step.status === 'done') done++;
+      // Рекурсивно считаем подшаги — getter автоматически определит inline или embedded
       if (step.steps && step.steps.length > 0) countSteps(step.steps);
     }
   };
