@@ -8,6 +8,33 @@ import fs from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
 
+// Simple Promise-based mutex for serializing operations on each plan file.
+// This prevents race conditions where multiple operations load the same version,
+// modify it independently, and then save — overwriting each other's changes.
+const planLocks = new Map(); // planId -> Promise (lock held)
+
+/**
+ * Acquire a lock for a specific plan. Waits if another operation is currently locked.
+ * @param {string} planId - The ID of the plan to lock
+ * @returns {Promise<function>} A promise that resolves to a release function
+ */
+async function acquirePlanLock(planId) {
+  // While there's an active lock on this plan, wait for it to be released
+  while (planLocks.has(planId)) {
+    await new Promise(resolve => setTimeout(resolve, 10)); // Spin-wait with short delay
+  }
+  
+  let released = false;
+  planLocks.set(planId, true);
+  
+  return () => {
+    if (!released) {
+      released = true;
+      planLocks.delete(planId);
+    }
+  };
+}
+
 // Optimistic concurrency control for plans using version numbers.
 // Shared across ALL PlanManager instances in this process to detect conflicts
 // between separate tool calls that might modify the same plan concurrently.
@@ -418,12 +445,19 @@ export class PlanManager {
    * @param {StepStatus} status
    */
   async updateStepStatus(plan, stepId, status) {
-    const step = await this.findStepById(plan, stepId);
-    if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+    // Serialize operations on each plan to prevent race conditions
+    const release = await acquirePlanLock(plan.id);
+    try {
+      // Use the passed plan object directly — it was loaded by the caller
+      const step = await this.findStepById(plan, stepId);
+      if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
-    step.status = status;
-    // savePlan uses optimistic concurrency control with version numbers
-    await this.savePlan(plan);
+      step.status = status;
+      // savePlan uses optimistic concurrency control with version numbers
+      await this.savePlan(plan);
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -473,29 +507,46 @@ export class PlanManager {
    * @returns {PlanStep}
    */
   async addStep(parent, task, index) {
-    const newStep = new PlanStep({
-      id: randomUUID(),
-      task,
-      status: 'pending'
-    });
-
+    // Serialize operations on each plan to prevent race conditions
+    let planId;
     if (parent instanceof Plan) {
-      if (index !== undefined && index >= 0 && index <= parent.steps.length) {
-        parent.steps.splice(index, 0, newStep);
-      } else {
-        parent.steps.push(newStep);
-      }
-      await this.savePlan(parent);
+      planId = parent.id;
     } else if (parent instanceof PlanStep) {
-      if (!parent._inlineSteps) parent._inlineSteps = [];
-      if (index !== undefined && index >= 0 && index <= parent._inlineSteps.length) {
-        parent._inlineSteps.splice(index, 0, newStep);
-      } else {
-        parent.steps.push(newStep);
-      }
+      // For PlanStep parents, use a unique lock key based on step ID
+      // This prevents conflicts when adding subtasks to the same step concurrently
+      planId = `step-${parent.id}`;
     }
 
-    return newStep;
+    const release = await acquirePlanLock(planId);
+    try {
+      const newStep = new PlanStep({
+        id: randomUUID(),
+        task,
+        status: 'pending'
+      });
+
+      if (parent instanceof Plan) {
+        // Modify the passed plan object in place and save it
+        if (index !== undefined && index >= 0 && index <= parent.steps.length) {
+          parent.steps.splice(index, 0, newStep);
+        } else {
+          parent.steps.push(newStep);
+        }
+        await this.savePlan(parent);
+      } else if (parent instanceof PlanStep) {
+        // Add as subtask to the step
+        if (!parent._inlineSteps) parent._inlineSteps = [];
+        if (index !== undefined && index >= 0 && index <= parent._inlineSteps.length) {
+          parent._inlineSteps.splice(index, 0, newStep);
+        } else {
+          parent.steps.push(newStep);
+        }
+      }
+
+      return newStep;
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -541,21 +592,25 @@ export class PlanManager {
    * @param {string} stepId - ID шага
    */
   async removeStep(plan, stepId) {
-    const idx = plan.steps.findIndex(s => s.id === stepId);
-    if (idx !== -1) {
-      plan.steps.splice(idx, 1);
-      await this.savePlan(plan);
-      return;
-    }
-
-    // Поиск в подшагах всех шагов
-    for (const step of plan.steps) {
-      const removed = this._removeStepFromSteps(step.steps, stepId);
-      if (removed) {
+    // Serialize operations on each plan to prevent race conditions
+    const release = await acquirePlanLock(plan.id);
+    try {
+      // Use the passed plan object directly — it was loaded by the caller
+      const idx = plan.steps.findIndex(s => s.id === stepId);
+      if (idx !== -1) {
+        plan.steps.splice(idx, 1);
         await this.savePlan(plan);
         return;
       }
-    }
+
+      // Поиск в подшагах всех шагов
+      for (const step of plan.steps) {
+        const removed = this._removeStepFromSteps(step.steps, stepId);
+        if (removed) {
+          await this.savePlan(plan);
+          return;
+        }
+      }
 
     // Поиск во вложенных планах
     for (const step of plan.steps) {
@@ -580,7 +635,10 @@ export class PlanManager {
       }
     }
 
-    throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+      throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -620,24 +678,31 @@ export class PlanManager {
    * @param {string|Plan} subplanPathOrObject - Путь к файлу или объект плана
    */
   async embedSubplan(plan, stepId, subplanPathOrObject) {
-    const step = await this.findStepById(plan, stepId);
-    if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+    // Serialize operations on each plan to prevent race conditions
+    const release = await acquirePlanLock(plan.id);
+    try {
+      // Use the passed plan object directly — it was loaded by the caller
+      const step = await this.findStepById(plan, stepId);
+      if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
-    // Очищаем существующие inline steps — при встраивании подплана они не используются
-    step._inlineSteps = [];
+      // Очищаем существующие inline steps — при встраивании подплана они не используются
+      step._inlineSteps = [];
 
-    if (typeof subplanPathOrObject === 'string') {
-      // Перегрузка 1 — путь к файлу
-      step.planFile = subplanPathOrObject;
-    } else if (subplanPathOrObject instanceof Plan) {
-      // Перегрузка 2 — объект плана (гарантия валидности)
-      await this.savePlan(subplanPathOrObject);
-      step.planFile = join(this.plansDir, `${subplanPathOrObject.id}.json`);
+      if (typeof subplanPathOrObject === 'string') {
+        // Перегрузка 1 — путь к файлу
+        step.planFile = subplanPathOrObject;
+      } else if (subplanPathOrObject instanceof Plan) {
+        // Перегрузка 2 — объект плана (гарантия валидности)
+        await this.savePlan(subplanPathOrObject);
+        step.planFile = join(this.plansDir, `${subplanPathOrObject.id}.json`);
+      }
+
+      // Сохраняем только ссылку на файл подплана, не кэшируем объект в памяти
+      // Кэширование происходит при загрузке плана (loadPlan)
+      await this.savePlan(plan);
+    } finally {
+      release();
     }
-
-    // Сохраняем только ссылку на файл подплана, не кэшируем объект в памяти
-    // Кэширование происходит при загрузке плана (loadPlan)
-    await this.savePlan(plan);
   }
 
   /**
