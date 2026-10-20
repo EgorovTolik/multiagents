@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PlanManager, Plan, PlanStep } from '../src/plan-manager.js';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -523,6 +524,83 @@ describe('PlanManager', () => {
       // В файле должно быть только поле planFile (ссылка), а не весь объект подплана
       expect(rawJson.steps[0].planFile).toContain(subplan.id);
       expect(rawJson.steps[0].plan).toBeUndefined();
+    });
+
+    it('Удаление шага с встроенным подпланом очищает orphan-файл', async () => {
+      // Создаём основной план
+      const mainPlan = await pm.createPlan({ title: 'Main Plan', createdBy: 'user' });
+      const stepWithSubplan = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаём и встраиваем подплан
+      const subplan = await pm.createPlan({ title: 'Subplan', createdBy: 'user' });
+      await pm.addStep(subplan, 'Подшаг 1');
+      await pm.embedSubplan(mainPlan, stepWithSubplan.id, subplan);
+
+      // Проверяем что файл подплана существует
+      const subplanFilePath = join(pm.plansDir, `${subplan.id}.json`);
+      expect(existsSync(subplanFilePath)).toBe(true);
+
+      // Удаляем шаг с встроенным подпланом
+      await pm.removeStep(mainPlan, stepWithSubplan.id);
+
+      // Файл подплана должен быть удалён (не orphan)
+      expect(existsSync(subplanFilePath)).toBe(false);
+    });
+
+    it('add_subtask к шагу с подпланом не создаёт split-brain (прогресс корректный)', async () => {
+      // Создаём основной план
+      const mainPlan = await pm.createPlan({ title: 'Main Plan', createdBy: 'user' });
+      const step1 = await pm.addStep(mainPlan, 'Шаг без подплана');
+      const stepWithSubplan = await pm.addStep(mainPlan, 'Шаг с подпланом');
+
+      // Создаём и встраиваем подплан
+      const subplan = await pm.createPlan({ title: 'Subplan', createdBy: 'user' });
+      const substep1 = await pm.addStep(subplan, 'Подшаг 1');
+      await pm.embedSubplan(mainPlan, stepWithSubplan.id, subplan);
+
+      // Добавляем subtask к шагу С подпланом (должен попасть в дочерний план)
+      const addedToSubplan = await pm.addSubtask(mainPlan, stepWithSubplan.id, 'Новый подшаг через add_subtask');
+      expect(addedToSubplan).toBeDefined();
+
+      // Добавляем subtask к шагу БЕЗ подплана (должен быть inline)
+      const addedInline = await pm.addSubtask(mainPlan, step1.id, 'Inline подзадача');
+      expect(addedInline).toBeDefined();
+
+      // Проверяем что оба subtask корректно добавлены и видимы через get_plan_status
+      const status = await pm.getOverallProgress(mainPlan);
+
+      // Ожидаемый итог: 2 шага основного плана + 1 inline подзадача + 2 подшага в подплане (исходный + добавленный через add_subtask) = 5 всего
+      expect(status.total).toBe(5);
+      expect(status.done).toBe(0); // Ничего не завершено
+    });
+
+    it('Optimistic concurrency control: конфликт версий при параллельных изменениях', async () => {
+      // Создаём план
+      const plan = await pm.createPlan({ title: 'Test Concurrency', createdBy: 'user' });
+      const step1 = await pm.addStep(plan, 'Step 1');
+      const step2 = await pm.addStep(plan, 'Step 2');
+
+      // Эмулируем два параллельных процесса:
+      // Процесс A загружает план (версия 0)
+      let planA = await pm.loadPlan(plan.id);
+      expect(planA.version).toBe(0);
+
+      // Процесс B загружает тот же план (версия тоже 0)
+      let planB = await pm.loadPlan(plan.id);
+      expect(planB.version).toBe(0);
+
+      // Процесс A модифицирует и сохраняет — успешно, версия становится 1
+      const step1InA = await pm.findStepById(planA, step1.id);
+      step1InA.status = 'in_progress';
+      await pm.savePlan(planA);
+
+      // Теперь planA имеет версию 1, планB всё ещё версии 0
+      expect(planA.version).toBe(1);
+
+      // Процесс B пытается сохранить своё изменение (на основе старой версии) — должен быть конфликт
+      const step2InB = await pm.findStepById(planB, step2.id);
+      step2InB.status = 'done';
+      await expect(pm.savePlan(planB)).rejects.toThrow('PLAN_VERSION_CONFLICT');
     });
 
     it('resetCache сбрасывает кэш вложенных планов', async () => {

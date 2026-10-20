@@ -8,6 +8,10 @@ import fs from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
 
+// Optimistic concurrency control for plans using version numbers.
+// Each save increments the version; if concurrent modification detected, an error is thrown.
+const loadedVersions = new Map(); // planId -> version at load time
+
 // Типы статусов (JSDoc)
 /** @typedef {'pending'|'in_progress'|'done'|'blocked'} StepStatus */
 /** @typedef {'planning'|'approved'|'executing'|'completed'|'archived'} PlanStatus */
@@ -129,6 +133,7 @@ export class Plan {
     this.createdBy = data.createdBy;
     this.createdAt = data.createdAt || Date.now();
     this.status = data.status || 'planning';
+    this.version = data.version || 0; // Версия для optimistic concurrency control
     this.steps = data.steps || [];
   }
 
@@ -271,6 +276,9 @@ export class PlanManager {
       const steps = (data.steps || []).map(s => this._deserializeStep(s));
       const plan = new Plan({ ...data, steps });
 
+      // Запоминаем версию для optimistic concurrency control
+      loadedVersions.set(plan.id, plan.version);
+
       // Кэшируем подпланы в шагах
       await this._cacheNestedPlans(plan);
 
@@ -319,6 +327,15 @@ export class PlanManager {
     const tempFilePath = `${filePath}.tmp-${Date.now()}`;
     const backupFilePath = `${filePath}.prev`;
 
+    // Optimistic concurrency control: check if version changed since load
+    const loadedVersion = loadedVersions.get(plan.id);
+    if (loadedVersion !== undefined && loadedVersion !== plan.version) {
+      throw new Error(`PLAN_VERSION_CONFLICT: Plan ${plan.id} was modified by another operation since it was loaded. Loaded version: ${loadedVersion}, current file version: ${plan.version}. Please reload and retry.`);
+    }
+
+    // Increment version before saving
+    plan.version = (plan.version || 0) + 1;
+
     try {
       // 1. Сериализация в JSON
       const content = JSON.stringify(plan.toJSON(), null, 2);
@@ -348,7 +365,10 @@ export class PlanManager {
 
       // 5. Атомарное переименование временного файла в основной
       await rename(tempFilePath, filePath);
-      console.log(`[plan-manager] Plan ${plan.id} saved successfully (atomic)`);
+      
+      // Update tracked version after successful save
+      loadedVersions.set(plan.id, plan.version);
+      console.log(`[plan-manager] Plan ${plan.id} saved successfully (atomic), version: ${plan.version}`);
     } catch (err) {
       // Очистка временного файла при ошибке
       try {
@@ -399,6 +419,7 @@ export class PlanManager {
     if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
     step.status = status;
+    // savePlan uses optimistic concurrency control with version numbers
     await this.savePlan(plan);
   }
 
@@ -519,6 +540,11 @@ export class PlanManager {
   async removeStep(plan, stepId) {
     const idx = plan.steps.findIndex(s => s.id === stepId);
     if (idx !== -1) {
+      const removedStep = plan.steps[idx];
+      // Если удаляемый шаг имеет встроенный подплан — очищаем его файл
+      if (removedStep.planFile) {
+        await this._cleanupEmbeddedPlan(removedStep.planFile);
+      }
       plan.steps.splice(idx, 1);
       await this.savePlan(plan);
       return;
@@ -741,6 +767,23 @@ export class PlanManager {
       return basename.slice(0, -5);
     }
     return null;
+  }
+
+  /**
+   * Удалить файл встроенного подплана и его резервную копию.
+   * @param {string} planFilePath - Путь к файлу подплана
+   */
+  async _cleanupEmbeddedPlan(planFilePath) {
+    if (!planFilePath) return;
+    try {
+      // Удаляем основной файл подплана
+      await unlink(planFilePath).catch(() => {});
+      // Удаляем резервную копию если есть
+      await unlink(`${planFilePath}.prev`).catch(() => {});
+      console.log(`[plan-manager] Cleaned up embedded plan file: ${planFilePath}`);
+    } catch (err) {
+      console.warn(`[plan-manager] Warning: failed to cleanup embedded plan file ${planFilePath}:`, err);
+    }
   }
 }
 
