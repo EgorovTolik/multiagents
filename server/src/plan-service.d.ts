@@ -36,7 +36,6 @@ class PlanManager {
   static getInstance(): PlanManager;
   createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
   loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
-  listPlans(ctxId: string): Promise<Plan[]>;
 }
 
 class PlanService {

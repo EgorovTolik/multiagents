@@ -102,7 +102,6 @@ export class Plan {
    * Сериализация в объект.
    */
   toJSON() {
-    console.log(`[plan] toJSON called for plan ${this.id} with ${this.steps.length} top-level steps`);
     const result = {
       id: this.id,
       title: this.title,
@@ -112,7 +111,6 @@ export class Plan {
       status: this.status,
       steps: this.steps.map(s => s.toJSON())
     };
-    console.log(`[plan] Plan ${this.id} serialized with ${result.steps.length} steps`);
     return result;
   }
 
@@ -581,15 +579,11 @@ export class Plan {
   async _cacheStepPlan(step) {
     if (step.planFile && !step.plan && this.ctxId) {
       const subPlanId = this._extractPlanId(step.planFile);
-      console.log(`[plan] Caching nested plan for step ${step.id} (subplan ${subPlanId})`);
       if (subPlanId) {
         try {
           const pm = require('./planmanager.js').default;
-          console.log(`[plan] Calling pm.loadPlan(${this.ctxId}, ${subPlanId})`);
           const subPlan = await pm.loadPlan(this.ctxId, subPlanId);
-          console.log(`[plan] pm.loadPlan returned:`, subPlan ? `Plan ${subPlan.id}` : 'null');
           if (subPlan) {
-            console.log(`[plan] Loaded nested plan with ${subPlan.steps.length} steps`);
             step.plan = subPlan;
           }
         } catch (e) {

@@ -759,11 +759,7 @@ app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
       res.json({ planId: null });
     } else {
       const planService = runner.getPlanService();
-      let plan = await planService.loadPlan(ctxId, activePlanId);
-      // Ensure nested plans are loaded before serialization
-      if (plan) {
-        await plan._cacheNestedPlans();
-      }
+      const plan = await planService.loadPlan(ctxId, activePlanId);
       res.json({ planId: activePlanId, plan });
     }
   } catch (e) {

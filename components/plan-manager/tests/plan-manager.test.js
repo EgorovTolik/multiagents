@@ -428,18 +428,6 @@ describe('PlanManager', () => {
   });
 
   describe('Дополнительные сценарии', () => {
-    it('listPlans возвращает список всех планов в контексте', async () => {
-      await planManager.createPlan(testCtxId, { title: 'План 1', createdBy: 'user' });
-      await planManager.createPlan(testCtxId, { title: 'План 2', createdBy: 'user' });
-      await planManager.createPlan(testCtxId, { title: 'План 3', createdBy: 'user' });
-
-      const plans = await planManager.listPlans(testCtxId);
-      expect(plans.length).toBe(3);
-      expect(plans.map(p => p.title)).toContain('План 1');
-      expect(plans.map(p => p.title)).toContain('План 2');
-      expect(plans.map(p => p.title)).toContain('План 3');
-    });
-
     it('addStep с index добавляет в конкретную позицию', async () => {
       const plan = await planManager.createPlan(testCtxId, { title: 'План', createdBy: 'user' });
       await plan.addStep('Шаг 1');
