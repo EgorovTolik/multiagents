@@ -15,7 +15,7 @@ export function makeEmbedSubplanTool(ctxId: string, store: ContextStore, planSer
     name: "embed_subplan",
     label: "Встроить подплан",
     description:
-      "Создать детальный подплан и встроить его в указанный шаг текущего плана. Используйте для сложной детализации отдельных шагов.",
+      "Создать детальный подплан и встроить его в указанный шаг текущего плана. ПРИМЕЧАНИЕ: при встраивании существующие inline подзадачи шага (если были) будут очищены — встроенный подплан заменяет их структуру.",
     parameters: Type.Object({
       stepId: Type.String({ description: "ID шага, в который встраивается подплан" }),
       subplanTitle: Type.String({ description: "Название подплана" }),

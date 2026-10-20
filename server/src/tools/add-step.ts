@@ -8,7 +8,7 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, planService:
     name: "add_step",
     label: "Добавить шаг плана",
     description:
-      "Добавить новый шаг в текущий активный план. Используйте для создания шагов после создания плана.",
+      "Добавить новый шаг в активный план (или во встроенный подплан через параметр planId). Для добавления шагов во вложенный подплан укажите его ID в планId — это создаст шаг внутри embedded плана, а не как inline подшаг.",
     parameters: Type.Object({
       task: Type.String({ description: "Описание задачи нового шага" }),
       index: Type.Optional(

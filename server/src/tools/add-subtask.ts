@@ -14,7 +14,7 @@ export function makeAddSubtaskTool(ctxId: string, store: ContextStore, planServi
     name: "add_subtask",
     label: "Добавить подзадачу",
     description:
-      "Добавить подзадачу к существующему шагу текущего активного плана.",
+      "Добавить подзадачу к существующему шагу текущего активного плана. Если у шага есть встроенный подплан (через embed_subplan), подзадача добавляется туда; иначе — как inline подзадача к самому шагу.",
     parameters: Type.Object({
       parentStepId: Type.String({ description: "ID родительского шага" }),
       task: Type.String({ description: "Описание новой подзадачи" }),
