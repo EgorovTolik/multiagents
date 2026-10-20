@@ -325,7 +325,9 @@ export class PlanManager {
   async savePlan(plan) {
     await mkdir(this.plansDir, { recursive: true });
     const filePath = join(this.plansDir, `${plan.id}.json`);
-    const tempFilePath = `${filePath}.tmp-${Date.now()}`;
+    // Generate unique temp file name to avoid conflicts in parallel operations
+    const uniqueSuffix = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
+    const tempFilePath = `${filePath}.tmp-${uniqueSuffix}`;
     const backupFilePath = `${filePath}.prev`;
 
     // Optimistic concurrency control: check if version changed since load
