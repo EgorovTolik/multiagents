@@ -12,6 +12,8 @@ import { makeAddSubtaskTool } from "./tools/add-subtask";
 import { makeEmbedSubplanTool } from "./tools/embed-subplan";
 import { makeGetPlanStatusTool } from "./tools/get-plan-status";
 import { makeAddStepTool } from "./tools/add-step";
+import { makeDeleteStepTool } from "./tools/delete-step";
+import { makeDeletePlanTool } from "./tools/delete-plan";
 
 interface ToolContext {
   ctxId: string;
@@ -292,6 +294,8 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     makeEmbedSubplanTool(ctxId, store, planService, getCtxDir, emit),
     makeGetPlanStatusTool(ctxId, store, planService, getCtxDir),
     makeAddStepTool(ctxId, store, planService, getCtxDir, emit),
+    makeDeleteStepTool(ctxId, store, planService, getCtxDir, emit),
+    makeDeletePlanTool(ctxId, store, planService, getCtxDir, emit),
   ];
   if (agentId === "agent-creator") {
     tools.push(makeCreateAgentTool(registry, agentsDir, emit, defaultDisabledToolNames));

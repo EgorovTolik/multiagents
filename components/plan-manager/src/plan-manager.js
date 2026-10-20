@@ -219,7 +219,20 @@ export class PlanManager {
       console.log(`[plan-manager] Loading plan ${planId} from ${filePath}`);
       const content = await readFile(filePath, 'utf-8');
       console.log(`[plan-manager] Read ${content.length} bytes for plan ${planId}`);
-      const data = JSON.parse(content);
+      
+      // Добавляем валидацию JSON перед парсингом
+      if (!content || content.trim() === '') {
+        throw new Error(`Plan file is empty: ${filePath}`);
+      }
+      
+      let data;
+      try {
+        data = JSON.parse(content);
+      } catch (parseError) {
+        console.error(`[plan-manager] JSON parse error for plan ${planId}:`, parseError.message);
+        console.error(`[plan-manager] File content preview: ${content.substring(0, 200)}`);
+        throw new Error(`Failed to parse plan file ${planId}: ${parseError.message}`);
+      }
 
       // Восстанавливаем PlanStep объекты из данных
       const steps = (data.steps || []).map(s => this._deserializeStep(s));

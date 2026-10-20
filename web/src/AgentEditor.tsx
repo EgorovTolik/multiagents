@@ -47,10 +47,12 @@ const SYSTEM_TOOLS: { name: string; label: string; locked?: boolean }[] = [
 const PLAN_TOOLS: { name: string; label: string }[] = [
   { name: "create_plan", label: "Создать план задач" },
   { name: "add_step", label: "Добавить шаг плана" },
+  { name: "delete_step", label: "Удалить шаг плана" },
   { name: "update_plan_step", label: "Обновить шаг плана" },
   { name: "add_subtask", label: "Добавить подзадачу" },
   { name: "embed_subplan", label: "Встроить подплан" },
   { name: "get_plan_status", label: "Статус плана" },
+  { name: "delete_plan", label: "Удалить план" },
 ];
 
 interface PiToolInfo {
