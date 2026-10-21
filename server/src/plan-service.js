@@ -69,8 +69,8 @@ export class PlanService {
    * @param {string} stepId - ID шага
    * @param {string} status - Новый статус (pending, in_progress, done, blocked)
    */
-  async updateStepStatus(plan, stepId, status) {
-    return this.getManager().updateStepStatus(plan, stepId, status);
+  async setStepStatus(plan, stepId, status) {
+    return this.getManager().setStepStatus(plan, stepId, status);
   }
 
   /**
@@ -101,8 +101,8 @@ export class PlanService {
    * @param {string} task - Описание подзадачи
    * @returns {PlanStep} Добавленная подзадача
    */
-  async addSubtask(plan, parentStepId, task) {
-    return this.getManager().addSubtask(plan, parentStepId, task);
+  async addSubStep(plan, parentStepId, task) {
+    return this.getManager().addSubStep(plan, parentStepId, task);
   }
 
   /**
@@ -120,8 +120,8 @@ export class PlanService {
    * @param {string} stepId - ID шага, в который встраивается подплан
    * @param {object|string} subplanPathOrObject - Путь к файлу подплана или объект плана
    */
-  async embedSubplan(plan, stepId, subplanPathOrObject) {
-    return this.getManager().embedSubplan(plan, stepId, subplanPathOrObject);
+  async setPlan(plan, stepId, subplanPathOrObject) {
+    return this.getManager().setPlan(plan, stepId, subplanPathOrObject);
   }
 
   /**

@@ -10,8 +10,16 @@ interface PlanStep {
   resultsFiles?: Array<{ file: string; timestamp: number }>;
   planFile?: string;
   status: 'pending' | 'in_progress' | 'done' | 'blocked';
-  steps?: PlanStep[];
-  loadEmbeddedPlan(): Promise<void>;
+  steps(): Promise<PlanStep[]>;
+  findStepById(stepId: string): Promise<PlanStep | null>;
+  addStep(task: string, index?: number): Promise<PlanStep>;
+  removeStep(stepId: string): Promise<boolean>;
+  setPlanFile(path: string): Promise<void>;
+  setPlan(plan: Plan): Promise<void>;
+  resetCache(): void;
+  plan(): Promise<Plan | null>;
+  attachTaskFile(filePath: string): void;
+  attachResultFile(filePath: string): void;
   detailed(): Promise<any>;
 }
 
@@ -25,13 +33,17 @@ interface Plan {
   steps: PlanStep[];
   save(): Promise<void>;
   addStep(task: string, index?: number): Promise<PlanStep>;
-  updateStepStatus(stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked'): Promise<void>;
-  updateStepTask(stepId: string, task: string): Promise<void>;
+  addSubStep(stepId: string, task: string, index?: number): Promise<PlanStep>;
+  addPlan(plan: Plan, index?: number): Promise<PlanStep>;
+  setStepStatus(stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked'): Promise<void>;
+  setStepTask(stepId: string, task: string): Promise<void>;
   findStepById(stepId: string): Promise<PlanStep | null>;
-  addSubtask(parentStepId: string, task: string): Promise<PlanStep>;
   removeStep(stepId: string): Promise<void>;
-  embedSubplan(stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
+  attachTaskFile(stepId: string, filePath: string): Promise<void>;
+  attachResultFile(stepId: string, filePath: string): Promise<void>;
+  setPlan(stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
   getOverallProgress(): Promise<{ done: number; total: number }>;
+  resetCache(): void;
   detailed(): Promise<any>;
 }
 

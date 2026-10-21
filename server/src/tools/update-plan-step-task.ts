@@ -52,7 +52,7 @@ export function makeUpdatePlanStepTaskTool(ctxId: string, store: ContextStore, p
         const task = params.task as string;
 
         const planObj: any = plan;
-        await planObj.updateStepTask(stepId, task);
+        await planObj.setStepTask(stepId, task);
         emit({ type: "plan_updated", ctxId, planId: activePlanId });
         return okText(`Задача шага ${stepId} обновлена на "${task}".`);
       } catch (err) {

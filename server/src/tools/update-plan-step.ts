@@ -53,7 +53,7 @@ export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, planS
 
         if (status) {
           const planObj: any = plan;
-          await planObj.updateStepStatus(stepId, status);
+          await planObj.setStepStatus(stepId, status);
           emit({ type: "plan_updated", ctxId, planId: activePlanId });
           return okText(`Статус шага ${stepId} обновлен на "${status}".`);
         } else {

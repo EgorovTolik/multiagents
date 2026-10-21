@@ -6,10 +6,13 @@
 
 import { readFile, writeFile, mkdir, readdir } from 'fs/promises';
 import fs from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { Plan } from './plan.js';
 import { PlanStep } from './planstep.js';
+
+// Определяем корень проекта (родительская директория от текущей cwd)
+const ROOT_DIR = resolve(process.cwd(), '..');
 
 /**
  * PlanManager — singleton.
@@ -42,7 +45,7 @@ export class PlanManager {
    */
   async createPlan(ctxId, { title, description, createdBy }) {
     const planId = randomUUID();
-    const plansDir = join('contexts', ctxId, 'plans');
+    const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
 
     // Создаём директорию для планов (если не существует)
     if (!fs.existsSync(plansDir)) {
@@ -83,7 +86,7 @@ export class PlanManager {
 
     if (!plan) {
       // Загружаем из файла
-      const plansDir = join('contexts', ctxId, 'plans');
+      const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
       const filePath = join(plansDir, `${planId}.json`);
 
       try {

@@ -56,9 +56,10 @@ export function makeAddSubtaskTool(ctxId: string, store: ContextStore, planServi
           return okText(`Ошибка: шага с ID ${parentStepId} не найден в плане`);
         }
 
-        const subtask = await planObj.addSubtask(parentStepId, task);
+        // addSubtask переименован в addSubStep
+        const substep = await planObj.addSubStep(parentStepId, task);
         return okText(
-          `Подзадача добавлена к шагу ${parentStepId}: "${task}" (ID: ${subtask.id})`
+          `Подзадача добавлена к шагу ${parentStepId}: "${task}" (ID: ${substep.id})`
         );
       } catch (err) {
         return okText(`Ошибка добавления подзадачи: ${String(err)}`);

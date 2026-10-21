@@ -111,7 +111,7 @@ export class Plan {
     };
   }
 
-  detailed() {
+  async detailed() {
     return {
       id: this.id,
       title: this.title,
@@ -119,7 +119,7 @@ export class Plan {
       createdBy: this.createdBy,
       createdAt: this.createdAt,
       status: this.status,
-      steps: this.steps.map(s => s.detailed())
+      steps: await Promise.all(this.steps.map(async s => s.detailed()))
     };
   }
 

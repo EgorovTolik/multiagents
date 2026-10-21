@@ -762,10 +762,7 @@ app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
       const planService = runner.getPlanService();
       let plan = await planService.loadPlan(ctxId, activePlanId);
       if (plan) {
-        // Загружаем все вложенные подпланы перед сериализацией
-        for (const step of plan.steps) {
-          await step.loadEmbeddedPlan();
-        }
+        // detailed() сам загружает embedded планы через step.plan()
         const detailed = await plan.detailed();
         res.json({ planId: activePlanId, plan: detailed });
       } else {

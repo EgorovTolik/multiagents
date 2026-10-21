@@ -68,8 +68,8 @@ export function makeEmbedSubplanTool(ctxId: string, store: ContextStore, planSer
           createdBy: ctx.activeAgentId,
         });
 
-        // Встроить подплан в шаг
-        await planObj.embedSubplan(stepId, subplan);
+        // Встроить подплан в шаг через setPlan
+        await planObj.setPlan(stepId, subplan);
         emit({ type: "plan_updated", ctxId, planId: activePlanId });
 
         return okText(
