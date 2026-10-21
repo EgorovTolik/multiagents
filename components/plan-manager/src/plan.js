@@ -380,24 +380,8 @@ export class Plan {
    * @returns {{done: number, total: number, percent: number}}
    */
   async getOverallProgress() {
-
-    let done = 0;
-    let total = 0;
-
-    const countSteps = async (steps) => {
-      for (const step of steps) {
-        total++;
-        if (step.status === 'done') done++;
-        // Рекурсивно считаем подшаги — getter .steps вернёт inline или шаги встроенного плана
-        let subSteps = await step.steps();
-        if (subSteps && subSteps.length > 0) {
-          await countSteps(subSteps);
-        }
-      }
-    };
-
-    await countSteps(this.steps);
-
+    const total = await this.countSteps();
+    const done = await this.countSteps('done');
     const percent = total > 0 ? Math.round((done / total) * 100) : 0;
     return { done, total, percent };
   }
@@ -423,5 +407,21 @@ export class Plan {
       return join(this.filePath, '..');
     }
     throw new Error('Plan filePath is not set');
+  }
+
+  /**
+   * Подсчитать количество шагов с указанным статусом (включая вложенные).
+   * Если status не указан — вернуть общее количество всех шагов.
+   * @param {StepStatus} [status] - статус для фильтрации
+   * @returns {Promise<number>} количество шагов
+   */
+  async countSteps(status) {
+    let counter = 0;
+
+    for (const step of this.steps) {
+      counter += await step.countSteps(status);
+    }
+
+    return counter;
   }
 }

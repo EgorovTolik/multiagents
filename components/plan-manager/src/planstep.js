@@ -278,4 +278,32 @@ export class PlanStep {
   hasPlan() {
     return !this._plan || !this.planFile;
   }
+
+  /**
+   * Подсчитать количество шагов с указанным статусом (включая вложенные).
+   * Если status не указан — вернуть общее количество всех шагов.
+   * @param {StepStatus} [status] - статус для фильтрации
+   * @returns {Promise<number>} количество шагов
+   */
+  async countSteps(status) {
+    let counter = 0;
+
+    // Считаем себя, если статус совпадает (или считаем всегда, если status не определён)
+    if (!status || this.status === status) {
+      counter++;
+    }
+
+    const plan = await this.plan();
+    if (plan) {
+      // Если есть встроенный подплан — считаем его шаги через план
+      counter += await plan.countSteps(status);
+    } else {
+      // Иначе рекурсивно считаем inline-шаги
+      for (const step of this._steps) {
+        counter += await step.countSteps(status);
+      }
+    }
+
+    return counter;
+  }
 }
