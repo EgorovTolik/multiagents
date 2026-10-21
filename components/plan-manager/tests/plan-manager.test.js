@@ -630,6 +630,8 @@ describe('PlanManager', () => {
       const subplan = await planManager.createPlan(testCtxId, { title: 'Subplan', createdBy: 'user' });
       await subplan.addStep('Подшаг 1');
       await mainPlan.setPlan(stepWithSubplan.id, subplan);
+      // Даем время на завершение асинхронных операций с файлами
+      await new Promise(r => setTimeout(r, 50));
 
       // Проверяем что файл подплана существует
       const subplanFilePath = join('contexts', testCtxId, 'plans', `${subplan.id}.json`);
@@ -697,6 +699,8 @@ describe('PlanManager', () => {
 
       // Встраиваем подплан
       await mainPlan.setPlan(step.id, subplan);
+      // Даем время на завершение асинхронных операций с файлами
+      await new Promise(r => setTimeout(r, 50));
 
       // Перезагружаем основной план — кэшируется
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);

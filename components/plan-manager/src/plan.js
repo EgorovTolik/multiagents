@@ -365,8 +365,6 @@ export class Plan {
         // Перегрузка 1 — путь к файлу
         step.setPlanFile(subplanPathOrObject);
       } else if (subplanPathOrObject instanceof Plan) {
-        // Перегрузка 2 — объект плана (гарантия валидности)
-        await subplanPathOrObject.save();
         step.setPlan(subplanPathOrObject);
       }
 
