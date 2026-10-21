@@ -62,9 +62,9 @@ describe('Concurrency & Race Conditions', () => {
 
     // Несколько update_plan_step для разных шагов в одном блоке (параллельно)
     const promises = [
-      currentPlan.updateStepStatus(step1.id, 'in_progress'),
-      currentPlan.updateStepStatus(step2.id, 'done'),
-      currentPlan.updateStepStatus(step3.id, 'blocked')
+      currentPlan.setStepStatus(step1.id, 'in_progress'),
+      currentPlan.setStepStatus(step2.id, 'done'),
+      currentPlan.setStepStatus(step3.id, 'blocked')
     ];
 
     await Promise.all(promises);
@@ -107,7 +107,7 @@ describe('Concurrency & Race Conditions', () => {
     expect(['in_progress', 'done']).toContain(loadedStep.status);
   });
 
-  it('4. Перезапись данных — addStep + updateStepStatus сохраняются оба', async () => {
+  it('4. Перезапись данных — addStep + setStepStatus сохраняются оба', async () => {
     const plan = await planManager.createPlan(testCtxId, { title: 'Write Conflict Test', createdBy: 'user' });
     const step1 = await plan.addStep('Шаг 1');
 
@@ -116,7 +116,7 @@ describe('Concurrency & Race Conditions', () => {
 
     // Параллельно добавляем шаг и обновляем статус другого шага
     const addPromise = currentPlan.addStep('Новый шаг');
-    const updatePromise = currentPlan.updateStepStatus(step1.id, 'in_progress');
+    const updatePromise = currentPlan.setStepStatus(step1.id, 'in_progress');
 
     await Promise.all([addPromise, updatePromise]);
 
@@ -152,8 +152,8 @@ describe('Concurrency & Race Conditions', () => {
     }
 
     const promises = [
-      currentPlan.updateStepStatus(stepIds[0], 'done'),
-      currentPlan.updateStepStatus(stepIds[1], 'in_progress'),
+      currentPlan.setStepStatus(stepIds[0], 'done'),
+      currentPlan.setStepStatus(stepIds[1], 'in_progress'),
       currentPlan.addSubStep(stepIds[2], 'Подзадача к шагу 3'),
       currentPlan.addSubStep(stepIds[3], 'Подзадача к шагу 4')
     ];

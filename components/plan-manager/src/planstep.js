@@ -141,10 +141,20 @@ export class PlanStep {
     return false;
   }
 
-  set setPlanFile(path) {
+  async setPlanFile(path) {
     this.planFile = path;
     this._plan = null;
-    this._steps = null;
+    this._steps = [];
+    await this.save();
+  }
+
+  /**
+   * @param {Plan} plan 
+   */
+  async setPlan(plan) {
+    this.planFile = plan.filePath;
+    this._plan = plan;
+    await this.save();
   }
 
   /**
@@ -155,11 +165,6 @@ export class PlanStep {
       this._plan.resetCache();
     }
     this._plan = null;
-  }
-
-  setPlanFile(filePath) {
-    this.planFile = filePath;
-    this._plan = null; // сброс кэша при смене пути
   }
 
   async plan() {
@@ -269,5 +274,9 @@ export class PlanStep {
     if (!this.parentPlan) {
       this.parentPlan.save();
     }
+  }
+
+  hasPlan() {
+    return !this._plan || !this.planFile;
   }
 }

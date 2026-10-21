@@ -208,25 +208,53 @@ export class Plan {
   }
 
   /**
+   * Встроить готовый план как шаг с сохранением в файл.
+   * @param {Plan} plan - Объект плана для встраивания
+   * @param {number} [index] - Позиция в массиве (по умолчанию в конец)
+   * @returns {PlanStep}
+   */
+  async addPlan(plan, index) {
+    await acquirePlanLock(this.id);
+    try {
+      // Сохраняем подплан в файл
+      const planFile = join(this.plansDir, `${plan.id}.json`);
+
+      // Создаём шаг для встроенного плана
+      const newStep = new PlanStep({
+        id: randomUUID(),
+        task: plan.title,
+        status: 'pending',
+        planFile: planFile
+      });
+      newStep._plan = plan; // Кэшируем объект плана
+
+      if (index !== undefined && index >= 0 && index <= this.steps.length) {
+        this.steps.splice(index, 0, newStep);
+      } else {
+        this.steps.push(newStep);
+      }
+
+      await this.save();
+      return newStep;
+    } finally {
+      releasePlanLock(this.id);
+    }
+  }
+
+  /**
    * Обновить статус шага (рекурсивно для вложенных планов).
    * @param {string} stepId - ID шага
    * @param {string} status
    */
-  async updateStepStatus(stepId, status) {
+  async setStepStatus(stepId, status) {
     await acquirePlanLock(this.id);
     try {
       const step = await this.findStepById(stepId);
       if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
       step.status = status;
-      // Save this plan and all cached nested plans to persist changes
-      await this.save();
-      for (const s of this.steps) {
-        const subPlan = await s.plan();
-        if (subPlan) {
-          await subPlan.save();
-        }
-      }
+      await step.save();
+
     } finally {
       releasePlanLock(this.id);
     }
@@ -237,21 +265,15 @@ export class Plan {
    * @param {string} stepId - ID шага
    * @param {string} task - Новое описание задачи
    */
-  async updateStepTask(stepId, task) {
+  async setStepTask(stepId, task) {
     await acquirePlanLock(this.id);
     try {
       const step = await this.findStepById(stepId);
       if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
 
       step.task = task;
-      // Save this plan and all cached nested plans to persist changes
-      await this.save();
-      for (const s of this.steps) {
-        const subPlan = await s.plan();
-        if (subPlan) {
-          await subPlan.save();
-        }
-      }
+      await step.save();
+      
     } finally {
       releasePlanLock(this.id);
     }
