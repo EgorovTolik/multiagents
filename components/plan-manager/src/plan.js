@@ -166,52 +166,22 @@ export class Plan {
   }
 
   /**
-   * Добавить новый шаг к плану или к родительскому шагу.
-   * @param {string|PlanStep} parentOrTask - Задача (строка) или родительский шаг
-   * @param {string|number} [taskOrIndex] - Описание задачи (если parentOrTask — PlanStep) или индекс в плане
+   * Добавить новый шаг к плану.
+   * @param {string} task - Задача (строка)
    * @param {number} [index] - Позиция в массиве (по умолчанию в конец)
    * @returns {PlanStep}
    */
-  async addStep(parentOrTask, taskOrIndex, index) {
+  async addStep(task, index) {
     await acquirePlanLock(this.id);
     try {
-      let parent;
-      let task;
 
-      if (typeof parentOrTask === 'string') {
-        // Вызов addStep(task) или addStep(task, index) — добавляем к плану
-        parent = this;
-        task = parentOrTask;
-        // Если второй аргумент — число, это индекс в плане
-        if (typeof taskOrIndex === 'number') {
-          index = taskOrIndex;
-        }
-      } else if (parentOrTask instanceof PlanStep) {
-        // Вызов addStep(step, task) или addStep(step, task, index) — добавляем к шагу
-        parent = parentOrTask;
-        task = taskOrIndex;
-      }
+      const newStep = new PlanStep({ id: randomUUID(), task, status: 'pending' });
+      newStep.parentPlan = this;
 
-      const newStep = new PlanStep({
-        id: randomUUID(),
-        task,
-        status: 'pending'
-      });
-
-      if (parent === this) {
-        // Добавляем к плану
-        if (index !== undefined && index >= 0 && index <= this.steps.length) {
-          this.steps.splice(index, 0, newStep);
-        } else {
-          this.steps.push(newStep);
-        }
+      if (index !== undefined && index >= 0 && index <= this.steps.length) {
+        this.steps.splice(index, 0, newStep);
       } else {
-        // Добавляем как подзадачу к шагу
-        if (index !== undefined && index >= 0 && index <= parent._steps.length) {
-          parent._steps.splice(index, 0, newStep);
-        } else {
-          parent.steps.push(newStep);
-        }
+        this.steps.push(newStep);
       }
 
       // Сохраняем изменения
@@ -221,6 +191,20 @@ export class Plan {
     } finally {
       releasePlanLock(this.id);
     }
+  }
+
+  /**
+   * Добавить подзадачу к существующему шагу.
+   * @param {string} stepId - ID родительского шага
+   * @param {string} task - Описание подзадачи
+   * @param {number} [index] - Позиция в массиве (по умолчанию в конец)
+   * @returns {PlanStep}
+   */
+  async addSubStep(stepId, task, index) {
+    const step = await this.findStepById(stepId);
+    if (!step) throw new Error(`STEP_NOT_FOUND: ${stepId}`);
+
+    return await step.addStep(task, index);
   }
 
   /**
@@ -238,8 +222,9 @@ export class Plan {
       // Save this plan and all cached nested plans to persist changes
       await this.save();
       for (const s of this.steps) {
-        if (s.plan) {
-          await s.plan.save();
+        const subPlan = await s.plan();
+        if (subPlan) {
+          await subPlan.save();
         }
       }
     } finally {
@@ -262,8 +247,9 @@ export class Plan {
       // Save this plan and all cached nested plans to persist changes
       await this.save();
       for (const s of this.steps) {
-        if (s.plan) {
-          await s.plan.save();
+        const subPlan = await s.plan();
+        if (subPlan) {
+          await subPlan.save();
         }
       }
     } finally {
@@ -278,46 +264,14 @@ export class Plan {
    */
   async findStepById(stepId) {
     for (const step of this.steps) {
+      step.parentPlan = this;
       if (step.id === stepId) return step;
-
-      // Поиск в подшагах
-      const nested = await this._findStepInSteps(step.steps, stepId);
+    }
+    for (const step of this.steps) {
+      const nested = await step.findStepById(stepId);
       if (nested) return nested;
-
-      // Поиск во вложенном плане через кэш или planFile
-      const subPlan = await step.plan();
-      if (subPlan) {
-        const found = await step.plan.findStepById(stepId);
-        if (found) return found;
-      }
     }
     return null;
-  }
-
-  /**
-   * Добавить подзадачу к существующему шагу.
-   * @param {string} parentStepId - ID родительского шага
-   * @param {string} task - Описание подзадачи
-   * @returns {PlanStep}
-   */
-  async addSubtask(parentStepId, task) {
-    const parentStep = await this.findStepById(parentStepId);
-    if (!parentStep) throw new Error(`STEP_NOT_FOUND: ${parentStepId}`);
-
-    // Если у шага есть встроенный подплан — добавляем subtask туда
-    if (parentStep.planFile) {
-      let childPlan = await parentStep.plan();
-
-      if (childPlan) {
-        // Добавляем subtask в дочерний план и сохраняем его файл
-        const newStep = await childPlan.addStep(task);
-        return newStep;
-      }
-    }
-
-    // Иначе добавляем inline subtask к шагу
-    const newStep = await this.addStep(parentStep, task);
-    return newStep;
   }
 
   /**
@@ -338,7 +292,6 @@ export class Plan {
       for (const step of this.steps) {
         const removed = await step.removeStep(stepId);
         if (removed) {
-          await this.save();
           return;
         }
       }
@@ -434,11 +387,7 @@ export class Plan {
    */
   resetCache() {
     for (const step of this.steps) {
-      if (step.plan) {
-        // Рекурсивно сбрасываем кэш вложенного плана
-        step.plan.resetCache();
-        step.plan = null;
-      }
+      step.resetCache();
     }
   }
 
@@ -448,17 +397,6 @@ export class Plan {
     const steps = (data.steps || []).map(s => this._deserializeStep(s));
     return new PlanStep({ ...data, steps });
   }
-
-  _findStepInSteps(steps, stepId) {
-    for (const step of steps) {
-      if (step.id === stepId) return step;
-      const nested = this._findStepInSteps(step.steps(), stepId);
-      if (nested) return nested;
-    }
-    return null;
-  }
-
-
 
   get plansDir() {
     if (this.filePath) {

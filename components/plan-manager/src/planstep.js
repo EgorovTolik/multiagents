@@ -3,6 +3,8 @@
  */
 
 import { createRequire } from 'module';
+import { randomUUID } from 'crypto';
+import { Plan } from './plan.js';
 const require = createRequire(import.meta.url);
 
 // Типы статусов (JSDoc)
@@ -22,6 +24,7 @@ export class PlanStep {
    * @param {string} [data.planFile] - Путь к вложенному подплану
    * @param {StepStatus} data.status
    * @param {PlanStep[]} [data.steps] - Вложенные подзадачи (inline)
+   * @param {Plan} data.parentPlan
    */
   constructor(data) {
     this.id = data.id;
@@ -33,6 +36,7 @@ export class PlanStep {
     this._plan = null; // тут хранится Plan загруженный из файла planFile
     this.status = data.status;
     this._steps = data.steps || [];
+    this.parentPlan = null;
   }
 
   /**
@@ -41,6 +45,66 @@ export class PlanStep {
   async steps() {
     let plan = await this.plan();
     return plan ? plan.steps : this._steps;
+  }
+
+  /**
+   * Найти шаг по ID среди подшагов и встроенного подплана.
+   * @param {string} stepId - ID шага для поиска
+   * @returns {Promise<PlanStep|null>} Найденный шаг или null
+   */
+  async findStepById(stepId) {
+    // Сначала проверяем inline steps
+    for (const step of this._steps) {
+      step.parentPlan = this.parentPlan;
+      if (step.id === stepId) return step;
+      const found = await step.findStepById(stepId);
+      if (found) return found;
+    }
+
+    // Если есть embedded plan — ищем там
+    let plan = await this.plan();
+    if (plan) {
+      try {
+        const found = await plan.findStepById(stepId);
+        if (found) return found;
+      } catch (e) {
+        // Шаг не найден в embedded plan
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Добавить шаг. 
+   * @param {string} [task] - Описание задачи
+   * @param {number} [index] - Позиция в массиве (по умолчанию в конец)
+   * @returns {Promise<PlanStep>} Добавленный шаг
+   */
+  async addStep(task, index) {
+
+    // Сначала пытаемся добавить во встроенный подплан родителя
+    const plan = await this.plan();
+    if (plan) {
+      return await plan.addStep(task, index);
+    }
+
+    const newStep = new PlanStep({ id: randomUUID(), task, status: 'pending' });
+    newStep.parentPlan = this.parentPlan;
+
+    if (!this._steps) this._steps = [];
+    
+    if (index !== undefined && index >= 0 && index <= this._steps.length) {
+      this._steps.splice(index, 0, newStep);
+    } else {
+      this._steps.push(newStep);
+    }
+
+    if (!this.parentPlan) {
+      await this.parentPlan.save();
+    }
+
+    return newStep;
   }
 
   /**
@@ -53,6 +117,7 @@ export class PlanStep {
     const idx = this._steps.findIndex(s => s.id === stepId);
     if (idx !== -1) {
       this._steps.splice(idx, 1);
+      this.save();
       return true;
     }
 
@@ -83,8 +148,20 @@ export class PlanStep {
   }
 
   /**
-   * Ленивая загрузка вложенного подплана из файла. Если план уже загружен — ничего не делает.
+   * Сбросить кэш загруженного встроенного подплана.
    */
+  resetCache() {
+    if (this._plan) {
+      this._plan.resetCache();
+    }
+    this._plan = null;
+  }
+
+  setPlanFile(filePath) {
+    this.planFile = filePath;
+    this._plan = null; // сброс кэша при смене пути
+  }
+
   async plan() {
     if (!this._plan && this.planFile) {
       try {
@@ -181,5 +258,16 @@ export class PlanStep {
       status: this.status,
       steps: await Promise.all(subSteps.map(async s => s.detailed()))
     };
+  }
+
+  async save() {
+    let plan = await this.plan();
+    if (!plan) {
+      plan.save();
+    }
+
+    if (!this.parentPlan) {
+      this.parentPlan.save();
+    }
   }
 }

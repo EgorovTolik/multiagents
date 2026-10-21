@@ -39,9 +39,10 @@ describe('Concurrency & Race Conditions', () => {
 
     // Перезагружаем план и проверяем что все 4 шага сохранились
     const reloaded = await planManager.loadPlan(testCtxId, plan.id);
-    expect(reloaded.steps.length).toBe(4);
+    const steps = reloaded.steps;
+    expect(steps.length).toBe(4);
 
-    const tasks = reloaded.steps.map(s => s.task).sort();
+    const tasks = steps.map(s => s.task).sort();
     expect(tasks).toContain('Задача 1');
     expect(tasks).toContain('Задача 2');
     expect(tasks).toContain('Задача 3');
@@ -121,13 +122,15 @@ describe('Concurrency & Race Conditions', () => {
 
     // Перезагружаем план и проверяем что оба изменения сохранились
     const reloaded = await planManager.loadPlan(testCtxId, plan.id);
-    expect(reloaded.steps.length).toBe(2); // Оригинальный шаг + новый
+    const steps = reloaded.steps;
+    expect(steps.length).toBe(2); // Оригинальный шаг + новый
 
     const loadedStep1 = await reloaded.findStepById(step1.id);
     expect(loadedStep1.status).toBe('in_progress');
 
     // Проверяем что новый шаг добавлен
-    const newStep = reloaded.steps.find(s => s.task === 'Новый шаг');
+    const newSteps = reloaded.steps;
+    const newStep = newSteps.find(s => s.task === 'Новый шаг');
     expect(newStep).toBeDefined();
   });
 
@@ -151,8 +154,8 @@ describe('Concurrency & Race Conditions', () => {
     const promises = [
       currentPlan.updateStepStatus(stepIds[0], 'done'),
       currentPlan.updateStepStatus(stepIds[1], 'in_progress'),
-      currentPlan.addSubtask(stepIds[2], 'Подзадача к шагу 3'),
-      currentPlan.addSubtask(stepIds[3], 'Подзадача к шагу 4')
+      currentPlan.addSubStep(stepIds[2], 'Подзадача к шагу 3'),
+      currentPlan.addSubStep(stepIds[3], 'Подзадача к шагу 4')
     ];
 
     await Promise.all(promises);
@@ -161,7 +164,8 @@ describe('Concurrency & Race Conditions', () => {
     const reloaded = await planManager.loadPlan(testCtxId, plan.id);
 
     // Проверяем что шаги не потеряны и нет дубликатов
-    expect(reloaded.steps.length).toBe(5);
+    const steps = reloaded.steps;
+    expect(steps.length).toBe(5);
 
     // Проверяем корректный прогресс (1 done + 2 inline подзадачи)
     const progress = await reloaded.getOverallProgress();

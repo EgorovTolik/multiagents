@@ -173,7 +173,7 @@ describe('PlanManager', () => {
       const plan = await planManager.createPlan(testCtxId, { title: 'План с подзадачами', createdBy: 'user' });
       const parentStep = await plan.addStep('Родительская задача');
 
-      const subtask = await plan.addSubtask(parentStep.id, 'Подзадача 1');
+      const subtask = await plan.addSubStep(parentStep.id, 'Подзадача 1');
       expect(subtask).toBeDefined();
       expect(subtask.task).toBe('Подзадача 1');
       expect(subtask.status).toBe('pending');
@@ -181,20 +181,22 @@ describe('PlanManager', () => {
       // Проверка вложенности
       const reloaded = await planManager.loadPlan(testCtxId, plan.id);
       const parentReloaded = await reloaded.findStepById(parentStep.id);
-      expect(parentReloaded.steps.length).toBe(1);
-      expect(parentReloaded.steps[0].task).toBe('Подзадача 1');
+      const steps = await parentReloaded.steps();
+      expect(steps.length).toBe(1);
+      expect(steps[0].task).toBe('Подзадача 1');
     });
 
     it('5. Удаление шага с вложенными подзадачами', async () => {
       const plan = await planManager.createPlan(testCtxId, { title: 'План для удаления', createdBy: 'user' });
       const step = await plan.addStep('Шаг для удаления');
-      await plan.addSubtask(step.id, 'Подзадача 1');
-      await plan.addSubtask(step.id, 'Подзадача 2');
+      await plan.addSubStep(step.id, 'Подзадача 1');
+      await plan.addSubStep(step.id, 'Подзадача 2');
 
       // Проверка что подзадачи существуют
       const before = await planManager.loadPlan(testCtxId, plan.id);
       const stepBefore = await before.findStepById(step.id);
-      expect(stepBefore.steps.length).toBe(2);
+      const subSteps = await stepBefore.steps();
+      expect(subSteps.length).toBe(2);
 
       // Удаление шага
       await before.removeStep(step.id);
@@ -456,17 +458,21 @@ describe('PlanManager', () => {
     it('Проверка структуры PlanStep с вложенными подшагами', async () => {
       const plan = await planManager.createPlan(testCtxId, { title: 'План', createdBy: 'user' });
       const step = await plan.addStep('Родитель');
-      await plan.addSubtask(step.id, 'Подзадача 1');
-      await plan.addSubtask(step.id, 'Подзадача 2');
+      await plan.addSubStep(step.id, 'Подзадача 1');
+      await plan.addSubStep(step.id, 'Подзадача 2');
 
       // Вложенная вложенность
       const parentStepReloaded = await plan.findStepById(step.id);
-      const childStep = parentStepReloaded.steps[0];
-      await plan.addSubtask(childStep.id, 'Вложенная подзадача');
+      const childSteps = await parentStepReloaded.steps();
+      const childStep = childSteps[0];
+      await plan.addSubStep(childStep.id, 'Вложенная подзадача');
 
       const reloaded = await planManager.loadPlan(testCtxId, plan.id);
-      expect(reloaded.steps[0].steps.length).toBe(2);
-      expect(reloaded.steps[0].steps[0].steps.length).toBe(1);
+      const topSteps = reloaded.steps;
+      const step0Steps = await topSteps[0].steps();
+      expect(step0Steps.length).toBe(2);
+      const step0step0Steps = await step0Steps[0].steps();
+      expect(step0step0Steps.length).toBe(1);
     });
 
     it('Кэширование подпланов в PlanStep.plan', async () => {
@@ -483,7 +489,8 @@ describe('PlanManager', () => {
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
       const cachedStep = reloadedMain.steps[0];
       expect(cachedStep.plan).not.toBeNull();
-      expect(cachedStep.plan.title).toBe('Подплан');
+      const cachedPlan = await cachedStep.plan();
+      expect(cachedPlan.title).toBe('Подплан');
 
       // findStepById должен использовать кэш, не читая с диска
       const found = await reloadedMain.findStepById(substep.id);
@@ -528,8 +535,12 @@ describe('PlanManager', () => {
       // Загружаем план обратно — в памяти должен быть объект подплана
       const loadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
       expect(loadedMain.steps[0].plan).not.toBeNull();
-      expect(loadedMain.steps[0].plan.title).toBe('Подплан');
-      expect(loadedMain.steps[0].plan.steps.length).toBe(2);
+      const loadedMainSteps = loadedMain.steps;
+      const loadedSubPlan = await loadedMainSteps[0].plan();
+      expect(loadedSubPlan.title).toBe('Подплан');
+      const mainSteps = loadedMain.steps;
+      const stepPlan = await mainSteps[0].plan();
+      expect(stepPlan.steps.length).toBe(2);
 
       // Шаги подплана доступны через API
       const foundSubstep = await loadedMain.findStepById(substep1.id);
@@ -643,11 +654,11 @@ describe('PlanManager', () => {
       await mainPlan.embedSubplan(stepWithSubplan.id, subplan);
 
       // Добавляем subtask к шагу С подпланом (должен попасть в дочерний план)
-      const addedToSubplan = await mainPlan.addSubtask(stepWithSubplan.id, 'Новый подшаг через add_subtask');
+      const addedToSubplan = await mainPlan.addSubStep(stepWithSubplan.id, 'Новый подшаг через add_substep');
       expect(addedToSubplan).toBeDefined();
 
       // Добавляем subtask к шагу БЕЗ подплана (должен быть inline)
-      const addedInline = await mainPlan.addSubtask(step1.id, 'Inline подзадача');
+      const addedInline = await mainPlan.addSubStep(step1.id, 'Inline подзадача');
       expect(addedInline).toBeDefined();
 
       // Проверяем что оба subtask корректно добавлены и видимы через get_plan_status
@@ -689,13 +700,14 @@ describe('PlanManager', () => {
 
       // Перезагружаем основной план — кэшируется
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
-      expect(reloadedMain.steps[0].plan).not.toBeNull();
+      const cachedPlan = await reloadedMain.steps[0].plan();
+      expect(cachedPlan).not.toBeNull();
 
       // Сбрасываем кэш
       reloadedMain.resetCache();
-      expect(reloadedMain.steps[0].plan).toBeNull();
+      expect(reloadedMain.steps[0]._plan).toBeNull();
 
-      // findStepById должен перечитать с диска
+      // findStepById должен перечитать с диска (ленивая загрузка)
       const found = await reloadedMain.findStepById(substep.id);
       expect(found).not.toBeNull();
       expect(found.task).toBe('Подшаг');

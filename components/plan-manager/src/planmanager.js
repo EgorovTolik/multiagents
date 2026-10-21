@@ -110,7 +110,7 @@ export class PlanManager {
 
           // Восстанавливаем PlanStep объекты из данных
           const steps = (data.steps || []).map(s => this._deserializeStep(s));
-          plan = new Plan({ ...data, steps, filePath: filePath, ctxId: ctxId });
+          plan = new Plan({ ...data, steps, filePath: filePath });
 
           // Кешируем в памяти
           this._plans.set(planId, plan);
