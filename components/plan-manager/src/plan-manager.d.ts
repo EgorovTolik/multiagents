@@ -21,7 +21,6 @@ export declare class PlanManager {
   addSubtask(plan: Plan, parentStepId: string, task: string): Promise<PlanStep>;
   removeStep(plan: Plan, stepId: string): Promise<void>;
   embedSubplan(plan: Plan, stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
-  resolveNestedPlans(plan: Plan): Promise<void>;
   getOverallProgress(plan: Plan): Promise<{ done: number; total: number }>;
   deletePlan(ctxId: string, planId: string): Promise<void>;
 }

@@ -121,9 +121,6 @@ export class PlanManager {
         }
       }
 
-    // Автоматически загружаем и кэшируем вложенные подпланы для всех планов
-    await plan._cacheNestedPlans();
-
     return plan;
   }
 
@@ -142,6 +139,54 @@ export class PlanManager {
    */
   removeCachedPlan(planId) {
     this._plans.delete(planId);
+  }
+
+  /**
+   * Загрузить план по прямому пути к файлу. Если план уже в кэше — возвращает кэшированную версию.
+   * @param {string} filePath - Полный путь к файлу плана
+   * @returns {Plan|null}
+   */
+  async loadPlanByFile(filePath) {
+    try {
+      // Загружаем из файла
+      const content = await readFile(filePath, 'utf-8');
+      if (!content || content.trim() === '') {
+        throw new Error(`Plan file is empty: ${filePath}`);
+      }
+
+      let data;
+      try {
+        data = JSON.parse(content);
+      } catch (parseError) {
+        // Пытаемся загрузить резервную копию
+        const backupFilePath = `${filePath}.prev`;
+        if (fs.existsSync(backupFilePath)) {
+          const backupContent = await readFile(backupFilePath, 'utf-8');
+          data = JSON.parse(backupContent);
+          // Обновляем основной файл из бэкапа
+          await writeFile(filePath, backupContent, 'utf-8');
+        } else {
+          throw new Error(`Failed to parse plan file (no backup available): ${parseError.message}`);
+        }
+      }
+
+      // Проверяем кэш по ID плана из загруженных данных
+      const cached = this._plans.get(data.id);
+      if (cached) return cached;
+
+      // Восстанавливаем PlanStep объекты из данных
+      const steps = (data.steps || []).map(s => this._deserializeStep(s));
+      const plan = new Plan({ ...data, steps, filePath: filePath });
+
+      // Кешируем в памяти
+      this._plans.set(data.id, plan);
+
+      return plan;
+    } catch (e) {
+      console.error(`[planmanager] Error loading plan by file ${filePath}:`, e);
+      if (e.code === 'ENOENT') return null;
+      throw e;
+    }
   }
 
   // --- Private helpers ---

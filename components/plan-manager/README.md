@@ -77,15 +77,12 @@ await pm.attachResultFile(plan, step.id, 'results/auth-done.md');
 const subplan = await pm.createPlan({ title: 'Детальный план', createdBy: 'user' });
 await pm.embedSubplan(plan, step.id, subplan);
 
-// Загрузить все вложенные подпланы
-const nested = await pm.resolveNestedPlans(plan);
-
 // Прогресс выполнения (включая вложенные)
 const progress = await pm.getOverallProgress(plan);
 // { done: 5, total: 12, percent: 41.7 }
 ```
 
-**Кэширование подпланов:** при загрузке плана с `planFile` подпланы автоматически загружаются и кэшируются в поле `step.plan`. Последующие операции (`findStepById`, `resolveNestedPlans`) используют кэш, не читая файлы с диска. Это оптимизирует производительность при частых операциях.
+**Кэширование подпланов:** при загрузке плана с `planFile` подпланы автоматически загружаются и кэшируются в поле `step.plan`. Последующие операции (`findStepById`) используют кэш, не читая файлы с диска. Это оптимизирует производительность при частых операциях.
 
 **Сброс кэша:** если планы были изменены другим процессом и нужно перечитать их с диска:
 ```javascript

@@ -11,6 +11,8 @@ interface PlanStep {
   planFile?: string;
   status: 'pending' | 'in_progress' | 'done' | 'blocked';
   steps?: PlanStep[];
+  loadEmbeddedPlan(): Promise<void>;
+  detailed(): Promise<any>;
 }
 
 interface Plan {
@@ -24,18 +26,20 @@ interface Plan {
   save(): Promise<void>;
   addStep(task: string, index?: number): Promise<PlanStep>;
   updateStepStatus(stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked'): Promise<void>;
+  updateStepTask(stepId: string, task: string): Promise<void>;
   findStepById(stepId: string): Promise<PlanStep | null>;
   addSubtask(parentStepId: string, task: string): Promise<PlanStep>;
   removeStep(stepId: string): Promise<void>;
   embedSubplan(stepId: string, subplanPathOrObject: string | Plan): Promise<void>;
   getOverallProgress(): Promise<{ done: number; total: number }>;
-  _cacheNestedPlans(): Promise<void>;
+  detailed(): Promise<any>;
 }
 
 class PlanManager {
   static getInstance(): PlanManager;
   createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
   loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
+  loadPlanByFile(filePath: string): Promise<Plan | null>;
 }
 
 class PlanService {
@@ -43,6 +47,7 @@ class PlanService {
   getManager(): PlanManager;
   createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
   loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
+  loadPlanByFile(filePath: string): Promise<Plan | null>;
 }
 
 export { PlanManager, PlanService, PlanStep, Plan };

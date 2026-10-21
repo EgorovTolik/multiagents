@@ -47,6 +47,15 @@ export class PlanService {
   }
 
   /**
+   * Загрузить план по прямому пути к файлу.
+   * @param {string} filePath - Полный путь к файлу плана
+   * @returns {Plan|null} Загруженный план или null если не найден
+   */
+  async loadPlanByFile(filePath) {
+    return this.getManager().loadPlanByFile(filePath);
+  }
+
+  /**
    * Сохранить изменения в плане.
    * @param {Plan} plan - План для сохранения
    */
@@ -113,14 +122,6 @@ export class PlanService {
    */
   async embedSubplan(plan, stepId, subplanPathOrObject) {
     return this.getManager().embedSubplan(plan, stepId, subplanPathOrObject);
-  }
-
-  /**
-   * Разрешить все вложенные подпланы.
-   * @param {Plan} plan - План для разрешения вложенных структур
-   */
-  async resolveNestedPlans(plan) {
-    return this.getManager().resolveNestedPlans(plan);
   }
 
   /**

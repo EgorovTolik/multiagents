@@ -703,11 +703,12 @@ app.get("/api/plans/:planId", async (req, res) => {
       return;
     }
     const planService = runner.getPlanService();
-    const plan = await planService.loadPlan(ctxId, planId);
+    let plan = await planService.loadPlan(ctxId, planId);
     if (!plan) {
       res.status(404).json({ error: "Plan not found" });
     } else {
-      res.json({ plan });
+      const detailed = await plan.detailed();
+      res.json(detailed);
     }
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -759,8 +760,17 @@ app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
       res.json({ planId: null });
     } else {
       const planService = runner.getPlanService();
-      const plan = await planService.loadPlan(ctxId, activePlanId);
-      res.json({ planId: activePlanId, plan });
+      let plan = await planService.loadPlan(ctxId, activePlanId);
+      if (plan) {
+        // Загружаем все вложенные подпланы перед сериализацией
+        for (const step of plan.steps) {
+          await step.loadEmbeddedPlan();
+        }
+        const detailed = await plan.detailed();
+        res.json({ planId: activePlanId, plan: detailed });
+      } else {
+        res.json({ planId: null });
+      }
     }
   } catch (e) {
     res.status(500).json({ error: String(e) });

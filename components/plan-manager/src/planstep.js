@@ -2,6 +2,9 @@
  * PlanStep — шаг плана с поддержкой вложенности.
  */
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 // Типы статусов (JSDoc)
 /** @typedef {'pending'|'in_progress'|'done'|'blocked'} StepStatus */
 
@@ -27,20 +30,71 @@ export class PlanStep {
     this.taskFiles = data.taskFiles || [];
     this.resultsFiles = data.resultsFiles || [];
     this.planFile = data.planFile;
+    this._plan = null; // тут хранится Plan загруженный из файла planFile
     this.status = data.status;
-    // Храним inline steps отдельно, getter для .steps вернёт либо их,
-    // либо шаги из встроенного подплана (если он есть)
-    this._inlineSteps = data.steps || [];
+    this._steps = data.steps || [];
   }
 
   /**
-   * Getter для steps — возвращает inline steps или шаги из встроенного подплана.
+   * Async-метод для получения всех шагов (inline или из встроенного подплана).
    */
-  get steps() {
-    if (this.plan && this.plan.steps) {
-      return this.plan.steps;
+  async steps() {
+    let plan = await this.plan();
+    return plan ? plan.steps : this._steps;
+  }
+
+  /**
+   * Удалить шаг по ID из inline steps, рекурсивных подшагов или встроенного подплана.
+   * @param {string} stepId - ID шага для удаления
+   * @returns {Promise<boolean>} true если шаг найден и удален, иначе false
+   */
+  async removeStep(stepId) {
+    // Сначала проверяем inline steps
+    const idx = this._steps.findIndex(s => s.id === stepId);
+    if (idx !== -1) {
+      this._steps.splice(idx, 1);
+      return true;
     }
-    return this._inlineSteps;
+
+    // Рекурсивный поиск в inline подшагах
+    for (const step of this._steps) {
+      const removed = await step.removeStep(stepId);
+      if (removed) return true;
+    }
+
+    // Если есть embedded plan — ищем там
+    let plan = await this.plan();
+    if (plan) {
+      try {
+        await plan.removeStep(stepId);
+        return true;
+      } catch (e) {
+        // Шаг не найден в embedded plan
+      }
+    }
+
+    return false;
+  }
+
+  set setPlanFile(path) {
+    this.planFile = path;
+    this._plan = null;
+    this._steps = null;
+  }
+
+  /**
+   * Ленивая загрузка вложенного подплана из файла. Если план уже загружен — ничего не делает.
+   */
+  async plan() {
+    if (!this._plan && this.planFile) {
+      try {
+        const pm = require('./planmanager.js').default;
+        this._plan = await pm.loadPlanByFile(this.planFile);
+      } catch (e) {
+        console.error(`[step] Error loading embedded plan for step ${this.id}:`, e);
+      }
+    }
+    return this._plan;
   }
 
   /**
@@ -88,13 +142,13 @@ export class PlanStep {
     }
 
     // Рекурсивная валидация подшагов
-    for (const sub of this.steps) {
-      if (sub && sub.getValidationErrors) {
-        errors.push(...sub.getValidationErrors());
-      } else {
-        errors.push({ stepId: this.id, error: `Invalid nested step structure in ${this.id}` });
-      }
-    }
+    // for (const sub of this._steps) {
+    //   if (sub && sub.getValidationErrors) {
+    //     errors.push(...sub.getValidationErrors());
+    //   } else {
+    //     errors.push({ stepId: this.id, error: `Invalid nested step structure in ${this.id}` });
+    //   }
+    // }
 
     return errors;
   }
@@ -111,7 +165,21 @@ export class PlanStep {
       resultsFiles: this.resultsFiles,
       planFile: this.planFile,
       status: this.status,
-      steps: this.steps.map(s => s.toJSON())
+      steps: this._steps.map(s => s.toJSON())
+    };
+  }
+
+  async detailed() {
+    let plan = await this.plan();
+    const subSteps = plan ? plan.steps : this._steps;
+    return {
+      id: this.id,
+      task: this.task,
+      file: this.file,
+      taskFiles: this.taskFiles,
+      resultsFiles: this.resultsFiles,
+      status: this.status,
+      steps: await Promise.all(subSteps.map(async s => s.detailed()))
     };
   }
 }
