@@ -152,9 +152,8 @@ export class PlanStep {
    * @param {Plan} plan 
    */
   async setPlan(plan) {
-    this.planFile = plan.filePath;
+    await this.setPlanFile(plan.filePath);
     this._plan = plan;
-    await this.save();
   }
 
   /**
@@ -267,7 +266,7 @@ export class PlanStep {
 
   async save() {
     let plan = await this.plan();
-    if (!plan) {
+    if (plan) {
       plan.save();
     }
 

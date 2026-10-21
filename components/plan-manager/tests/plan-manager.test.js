@@ -66,7 +66,7 @@ describe('Фикс багов рефактора', () => {
 
     // Создаём и встраиваем подплан в этот шаг
     const subplan = await planManager.createPlan(ctxId, { title: 'Sub', createdBy: 'test' });
-    await parentPlan.embedSubplan(step1.id, subplan);
+    await parentPlan.setPlan(step1.id, subplan);
 
     // Добавляем шаги во встроенный подплан
     const subStep1 = await subplan.addStep('Подшаг 1');
@@ -87,7 +87,7 @@ describe('Фикс багов рефактора', () => {
 
     // Создаём и встраиваем подплан
     const subplan = await planManager.createPlan(ctxId, { title: 'Sub', createdBy: 'test' });
-    await parentPlan.embedSubplan(step1.id, subplan);
+    await parentPlan.setPlan(step1.id, subplan);
 
     // Добавляем шаг во встроенный подплан
     const subStep = await subplan.addStep('Подшаг для обновления');
@@ -244,7 +244,7 @@ describe('PlanManager', () => {
       await subplan.addStep('Подшаг 2');
 
       // Встраиваем через объект плана (перегрузка 2)
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       const reloaded = await planManager.loadPlan(testCtxId, mainPlan.id);
       const stepReloaded = await reloaded.findStepById(step.id);
@@ -262,7 +262,7 @@ describe('PlanManager', () => {
       const substep2 = await subplan.addStep('Подшаг 2');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Перезагружаем и ищем шаг из подплана
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
@@ -290,7 +290,7 @@ describe('PlanManager', () => {
       // Завершаем один подшаг
       await subplan.setStepStatus(substep1.id, 'done');
 
-      await mainPlan.embedSubplan(step1.id, subplan);
+      await mainPlan.setPlan(step1.id, subplan);
 
       // Перезагружаем и проверяем прогресс
       const reloaded = await planManager.loadPlan(testCtxId, mainPlan.id);
@@ -308,7 +308,7 @@ describe('PlanManager', () => {
       const subplan = await planManager.createPlan(testCtxId, { title: 'Подплан', createdBy: 'user' });
       const substep = await subplan.addStep('Подшаг для обновления');
 
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Обновляем статус подшага
       await subplan.setStepStatus(substep.id, 'in_progress');
@@ -340,7 +340,7 @@ describe('PlanManager', () => {
       const subplan = await planManager.createPlan(testCtxId, { title: 'Подплан', createdBy: 'user' });
       const substep = await subplan.addStep('Исходное описание подшага');
 
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Обновляем описание задачи шага во встроенном подплане через родительский план
       await mainPlan.setStepTask(substep.id, 'Обновлённое описание подшага');
@@ -483,7 +483,7 @@ describe('PlanManager', () => {
       const substep = await subplan.addStep('Подшаг');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Перезагружаем основной план — должен кэшировать подплан в step.plan
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
@@ -508,7 +508,7 @@ describe('PlanManager', () => {
       const substep2 = await subplan.addStep('Подшаг 2');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Читаем файл основного плана напрямую и проверяем, что нет сериализованного объекта plan
       const mainPlanPath = join('contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
@@ -530,7 +530,7 @@ describe('PlanManager', () => {
       const substep2 = await subplan.addStep('Подшаг 2');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Загружаем план обратно — в памяти должен быть объект подплана
       const loadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
@@ -557,7 +557,7 @@ describe('PlanManager', () => {
       const existingSubstep = await subplan.addStep('Существующий подшаг');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Добавляем новый шаг в дочерний план через add_step с planId
       const newStep = await subplan.addStep('Новый подшаг через planId');
@@ -579,7 +579,7 @@ describe('PlanManager', () => {
       const substep1 = await subplan.addStep('Подшаг 1');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Загружаем план (подпланы кэшируются в памяти)
       const loadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);
@@ -606,7 +606,7 @@ describe('PlanManager', () => {
       const existingSubstep = await subplan.addStep('Существующий подшаг');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Добавляем шаг в дочерний план
       const newStep = await subplan.addStep('Новый подшаг через planId');
@@ -629,7 +629,7 @@ describe('PlanManager', () => {
       // Создаём и встраиваем подплан
       const subplan = await planManager.createPlan(testCtxId, { title: 'Subplan', createdBy: 'user' });
       await subplan.addStep('Подшаг 1');
-      await mainPlan.embedSubplan(stepWithSubplan.id, subplan);
+      await mainPlan.setPlan(stepWithSubplan.id, subplan);
 
       // Проверяем что файл подплана существует
       const subplanFilePath = join('contexts', testCtxId, 'plans', `${subplan.id}.json`);
@@ -651,7 +651,7 @@ describe('PlanManager', () => {
       // Создаём и встраиваем подплан
       const subplan = await planManager.createPlan(testCtxId, { title: 'Subplan', createdBy: 'user' });
       const substep1 = await subplan.addStep('Подшаг 1');
-      await mainPlan.embedSubplan(stepWithSubplan.id, subplan);
+      await mainPlan.setPlan(stepWithSubplan.id, subplan);
 
       // Добавляем subtask к шагу С подпланом (должен попасть в дочерний план)
       const addedToSubplan = await mainPlan.addSubStep(stepWithSubplan.id, 'Новый подшаг через add_substep');
@@ -696,7 +696,7 @@ describe('PlanManager', () => {
       const substep = await subplan.addStep('Подшаг');
 
       // Встраиваем подплан
-      await mainPlan.embedSubplan(step.id, subplan);
+      await mainPlan.setPlan(step.id, subplan);
 
       // Перезагружаем основной план — кэшируется
       const reloadedMain = await planManager.loadPlan(testCtxId, mainPlan.id);

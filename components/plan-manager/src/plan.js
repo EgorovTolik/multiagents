@@ -355,7 +355,7 @@ export class Plan {
    * @param {string} stepId - ID шага
    * @param {string|Plan} subplanPathOrObject - Путь к файлу или объект плана
    */
-  async embedSubplan(stepId, subplanPathOrObject) {
+  async setPlan(stepId, subplanPathOrObject) {
     await acquirePlanLock(this.id);
     try {
       const step = await this.findStepById(stepId);
@@ -367,7 +367,7 @@ export class Plan {
       } else if (subplanPathOrObject instanceof Plan) {
         // Перегрузка 2 — объект плана (гарантия валидности)
         await subplanPathOrObject.save();
-        step.setPlanFile(join(this.plansDir, `${subplanPathOrObject.id}.json`));
+        step.setPlan(subplanPathOrObject);
       }
 
       // Сохраняем только ссылку на файл подплана, не кэшируем объект в памяти
