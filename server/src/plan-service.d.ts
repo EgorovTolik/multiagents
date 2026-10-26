@@ -54,13 +54,18 @@ class PlanManager {
   loadPlanByFile(filePath: string): Promise<Plan | null>;
 }
 
+interface PlanItem {
+  id: string;
+  title: string;
+}
+
 class PlanService {
   constructor();
   getManager(): PlanManager;
   createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
   loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
   loadPlanByFile(filePath: string): Promise<Plan | null>;
-  listPlans(ctxId: string): Promise<Array<{ id: string; title: string }>>;
+  listPlans(ctxId: string): Promise<Array<PlanItem>>;
 }
 
 export { PlanManager, PlanService, PlanStep, Plan };
