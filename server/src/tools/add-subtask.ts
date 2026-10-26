@@ -10,7 +10,7 @@ function okText(text: string) {
 /**
  * Инструмент add_subtask — добавить подзадачу к шагу плана.
  */
-export function makeAddSubtaskTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string) {
+export function makeAddSubtaskTool(ctxId: string, store: ContextStore) {
   return defineTool({
     name: "add_subtask",
     label: "Добавить подзадачу",

@@ -4,7 +4,7 @@ import type { ContextStore } from "../context-store";
 import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
 
-export function makeAddStepTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeAddStepTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "add_step",
     label: "Добавить шаг плана",

@@ -11,7 +11,7 @@ function okText(text: string) {
 /**
  * Инструмент update_plan_step — обновить статус шага плана.
  */
-export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "update_plan_step",
     label: "Обновить шаг плана",

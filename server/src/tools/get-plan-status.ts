@@ -10,7 +10,7 @@ function okText(text: string) {
 /**
  * Инструмент get_plan_status — получить текущий статус выполнения плана.
  */
-export function makeGetPlanStatusTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string) {
+export function makeGetPlanStatusTool(ctxId: string, store: ContextStore) {
   return defineTool({
     name: "get_plan_status",
     label: "Статус плана",

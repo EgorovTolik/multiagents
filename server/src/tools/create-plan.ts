@@ -5,7 +5,7 @@ import { PlanManager } from "@multiagents/plan-manager";
 
 import type { Emit } from "../runner.ts";
 
-export function makeCreatePlanTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeCreatePlanTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "create_plan",
     label: "Создать план",

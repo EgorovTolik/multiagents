@@ -11,7 +11,7 @@ function okText(text: string) {
 /**
  * Инструмент delete_plan — удалить план.
  */
-export function makeDeletePlanTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeDeletePlanTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "delete_plan",
     label: "Удалить план",

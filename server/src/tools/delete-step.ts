@@ -11,7 +11,7 @@ function okText(text: string) {
 /**
  * Инструмент delete_step — удалить шаг плана.
  */
-export function makeDeleteStepTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeDeleteStepTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "delete_step",
     label: "Удалить шаг плана",

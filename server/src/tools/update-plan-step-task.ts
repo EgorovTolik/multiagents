@@ -11,7 +11,7 @@ function okText(text: string) {
 /**
  * Инструмент update_plan_step_task — обновить текст задачи шага плана.
  */
-export function makeUpdatePlanStepTaskTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeUpdatePlanStepTaskTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "update_plan_step_task",
     label: "Редактировать задачу шага",

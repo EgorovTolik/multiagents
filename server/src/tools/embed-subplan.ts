@@ -11,7 +11,7 @@ function okText(text: string) {
 /**
  * Инструмент embed_subplan — создать и встроить детальный подплан в шаг.
  */
-export function makeEmbedSubplanTool(ctxId: string, store: ContextStore, planService: any, getCtxDir: (ctxId: string) => string, emit: Emit) {
+export function makeEmbedSubplanTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
     name: "embed_subplan",
     label: "Встроить подплан",
