@@ -60,6 +60,7 @@ class PlanService {
   createPlan(ctxId: string, params: { title: string; description?: string; createdBy: string }): Promise<Plan>;
   loadPlan(ctxId: string, planId: string): Promise<Plan | null>;
   loadPlanByFile(filePath: string): Promise<Plan | null>;
+  listPlans(ctxId: string): Promise<Array<{ id: string; title: string }>>;
 }
 
 export { PlanManager, PlanService, PlanStep, Plan };

@@ -141,6 +141,15 @@ export class PlanService {
   async deletePlan(ctxId, planId) {
     return this.getManager().deletePlan(ctxId, planId);
   }
+
+  /**
+   * Получить список всех планов для контекста.
+   * @param {string} ctxId - ID контекста
+   * @returns {Array<{id: string, title: string}>} Массив объектов с id и title
+   */
+  async listPlans(ctxId) {
+    return this.getManager().listPlans(ctxId);
+  }
 }
 
 // Экспортируем классы из компонента для удобства использования

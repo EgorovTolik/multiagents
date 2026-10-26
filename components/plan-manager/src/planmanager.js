@@ -75,6 +75,41 @@ export class PlanManager {
   }
 
   /**
+   * Получить список всех планов для контекста.
+   * Возвращает массив объектов с id и title каждого плана.
+   * @param {string} ctxId - Идентификатор контекста
+   * @returns {Array<{id: string, title: string}>}
+   */
+  async listPlans(ctxId) {
+    const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
+    
+    if (!fs.existsSync(plansDir)) {
+      return [];
+    }
+
+    const result = [];
+    const files = fs.readdirSync(plansDir);
+
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      
+      const planId = file.replace('.json', '');
+      try {
+        // Читаем только заголовок плана, не полный объект
+        const content = fs.readFileSync(join(plansDir, file), 'utf-8');
+        if (!content || content.trim() === '') continue;
+        
+        const data = JSON.parse(content);
+        result.push({ id: planId, title: data.title || '(без названия)' });
+      } catch (e) {
+        console.warn(`[planmanager] Ошибка чтения плана ${planId}:`, e.message);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Загрузить план по ID. Ищет в кэше, если нет — загружает из файла и кеширует.
    * @param {string} ctxId - Идентификатор контекста
    * @param {string} planId - ID плана

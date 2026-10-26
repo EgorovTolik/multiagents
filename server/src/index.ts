@@ -774,6 +774,24 @@ app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
   }
 });
 
+// Список всех планов для контекста
+app.get("/api/contexts/:ctxId/plans", async (req, res) => {
+  try {
+    const { ctxId } = req.params;
+    const store = runner.getContextStore();
+    const meta = store.get(ctxId);
+    if (!meta) {
+      res.status(404).json({ error: "Context not found" });
+      return;
+    }
+    const planService = runner.getPlanService();
+    const plans = await planService.listPlans(ctxId);
+    res.json({ plans });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Статус сессий: какие цепочки активны прямо сейчас (для кнопки сброса в настройках)
 app.get("/api/sessions", (_req, res) => {
   const actives = runner.getActives();
