@@ -12,8 +12,11 @@ import { PlanStep } from '../src/planstep.js';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
 import fs from 'fs';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { tmpdir } from 'os';
+
+// Корень проекта (родительская директория от cwd — план-менеджер использует тот же подход)
+const ROOT_DIR = resolve(process.cwd(), '..');
 
 // Вспомогательный класс для управления активным планом (отделен от PlanManager)
 class ContextStore {
@@ -112,7 +115,7 @@ describe('PlanManager', () => {
     ctxDir = await mkdtemp(join(tmpdir(), 'plan-manager-test-'));
     testCtxId = `test-${Date.now()}`;
     // Создаём директорию для планов с нужной структурой
-    const plansDir = join('contexts', testCtxId, 'plans');
+    const plansDir = join(ROOT_DIR, 'contexts', testCtxId, 'plans');
     fs.mkdirSync(plansDir, { recursive: true });
     planManager = pm;
   });
@@ -511,7 +514,7 @@ describe('PlanManager', () => {
       await mainPlan.setPlan(step.id, subplan);
 
       // Читаем файл основного плана напрямую и проверяем, что нет сериализованного объекта plan
-      const mainPlanPath = join('contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
+      const mainPlanPath = join(ROOT_DIR, 'contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
       const fileContent = await readFile(mainPlanPath, 'utf-8');
       const rawJson = JSON.parse(fileContent);
 
@@ -589,7 +592,7 @@ describe('PlanManager', () => {
       await loadedMain.setStepStatus(step.id, 'in_progress');
 
       // Читаем файл основного плана — не должно быть сериализованного объекта подплана
-      const mainPlanPath = join('contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
+      const mainPlanPath = join(ROOT_DIR, 'contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
       const fileContent = await readFile(mainPlanPath, 'utf-8');
       const rawJson = JSON.parse(fileContent);
 
@@ -612,7 +615,7 @@ describe('PlanManager', () => {
       const newStep = await subplan.addStep('Новый подшаг через planId');
 
       // Читаем файл основного плана и проверяем что нет сериализованного объекта подплана
-      const mainPlanPath = join('contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
+      const mainPlanPath = join(ROOT_DIR, 'contexts', testCtxId, 'plans', `${mainPlan.id}.json`);
       const fileContent = await readFile(mainPlanPath, 'utf-8');
       const rawJson = JSON.parse(fileContent);
 
@@ -634,7 +637,7 @@ describe('PlanManager', () => {
       await new Promise(r => setTimeout(r, 50));
 
       // Проверяем что файл подплана существует
-      const subplanFilePath = join('contexts', testCtxId, 'plans', `${subplan.id}.json`);
+      const subplanFilePath = join(ROOT_DIR, 'contexts', testCtxId, 'plans', `${subplan.id}.json`);
       expect(existsSync(subplanFilePath)).toBe(true);
 
       // Удаляем шаг с встроенным подпланом

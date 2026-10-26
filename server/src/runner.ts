@@ -37,6 +37,7 @@ import { QueueManager } from "./queue.js";
 import { PromptBuilder } from "./prompt-builder.js";
 import { buildAgentTools } from "./agent-tools.js";
 import { ImageManager, fmtSize } from "./image-manager.js";
+import { readJson } from "./utils.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
 
 export type Emit = (msg: unknown) => void;
@@ -322,6 +323,17 @@ export class AgentRunner {
   }
 
   private async run(ctxId: string, text: string, files?: FileAttachment[]) {
+    // Перечитываем конфигурацию агентов и глобальную модель с диска
+    // перед каждым новым запуском — чтобы изменения в config.json
+    // применялись без перезапуска сервера.
+    this.registry.reload();
+    const projectConfig: ProjectConfig = readJson(path.join(PROJECT_ROOT, "config.json"), {});
+    if (projectConfig.model && projectConfig.model !== this.defaultModel) {
+      console.log(`[system] Модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${projectConfig.model}`);
+      this.defaultModel = projectConfig.model;
+      this.providerRegistry.updateDefaultModel(projectConfig.model);
+    }
+
     const ctx = this.store.get(ctxId);
     if (!ctx) return;
     const agentId = ctx.activeAgentId;
