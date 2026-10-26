@@ -61,8 +61,7 @@ export class PlanManager {
       createdBy,
       status: 'planning',
       steps: [],
-      filePath: filePath,
-      ctxId: ctxId
+      filePath: filePath
     });
 
     // Сохраняем на диск (внутри save() будет свой мютекс)
