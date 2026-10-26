@@ -76,9 +76,9 @@ export class PlanManager {
 
   /**
    * Получить список всех планов для контекста.
-   * Возвращает массив объектов с id и title каждого плана.
+   * Возвращает массив объектов с основной информацией о каждом плане.
    * @param {string} ctxId - Идентификатор контекста
-   * @returns {Array<{id: string, title: string}>}
+   * @returns {Array<PlanItem>}
    */
   async listPlans(ctxId) {
     const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
@@ -100,7 +100,14 @@ export class PlanManager {
         if (!content || content.trim() === '') continue;
         
         const data = JSON.parse(content);
-        result.push({ id: planId, title: data.title || '(без названия)' });
+        result.push({
+          id: planId,
+          title: data.title || '(без названия)',
+          description: data.description || '',
+          createdBy: data.createdBy || '',
+          createdAt: data.createdAt || 0,
+          status: data.status || ''
+        });
       } catch (e) {
         console.warn(`[planmanager] Ошибка чтения плана ${planId}:`, e.message);
       }

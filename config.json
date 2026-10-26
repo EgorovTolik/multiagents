@@ -1,5 +1,5 @@
 {
-  "model": "eac-home-ai/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
+  "model": "eac-mac-ai/Ornith-1.5-35B-A3B-APEX-MTP-Quality.gguf",
   "port": 3000,
   "providers": {
     "eac-mac-ai": {

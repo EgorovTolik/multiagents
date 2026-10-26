@@ -57,6 +57,10 @@ class PlanManager {
 interface PlanItem {
   id: string;
   title: string;
+  description?: string;
+  createdBy?: string;
+  createdAt?: number;
+  status?: 'planning' | 'approved' | 'executing' | 'completed' | 'archived';
 }
 
 class PlanService {

@@ -16,6 +16,8 @@ import { makeAddStepTool } from "./tools/add-step";
 import { makeDeleteStepTool } from "./tools/delete-step";
 import { makeDeletePlanTool } from "./tools/delete-plan";
 import { makeUpdatePlanStepTaskTool } from "./tools/update-plan-step-task";
+import { makeListPlansTool } from "./tools/list-plans";
+import { makeSetActivePlanTool } from "./tools/set-active-plan";
 
 interface ToolContext {
   ctxId: string;
@@ -296,6 +298,8 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     makeAddSubtaskTool(ctxId, store, manager, getCtxDir),
     makeEmbedSubplanTool(ctxId, store, manager, getCtxDir, emit),
     makeGetPlanStatusTool(ctxId, store, manager, getCtxDir),
+    makeListPlansTool(ctxId, store, manager),
+    makeSetActivePlanTool(ctxId, store, manager, emit),
     makeAddStepTool(ctxId, store, manager, getCtxDir, emit),
     makeDeleteStepTool(ctxId, store, manager, getCtxDir, emit),
     makeDeletePlanTool(ctxId, store, manager, getCtxDir, emit),
