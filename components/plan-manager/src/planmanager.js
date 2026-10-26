@@ -1,0 +1,225 @@
+/**
+ * PlanManager — singleton-менеджер для керирования объектами Plan.
+ * Держит в памяти кэш всех загруженных планов, синхронизирует доступ
+ * к созданию и загрузке планов через мютекс на уровне менеджера.
+ */
+
+import { readFile, writeFile, mkdir, readdir } from 'fs/promises';
+import fs from 'fs';
+import { join, resolve } from 'path';
+import { randomUUID } from 'crypto';
+import { Plan } from './plan.js';
+import { PlanStep } from './planstep.js';
+
+// Определяем корень проекта (родительская директория от текущей cwd)
+const ROOT_DIR = resolve(process.cwd(), '..');
+
+/**
+ * PlanManager — singleton.
+ */
+export class PlanManager {
+  constructor() {
+    // Кэш загруженных планов: Map<planId, Plan>
+    this._plans = new Map();
+  }
+
+  /**
+   * Получить экземпляр singleton.
+   * @returns {PlanManager}
+   */
+  static getInstance() {
+    if (!PlanManager._instance) {
+      PlanManager._instance = new PlanManager();
+    }
+    return PlanManager._instance;
+  }
+
+  /**
+   * Создать новый пустой план.
+   * @param {string} ctxId - Идентификатор контекста
+   * @param {object} params
+   * @param {string} params.title - Название плана
+   * @param {string} [params.description] - Описание цели и контекста
+   * @param {string} params.createdBy - ID агента, создавшего план
+   * @returns {Plan}
+   */
+  async createPlan(ctxId, { title, description, createdBy }) {
+    const planId = randomUUID();
+    const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
+
+    // Создаём директорию для планов (если не существует)
+    if (!fs.existsSync(plansDir)) {
+      fs.mkdirSync(plansDir, { recursive: true });
+    }
+
+    const filePath = join(plansDir, `${planId}.json`);
+
+    const plan = new Plan({
+      id: planId,
+      title,
+      description,
+      createdBy,
+      status: 'planning',
+      steps: [],
+      filePath: filePath
+    });
+
+    // Сохраняем на диск (внутри save() будет свой мютекс)
+    await plan.save();
+
+    // Кешируем в памяти
+    this._plans.set(planId, plan);
+
+    return plan;
+  }
+
+  /**
+   * Получить список всех планов для контекста.
+   * Возвращает массив объектов с основной информацией о каждом плане.
+   * @param {string} ctxId - Идентификатор контекста
+   * @returns {Array<PlanItem>}
+   */
+  async listPlans(ctxId) {
+    const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
+    
+    if (!fs.existsSync(plansDir)) {
+      return [];
+    }
+
+    const result = [];
+    const files = fs.readdirSync(plansDir);
+
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      
+      const planId = file.replace('.json', '');
+      try {
+        // Читаем только заголовок плана, не полный объект
+        const content = fs.readFileSync(join(plansDir, file), 'utf-8');
+        if (!content || content.trim() === '') continue;
+        
+        const data = JSON.parse(content);
+        result.push({
+          id: planId,
+          title: data.title || '(без названия)',
+          description: data.description || '',
+          createdBy: data.createdBy || '',
+          createdAt: data.createdAt || 0,
+          status: data.status || ''
+        });
+      } catch (e) {
+        console.warn(`[planmanager] Ошибка чтения плана ${planId}:`, e.message);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Загрузить план по ID. Ищет в кэше, если нет — загружает из файла и кеширует.
+   * @param {string} ctxId - Идентификатор контекста
+   * @param {string} planId - ID плана
+   * @returns {Plan|null}
+   */
+  async loadPlan(ctxId, planId) {
+    // Сначала ищем в кэше
+    let plan = this._plans.get(planId);
+
+    if (!plan) {
+      // Загружаем из файла
+      const plansDir = join(ROOT_DIR, 'contexts', ctxId, 'plans');
+      const filePath = join(plansDir, `${planId}.json`);
+
+      try {
+        plan = await this._loadFromPath(filePath);
+        if (plan) {
+          // Кешируем в памяти
+          this._plans.set(planId, plan);
+        }
+      } catch (e) {
+        console.error(`[planmanager] Error loading plan ${planId}:`, e);
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      }
+    }
+
+    return plan;
+  }
+
+  /**
+   * Получить план из кэша без загрузки с диска.
+   * @param {string} planId - ID плана
+   * @returns {Plan|null}
+   */
+  getCachedPlan(planId) {
+    return this._plans.get(planId) || null;
+  }
+
+  /**
+   * Удалить план из кэша (не с диска).
+   * @param {string} planId - ID плана
+   */
+  removeCachedPlan(planId) {
+    this._plans.delete(planId);
+  }
+
+  /**
+   * Загрузить план по прямому пути к файлу. Если план уже в кэше — возвращает кэшированную версию.
+   * @param {string} filePath - Полный путь к файлу плана
+   * @returns {Plan|null}
+   */
+  async loadPlanByFile(filePath) {
+    try {
+      const plan = await this._loadFromPath(filePath);
+      if (!plan) return null;
+
+      // Проверяем кэш по ID плана из загруженных данных
+      const cached = this._plans.get(plan.id);
+      if (cached) return cached;
+
+      // Кешируем в памяти
+      this._plans.set(plan.id, plan);
+
+      return plan;
+    } catch (e) {
+      console.error(`[planmanager] Error loading plan by file ${filePath}:`, e);
+      if (e.code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+
+  /**
+   * Загрузить план из файла по пути. Читаем файл, парсим JSON с fallback на .prev,
+   * создаём Plan из данных.
+   * @param {string} filePath - Путь к файлу плана
+   * @returns {Plan|null}
+   */
+  async _loadFromPath(filePath) {
+    const content = await readFile(filePath, 'utf-8');
+    if (!content || content.trim() === '') {
+      throw new Error(`Plan file is empty: ${filePath}`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(content);
+    } catch (parseError) {
+      // Пытаемся загрузить резервную копию
+      const backupFilePath = `${filePath}.prev`;
+      if (fs.existsSync(backupFilePath)) {
+        const backupContent = await readFile(backupFilePath, 'utf-8');
+        data = JSON.parse(backupContent);
+        // Обновляем основной файл из бэкапа
+        await writeFile(filePath, backupContent, 'utf-8');
+      } else {
+        throw new Error(`Failed to parse plan file (no backup available): ${parseError.message}`);
+      }
+    }
+
+    return Plan.fromJSON(data, filePath);
+  }
+
+}
+
+// Экспорт для использования в других файлах
+export default PlanManager.getInstance();

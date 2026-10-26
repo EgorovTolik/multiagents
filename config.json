@@ -1,5 +1,5 @@
 {
-  "model": "eac-mac-ai/Ornith-1.5-35B-A3B-APEX-MTP-Quality.gguf",
+  "model": "eac-home-ai/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-Q4_K_M.gguf",
   "port": 3000,
   "providers": {
     "eac-mac-ai": {
@@ -16,7 +16,7 @@
     },
     "gl-hub": {
       "url": "https://litellm-master.dev2.k8s.eltc.ru",
-      "apiKey": "sk-koS7p4o42Rx5uocstFLrKw"
+      "apiKey": "sk-yY8JVAai2v9B6D5GJqm93w"
     }
   },
   "recoveryMode": "router_agent",

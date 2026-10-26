@@ -27,6 +27,7 @@ import {
   internalError,
 } from "./error-types";
 import { RecoveryEngine, ORCHESTRATOR_ID, CHAIN_ROUTER_ID } from "./recovery.js";
+import { PlanService } from "./plan-service.js";
 import { MutexManager } from "./mutex.js";
 import { SkillInjector } from "./skills-injector.js";
 import type { SkillRegistry } from "./skill-registry";
@@ -36,6 +37,7 @@ import { QueueManager } from "./queue.js";
 import { PromptBuilder } from "./prompt-builder.js";
 import { buildAgentTools } from "./agent-tools.js";
 import { ImageManager, fmtSize } from "./image-manager.js";
+import { readJson } from "./utils.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
 
 export type Emit = (msg: unknown) => void;
@@ -92,6 +94,7 @@ export class AgentRunner {
   activeByCtx = new Map<string, string>();
   private mutexManager!: MutexManager;
   private recoveryEngine!: RecoveryEngine;
+  private planService!: PlanService;
   private queue!: QueueManager;
   private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
@@ -119,6 +122,7 @@ export class AgentRunner {
     this.queue = new QueueManager();
     this.mutexManager = new MutexManager(this.emit);
     this.recoveryEngine = new RecoveryEngine(sysCfg.maxRecoveries);
+    this.planService = new PlanService();
     this.providerRegistry = new ProviderRegistry(this.providers, this.defaultModel, this.registry, this.agentsDir);
     this.imageManager = new ImageManager({
       getCtxDir: (ctxId) => this.getCtxDir(ctxId),
@@ -167,6 +171,14 @@ export class AgentRunner {
 
   hasQueued(): boolean {
     return this.queue.hasQueued();
+  }
+
+  getPlanService(): PlanService {
+    return this.planService;
+  }
+
+  getContextStore(): ContextStore {
+    return this.store;
   }
 
   private key(ctxId: string, agentId: string) {
@@ -311,6 +323,17 @@ export class AgentRunner {
   }
 
   private async run(ctxId: string, text: string, files?: FileAttachment[]) {
+    // Перечитываем конфигурацию агентов и глобальную модель с диска
+    // перед каждым новым запуском — чтобы изменения в config.json
+    // применялись без перезапуска сервера.
+    this.registry.reload();
+    const projectConfig: ProjectConfig = readJson(path.join(PROJECT_ROOT, "config.json"), {});
+    if (projectConfig.model && projectConfig.model !== this.defaultModel) {
+      console.log(`[system] Модель по умолчанию обновлена: ${this.defaultModel ?? "(нет)"} → ${projectConfig.model}`);
+      this.defaultModel = projectConfig.model;
+      this.providerRegistry.updateDefaultModel(projectConfig.model);
+    }
+
     const ctx = this.store.get(ctxId);
     if (!ctx) return;
     const agentId = ctx.activeAgentId;
@@ -611,7 +634,7 @@ export class AgentRunner {
     return this.modelRuntime.getModel(spec.slice(0, slash), spec.slice(slash + 1));
   }
 
-  private getCtxDir(ctxId: string): string {
+  public getCtxDir(ctxId: string): string {
     if (this.store.isTrainingContext(ctxId)) {
       return this.store.trainingDir(ctxId);
     }

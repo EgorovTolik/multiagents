@@ -6,6 +6,18 @@ import type { AgentRegistry, AgentDef } from "./registry";
 import type { ContextStore, Handoff, Message } from "./context-store";
 import type { SkillInjector } from "./skills-injector.js";
 import type { Emit } from "./runner.ts";
+import { PlanManager } from "@multiagents/plan-manager";
+import { makeCreatePlanTool } from "./tools/create-plan";
+import { makeUpdatePlanStepTool } from "./tools/update-plan-step";
+import { makeAddSubtaskTool } from "./tools/add-subtask";
+import { makeEmbedSubplanTool } from "./tools/embed-subplan";
+import { makeGetPlanStatusTool } from "./tools/get-plan-status";
+import { makeAddStepTool } from "./tools/add-step";
+import { makeDeleteStepTool } from "./tools/delete-step";
+import { makeDeletePlanTool } from "./tools/delete-plan";
+import { makeUpdatePlanStepTaskTool } from "./tools/update-plan-step-task";
+import { makeListPlansTool } from "./tools/list-plans";
+import { makeSetActivePlanTool } from "./tools/set-active-plan";
 
 interface ToolContext {
   ctxId: string;
@@ -271,6 +283,7 @@ export function makeNotifyTool(emit: Emit, ctxId: string) {
 
 /** Фабрика всех инструментов агента. */
 export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string) {
+  const manager = PlanManager.getInstance();
   const tools = [
     makeListAgentsTool(registry),
     makeRouteTool(ctxId, agentId, store, registry, emit, maxHandoffs),
@@ -280,6 +293,17 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     skillInjector.createUseSkillTool(ctxId, agentId),
     makeSharedStoreTool(sharedDir),
     makeNotifyTool(emit, ctxId),
+    makeCreatePlanTool(ctxId, store, emit),
+    makeUpdatePlanStepTool(ctxId, store, emit),
+    makeAddSubtaskTool(ctxId, store),
+    makeEmbedSubplanTool(ctxId, store, emit),
+    makeGetPlanStatusTool(ctxId, store),
+    makeListPlansTool(ctxId, store, manager),
+    makeSetActivePlanTool(ctxId, store, manager, emit),
+    makeAddStepTool(ctxId, store, emit),
+    makeDeleteStepTool(ctxId, store, emit),
+    makeDeletePlanTool(ctxId, store, emit),
+    makeUpdatePlanStepTaskTool(ctxId, store, emit),
   ];
   if (agentId === "agent-creator") {
     tools.push(makeCreateAgentTool(registry, agentsDir, emit, defaultDisabledToolNames));

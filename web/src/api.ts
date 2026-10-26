@@ -31,6 +31,10 @@ export interface ContextMeta {
   lastMessageAt?: number;
   /** Навыки, применённые к этому чату. */
   skills?: string[];
+  /** Количество восстановлений цепочки в этом контексте. */
+  recoveryCount?: number;
+  /** ID активного плана для этого контекста. */
+  activePlanId?: string;
 }
 
 export interface AgentInfo {
@@ -78,7 +82,41 @@ export type ServerMsg =
   | { type: "recovery_decision"; ctxId: string; decision: string; targetAgent?: string; reason?: string }
   | { type: "recovery_completed"; ctxId: string; success: boolean; count: number; reason?: string }
   | { type: "agent_notification"; ctxId: string; message: string; sticky?: boolean }
-  | { type: "error"; ctxId?: string; message: string };
+  // Plan management events
+  | { type: "plan_created"; ctxId: string; planId: string }
+  | { type: "plan_updated"; ctxId: string; planId: string }
+  | { type: "plan_deleted"; ctxId: string }
+  | { type: "error"; message: string }
+
+// === Plan Management Types ===
+
+export interface PlanStep {
+  id: string;
+  task: string;
+  file?: string;
+  taskFiles?: Array<{ file: string; timestamp: number }>;
+  resultsFiles?: Array<{ file: string; timestamp: number }>;
+  planFile?: string;
+  status: 'pending' | 'in_progress' | 'done' | 'blocked';
+  steps?: PlanStep[];
+  plan?: Plan; // Embedded subplan (loaded from planFile)
+}
+
+export interface Plan {
+  id: string;
+  title: string;
+  description?: string;
+  createdBy: string;
+  createdAt: number;
+  status: 'planning' | 'approved' | 'executing' | 'completed' | 'archived';
+  steps: PlanStep[];
+}
+
+export interface PlanProgress {
+  done: number;
+  total: number;
+  percent: number;
+}
 
 export type ConnStatus = "connected" | "connecting" | "disconnected";
 

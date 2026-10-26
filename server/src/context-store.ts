@@ -77,6 +77,8 @@ export interface ContextMeta {
   skills?: string[];
   /** Какие навыки уже переданы какому агенту (agentId → id навыков). */
   deliveredSkills?: Record<string, string[]>;
+  /** ID активного плана для этого контекста. */
+  activePlanId?: string;
 }
 
 /**
@@ -275,6 +277,16 @@ export class ContextStore {
     if (meta.deliveredSkills && Object.keys(meta.deliveredSkills).length > 0) {
       meta.deliveredSkills = {};
     }
+  }
+
+  /** Устанавливает ID активного плана для контекста. */
+  setActivePlanId(meta: ContextMeta, planId: string): void {
+    meta.activePlanId = planId;
+  }
+
+  /** Получает ID активного плана для контекста. */
+  getActivePlanId(meta: ContextMeta): string | undefined {
+    return meta.activePlanId;
   }
 
   /** Определяет тип контекста по ID и возвращает соответствующую директорию. */

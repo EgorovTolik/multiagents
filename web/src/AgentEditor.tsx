@@ -43,6 +43,21 @@ const SYSTEM_TOOLS: { name: string; label: string; locked?: boolean }[] = [
   { name: "notify", label: "Уведомление пользователю" },
 ];
 
+// Инструменты планирования — отдельная группа в UI
+const PLAN_TOOLS: { name: string; label: string }[] = [
+  { name: "create_plan", label: "Создать план задач" },
+  { name: "add_step", label: "Добавить шаг плана" },
+  { name: "delete_step", label: "Удалить шаг плана" },
+  { name: "update_plan_step", label: "Обновить шаг плана" },
+  { name: "update_plan_step_task", label: "Редактировать задачу шага" },
+  { name: "add_subtask", label: "Добавить подзадачу" },
+  { name: "embed_subplan", label: "Встроить подплан" },
+  { name: "list_plans", label: "Список всех планов" },
+  { name: "set_active_plan", label: "Установить активный план" },
+  { name: "get_plan_status", label: "Статус плана" },
+  { name: "delete_plan", label: "Удалить план" },
+];
+
 interface PiToolInfo {
   name: string;
   description?: string;
@@ -416,6 +431,24 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                       </label>
                     ),
                   )}
+                </div>
+              </Field>
+
+              {/* Plan management tools — separate group */}
+              <Field label="Инструменты планирования" dirty={isDirty("disabledTools")} help="Инструменты для создания и управления планами задач.">
+                <div className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}>
+                  {PLAN_TOOLS.map((tool) => (
+                    <label key={tool.name} title={`Отключить «${tool.label.toLowerCase()}» для этого агента`} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={isToolEnabled(tool.name)}
+                        onChange={() => toggleTool(tool.name)}
+                        className="h-3.5 w-3.5 accent-indigo-500"
+                      />
+                      <span className="font-mono">{tool.name}</span>
+                      <span className="text-slate-500">— {tool.label}</span>
+                    </label>
+                  ))}
                 </div>
               </Field>
 

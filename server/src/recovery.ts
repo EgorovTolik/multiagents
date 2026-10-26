@@ -37,6 +37,40 @@ export class RecoveryEngine {
   }
 
   /**
+   * Найти следующую задачу в активном плане (для восстановления из плана).
+   * @param plan - объект активного плана
+   * @returns информация о следующем шаге или null если все шаги выполнены
+   */
+  getNextPlanStep(plan: any): { stepId: string; task: string } | null {
+    if (!plan || !plan.steps) return null;
+
+    // Ищем первый in_progress шаг (возобновить)
+    for (const step of plan.steps) {
+      if (step.status === 'in_progress') {
+        return { stepId: step.id, task: step.task };
+      }
+      // Рекурсивно проверяем подшаги
+      if (step.steps && step.steps.length > 0) {
+        const subStep = this.getNextPlanStep({ steps: step.steps });
+        if (subStep) return subStep;
+      }
+    }
+
+    // Если нет in_progress, ищем первый pending шаг
+    for (const step of plan.steps) {
+      if (step.status === 'pending') {
+        return { stepId: step.id, task: step.task };
+      }
+      if (step.steps && step.steps.length > 0) {
+        const subStep = this.getNextPlanStep({ steps: step.steps });
+        if (subStep) return subStep;
+      }
+    }
+
+    return null; // Все шаги выполнены или заблокированы
+  }
+
+  /**
    * Автоматическое обнаружение незавершённых задач при обрыве цепочки.
    * Проверяет, есть ли result-файл для последней task-задачи агента.
    */

@@ -1,7 +1,8 @@
-import type { ContextMeta, Handoff } from "../api";
+import type { ContextMeta, Handoff, PlanProgress } from "../api";
 import type { ConnStatus } from "../api";
 import { agentColor } from "../utils/format";
 import { RecoveryBadge } from "./RecoveryBadge";
+import { PlanStatusBadge } from "./PlanStatusBadge";
 
 export function ChatHeader({
   ctx,
@@ -10,6 +11,8 @@ export function ChatHeader({
   wsStatus,
   recoveryCount = 0,
   onOpenRecoveryModal,
+  planProgress = null,
+  onOpenPlanEditor,
   onOpenSidebar,
   onCancelHandoff,
   onAbort,
@@ -23,6 +26,8 @@ export function ChatHeader({
   wsStatus: ConnStatus;
   recoveryCount?: number;
   onOpenRecoveryModal?: () => void;
+  planProgress?: PlanProgress | null;
+  onOpenPlanEditor?: () => void;
   onOpenSidebar: () => void;
   onCancelHandoff: () => void;
   onAbort: () => void;
@@ -55,6 +60,14 @@ export function ChatHeader({
       )}
       {recoveryCount >= 0 && (
         <RecoveryBadge count={recoveryCount} onClick={onOpenRecoveryModal} />
+      )}
+      {planProgress && (
+        <PlanStatusBadge
+          done={planProgress.done}
+          total={planProgress.total}
+          status="executing"
+          onClick={onOpenPlanEditor}
+        />
       )}
       <span
         className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ${

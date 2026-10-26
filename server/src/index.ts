@@ -692,6 +692,106 @@ app.post("/api/tools/refresh", async (_req, res) => {
   }
 });
 
+// === Plan Management API ===
+
+app.get("/api/plans/:planId", async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const ctxId = req.query.ctxId as string;
+    if (!ctxId) {
+      res.status(400).json({ error: "ctxId query parameter required" });
+      return;
+    }
+    const planService = runner.getPlanService();
+    let plan = await planService.loadPlan(ctxId, planId);
+    if (!plan) {
+      res.status(404).json({ error: "Plan not found" });
+    } else {
+      const detailed = await plan.detailed();
+      res.json(detailed);
+    }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post("/api/plans", async (req, res) => {
+  try {
+    const { ctxId, title, description, createdBy } = req.body;
+    if (!ctxId || !title) {
+      res.status(400).json({ error: "ctxId and title required" });
+      return;
+    }
+    const planService = runner.getPlanService();
+    const plan = await planService.createPlan(ctxId, { title, description, createdBy: createdBy || "user" });
+    res.status(201).json({ plan });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.put("/api/plans/:planId", async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const ctxId = req.query.ctxId as string;
+    if (!ctxId) {
+      res.status(400).json({ error: "ctxId query parameter required" });
+      return;
+    }
+    // In the new architecture, savePlan is called automatically by PlanManager
+    // when plan objects are modified. This endpoint now just validates the request.
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get("/api/contexts/:ctxId/active-plan", async (req, res) => {
+  try {
+    const { ctxId } = req.params;
+    const store = runner.getContextStore();
+    const meta = store.get(ctxId);
+    if (!meta) {
+      res.status(404).json({ error: "Context not found" });
+      return;
+    }
+    const activePlanId = store.getActivePlanId(meta);
+    if (!activePlanId) {
+      res.json({ planId: null });
+    } else {
+      const planService = runner.getPlanService();
+      let plan = await planService.loadPlan(ctxId, activePlanId);
+      if (plan) {
+        // detailed() сам загружает embedded планы через step.plan()
+        const detailed = await plan.detailed();
+        res.json({ planId: activePlanId, plan: detailed });
+      } else {
+        res.json({ planId: null });
+      }
+    }
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Список всех планов для контекста
+app.get("/api/contexts/:ctxId/plans", async (req, res) => {
+  try {
+    const { ctxId } = req.params;
+    const store = runner.getContextStore();
+    const meta = store.get(ctxId);
+    if (!meta) {
+      res.status(404).json({ error: "Context not found" });
+      return;
+    }
+    const planService = runner.getPlanService();
+    const plans = await planService.listPlans(ctxId);
+    res.json({ plans });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Статус сессий: какие цепочки активны прямо сейчас (для кнопки сброса в настройках)
 app.get("/api/sessions", (_req, res) => {
   const actives = runner.getActives();

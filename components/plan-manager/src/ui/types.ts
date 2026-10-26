@@ -28,5 +28,7 @@ export interface Plan {
   createdBy: string;
   createdAt: number;
   status: PlanStatus;
+  ctxId?: string;
+  filePath?: string;
   steps: PlanStep[];
 }

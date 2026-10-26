@@ -22,6 +22,8 @@ const mockPlans: Record<string, Plan> = {
     createdBy: 'orchestrator',
     createdAt: Date.now() - 3600000,
     status: 'executing',
+    ctxId: 'demo-context-123',
+    filePath: '/tmp/demo-plan.json',
     steps: [
       {
         id: 'step-1',
