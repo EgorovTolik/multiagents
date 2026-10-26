@@ -52,6 +52,8 @@ const PLAN_TOOLS: { name: string; label: string }[] = [
   { name: "update_plan_step_task", label: "Редактировать задачу шага" },
   { name: "add_subtask", label: "Добавить подзадачу" },
   { name: "embed_subplan", label: "Встроить подплан" },
+  { name: "list_plans", label: "Список всех планов" },
+  { name: "set_active_plan", label: "Установить активный план" },
   { name: "get_plan_status", label: "Статус плана" },
   { name: "delete_plan", label: "Удалить план" },
 ];
