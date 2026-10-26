@@ -82,6 +82,11 @@ export type ServerMsg =
   | { type: "recovery_decision"; ctxId: string; decision: string; targetAgent?: string; reason?: string }
   | { type: "recovery_completed"; ctxId: string; success: boolean; count: number; reason?: string }
   | { type: "agent_notification"; ctxId: string; message: string; sticky?: boolean }
+  // Plan management events
+  | { type: "plan_created"; ctxId: string; planId: string }
+  | { type: "plan_updated"; ctxId: string; planId: string }
+  | { type: "plan_deleted"; ctxId: string }
+  | { type: "error"; message: string }
 
 // === Plan Management Types ===
 
