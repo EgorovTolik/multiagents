@@ -274,7 +274,7 @@ export default function App() {
             ],
           }));
           if (msg.ctxId === activeCtx?.id) {
-            notify(`⚠️ Цепочка прервалась (${msg.brokenAgent}) — восстанавливаю (попытка ${msg.attempt}/${msg.maxAttempts})`, { sticky: true });
+            notify(`⚠️ Цепочка прервалась (${msg.brokenAgent}) — восстанавливаю (попытка ${msg.attempt}/${msg.maxAttempts})`, { sticky: false });
           }
           break;
         case "recovery_decision":
@@ -300,7 +300,7 @@ export default function App() {
             }
             const agentNamesRef = agents;
             const targetName = msg.targetAgent ? (agentNamesRef.find((a) => a.id === msg.targetAgent)?.name ?? msg.targetAgent) : null;
-            notify(`🔄 Решение: ${decisionText}${targetName ? ` → ${targetName}` : ""}`, { sticky: true });
+            notify(`🔄 Решение: ${decisionText}${targetName ? ` → ${targetName}` : ""}`, { sticky: false });
           }
           break;
         case "recovery_completed":
