@@ -131,38 +131,17 @@ export class PlanManager {
       const filePath = join(plansDir, `${planId}.json`);
 
       try {
-        const content = await readFile(filePath, 'utf-8');
-          if (!content || content.trim() === '') {
-            throw new Error(`Plan file is empty: ${filePath}`);
-          }
-
-          let data;
-          try {
-            data = JSON.parse(content);
-          } catch (parseError) {
-            // Пытаемся загрузить резервную копию
-            const backupFilePath = `${filePath}.prev`;
-            if (fs.existsSync(backupFilePath)) {
-              const backupContent = await readFile(backupFilePath, 'utf-8');
-              data = JSON.parse(backupContent);
-              // Обновляем основной файл из бэкапа
-              await writeFile(filePath, backupContent, 'utf-8');
-            } else {
-              throw new Error(`Failed to parse plan file ${planId} (no backup available): ${parseError.message}`);
-            }
-          }
-
-          // Создаём Plan из JSON данных
-          plan = Plan.fromJSON(data, filePath);
-
+        plan = await this._loadFromPath(filePath);
+        if (plan) {
           // Кешируем в памяти
           this._plans.set(planId, plan);
-        } catch (e) {
-          console.error(`[planmanager] Error loading plan ${planId}:`, e);
-          if (e.code === 'ENOENT') return null;
-          throw e;
         }
+      } catch (e) {
+        console.error(`[planmanager] Error loading plan ${planId}:`, e);
+        if (e.code === 'ENOENT') return null;
+        throw e;
       }
+    }
 
     return plan;
   }
@@ -191,37 +170,15 @@ export class PlanManager {
    */
   async loadPlanByFile(filePath) {
     try {
-      // Загружаем из файла
-      const content = await readFile(filePath, 'utf-8');
-      if (!content || content.trim() === '') {
-        throw new Error(`Plan file is empty: ${filePath}`);
-      }
-
-      let data;
-      try {
-        data = JSON.parse(content);
-      } catch (parseError) {
-        // Пытаемся загрузить резервную копию
-        const backupFilePath = `${filePath}.prev`;
-        if (fs.existsSync(backupFilePath)) {
-          const backupContent = await readFile(backupFilePath, 'utf-8');
-          data = JSON.parse(backupContent);
-          // Обновляем основной файл из бэкапа
-          await writeFile(filePath, backupContent, 'utf-8');
-        } else {
-          throw new Error(`Failed to parse plan file (no backup available): ${parseError.message}`);
-        }
-      }
+      const plan = await this._loadFromPath(filePath);
+      if (!plan) return null;
 
       // Проверяем кэш по ID плана из загруженных данных
-      const cached = this._plans.get(data.id);
+      const cached = this._plans.get(plan.id);
       if (cached) return cached;
 
-      // Создаём Plan из JSON данных
-      const plan = Plan.fromJSON(data, filePath);
-
       // Кешируем в памяти
-      this._plans.set(data.id, plan);
+      this._plans.set(plan.id, plan);
 
       return plan;
     } catch (e) {
@@ -229,6 +186,37 @@ export class PlanManager {
       if (e.code === 'ENOENT') return null;
       throw e;
     }
+  }
+
+  /**
+   * Загрузить план из файла по пути. Читаем файл, парсим JSON с fallback на .prev,
+   * создаём Plan из данных.
+   * @param {string} filePath - Путь к файлу плана
+   * @returns {Plan|null}
+   */
+  async _loadFromPath(filePath) {
+    const content = await readFile(filePath, 'utf-8');
+    if (!content || content.trim() === '') {
+      throw new Error(`Plan file is empty: ${filePath}`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(content);
+    } catch (parseError) {
+      // Пытаемся загрузить резервную копию
+      const backupFilePath = `${filePath}.prev`;
+      if (fs.existsSync(backupFilePath)) {
+        const backupContent = await readFile(backupFilePath, 'utf-8');
+        data = JSON.parse(backupContent);
+        // Обновляем основной файл из бэкапа
+        await writeFile(filePath, backupContent, 'utf-8');
+      } else {
+        throw new Error(`Failed to parse plan file (no backup available): ${parseError.message}`);
+      }
+    }
+
+    return Plan.fromJSON(data, filePath);
   }
 
 }
