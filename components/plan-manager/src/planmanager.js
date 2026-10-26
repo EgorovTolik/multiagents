@@ -152,9 +152,8 @@ export class PlanManager {
             }
           }
 
-          // Восстанавливаем PlanStep объекты из данных
-          const steps = (data.steps || []).map(s => this._deserializeStep(s));
-          plan = new Plan({ ...data, steps, filePath: filePath });
+          // Создаём Plan из JSON данных
+          plan = Plan.fromJSON(data, filePath);
 
           // Кешируем в памяти
           this._plans.set(planId, plan);
@@ -218,9 +217,8 @@ export class PlanManager {
       const cached = this._plans.get(data.id);
       if (cached) return cached;
 
-      // Восстанавливаем PlanStep объекты из данных
-      const steps = (data.steps || []).map(s => this._deserializeStep(s));
-      const plan = new Plan({ ...data, steps, filePath: filePath });
+      // Создаём Plan из JSON данных
+      const plan = Plan.fromJSON(data, filePath);
 
       // Кешируем в памяти
       this._plans.set(data.id, plan);
@@ -233,12 +231,6 @@ export class PlanManager {
     }
   }
 
-  // --- Private helpers ---
-
-  _deserializeStep(data) {
-    const steps = (data.steps || []).map(s => this._deserializeStep(s));
-    return new PlanStep({ ...data, steps });
-  }
 }
 
 // Экспорт для использования в других файлах

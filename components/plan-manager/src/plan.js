@@ -171,6 +171,34 @@ export class Plan {
    * @param {number} [index] - Позиция в массиве (по умолчанию в конец)
    * @returns {PlanStep}
    */
+  /**
+   * Создать Plan из сырых JSON данных.
+   * @param {object} data - Сырые данные плана из файла
+   * @param {string} filePath - Путь к файлу плана
+   * @returns {Plan}
+   */
+  static fromJSON(data, filePath) {
+    const plan = new Plan({ ...data, steps: [], filePath });
+    for (const stepData of (data.steps || [])) {
+      const step = plan._deserializeStep(stepData);
+      // Добавляем шаг напрямую в массив (без создания нового через addStep)
+      plan.steps.push(step);
+    }
+    return plan;
+  }
+
+  /**
+   * Десериализовать PlanStep из сырых данных.
+   * @param {object} data - Сырые данные шага
+   * @returns {PlanStep}
+   */
+  _deserializeStep(data) {
+    const steps = (data.steps || []).map(s => this._deserializeStep(s));
+    const step = new PlanStep({ ...data, steps });
+    step.parentPlan = this;
+    return step;
+  }
+
   async addStep(task, index) {
     await acquirePlanLock(this.id);
     try {
@@ -397,10 +425,7 @@ export class Plan {
 
   // --- Private helpers ---
 
-  _deserializeStep(data) {
-    const steps = (data.steps || []).map(s => this._deserializeStep(s));
-    return new PlanStep({ ...data, steps });
-  }
+
 
   get plansDir() {
     if (this.filePath) {
