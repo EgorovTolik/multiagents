@@ -299,7 +299,7 @@ export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, s
     makeEmbedSubplanTool(ctxId, store, emit),
     makeGetPlanStatusTool(ctxId, store),
     makeListPlansTool(ctxId, store, manager),
-    makeSetActivePlanTool(ctxId, store, manager, emit),
+    makeSetActivePlanTool(ctxId, store, emit),
     makeAddStepTool(ctxId, store, emit),
     makeDeleteStepTool(ctxId, store, emit),
     makeDeletePlanTool(ctxId, store, emit),

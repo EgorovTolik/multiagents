@@ -1,8 +1,8 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
-import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
+import { getTargetPlan, toolError, toolOk } from "./plan-utils";
 
 export function makeAddStepTool(ctxId: string, store: ContextStore, emit: Emit) {
   return defineTool({
@@ -22,36 +22,24 @@ export function makeAddStepTool(ctxId: string, store: ContextStore, emit: Emit) 
     execute: async (_id, params: { task: string; index?: number; planId?: string }) => {
       // Валидация параметров
       if (!params.task || typeof params.task !== 'string' || params.task.trim() === '') {
-        return { content: [{ type: "text" as const, text: "Ошибка: параметр 'task' должен быть непустой строкой с описанием задачи. Пример: add_step(task='Реализовать API авторизации')" }], details: {} };
+        return toolError("Ошибка: параметр 'task' должен быть непустой строкой с описанием задачи. Пример: add_step(task='Реализовать API авторизации')");
       }
 
-      const ctx = store.get(ctxId);
-      if (!ctx) {
-        return { content: [{ type: "text" as const, text: `Ошибка: контекст ${ctxId} не найден` }], details: {} };
+      // Получение целевого плана через утилиту
+      const target = await getTargetPlan(ctxId, store, { planId: params.planId });
+      if ('error' in target) {
+        return toolError(`Ошибка: ${target.error}`);
       }
 
       try {
-        // Если указан planId — используем его, иначе активный план
-        let targetPlanId = params.planId || store.getActivePlanId(ctx);
-        if (!targetPlanId) {
-          return { content: [{ type: "text" as const, text: "Ошибка: для этого контекста нет активного плана и не указан planId. Создайте план через create_plan." }], details: {} };
-        }
-
-        const manager = PlanManager.getInstance();
-        const plan = await manager.loadPlan(ctxId, targetPlanId);
-        if (!plan) {
-          return { content: [{ type: "text" as const, text: `Ошибка: активный план ${targetPlanId} не найден` }], details: {} };
-        }
-
-        const planObj: any = plan;
-        const step = await planObj.addStep(params.task, params.index);
+        const step = await target.plan.addStep(params.task, params.index);
         
         // Отправляем событие обновления плана в UI
-        emit({ type: "plan_updated", ctxId, planId: targetPlanId });
+        emit({ type: "plan_updated", ctxId, planId: target.planId });
 
-        return { content: [{ type: "text" as const, text: `Шаг добавлен в план ${targetPlanId}: "${params.task}" (ID: ${step.id})` }], details: {} };
+        return toolOk(`Шаг добавлен в план ${target.planId}: "${params.task}" (ID: ${step.id})`);
       } catch (err) {
-        return { content: [{ type: "text" as const, text: `Ошибка добавления шага: ${String(err)}` }], details: {} };
+        return toolError(`Ошибка добавления шага: ${String(err)}`);
       }
     },
   });

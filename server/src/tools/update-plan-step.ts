@@ -1,12 +1,8 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContextStore } from "../context-store";
-import { PlanManager } from "@multiagents/plan-manager";
 import type { Emit } from "../runner.ts";
-
-function okText(text: string) {
-  return { content: [{ type: "text" as const, text }], details: {} };
-}
+import { getTargetPlan, toolError, toolOk } from "./plan-utils";
 
 /**
  * Инструмент update_plan_step — обновить статус шага плана.
@@ -28,39 +24,28 @@ export function makeUpdatePlanStepTool(ctxId: string, store: ContextStore, emit:
     execute: async (_id, params) => {
       // Валидация параметров
       if (!params.stepId || typeof params.stepId !== 'string' || params.stepId.trim() === '') {
-        return okText("Ошибка: параметр 'stepId' должен быть непустой строкой с ID шага плана. Получите ID через get_plan_status.");
+        return toolError("Ошибка: параметр 'stepId' должен быть непустой строкой с ID шага плана. Получите ID через get_plan_status.");
       }
 
-      const ctx = store.get(ctxId);
-      if (!ctx) {
-        return okText(`Ошибка: контекст ${ctxId} не найден`);
+      // Получение целевого плана через утилиту
+      const target = await getTargetPlan(ctxId, store);
+      if ('error' in target) {
+        return toolError(`Ошибка: ${target.error}`);
       }
 
       try {
-        const activePlanId = store.getActivePlanId(ctx);
-        if (!activePlanId) {
-          return okText("Ошибка: для этого контекста нет активного плана. Создайте план через create_plan.");
-        }
-
-        const manager = PlanManager.getInstance();
-        const plan = await manager.loadPlan(ctxId, activePlanId);
-        if (!plan) {
-          return okText(`Ошибка: активный план ${activePlanId} не найден`);
-        }
-
         const stepId = params.stepId as string;
         const status = params.status as 'pending' | 'in_progress' | 'done' | 'blocked' | undefined;
 
         if (status) {
-          const planObj: any = plan;
-          await planObj.setStepStatus(stepId, status);
-          emit({ type: "plan_updated", ctxId, planId: activePlanId });
-          return okText(`Статус шага ${stepId} обновлен на "${status}".`);
+          await target.plan.setStepStatus(stepId, status);
+          emit({ type: "plan_updated", ctxId, planId: target.planId });
+          return toolOk(`Статус шага ${stepId} обновлен на "${status}".`);
         } else {
-          return okText("Ошибка: параметр status не указан.");
+          return toolError("Ошибка: параметр status не указан.");
         }
       } catch (err) {
-        return okText(`Ошибка обновления шага плана: ${String(err)}`);
+        return toolError(`Ошибка обновления шага плана: ${String(err)}`);
       }
     },
   });
