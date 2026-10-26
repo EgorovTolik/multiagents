@@ -2,7 +2,9 @@
  * Глобальный мьютекс агентов: в любой момент времени один агент выполняет ход только в одном чате.
  * Другие сообщения от этого агента — в очередь с ожиданием (FIFO).
  */
-export type AgentEmit = (msg: unknown) => void;
+import type { ServerToClientMessage } from "./ws-types";
+
+export type AgentEmit = (msg: ServerToClientMessage) => void;
 
 interface Waiter {
   ctxId: string;

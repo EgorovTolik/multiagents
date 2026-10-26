@@ -39,8 +39,9 @@ import { buildAgentTools } from "./agent-tools.js";
 import { ImageManager, fmtSize } from "./image-manager.js";
 import { readJson } from "./utils.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
+import type { ServerToClientMessage } from "./ws-types.ts";
 
-export type Emit = (msg: unknown) => void;
+export type Emit = (msg: ServerToClientMessage) => void;
 
 /** Информация об инструменте pi. */
 export interface PiToolInfo {

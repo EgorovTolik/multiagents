@@ -4,7 +4,9 @@ import { SkillRegistry, type SkillDef } from "./skill-registry";
 import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
 import { AgentRegistry } from "./registry";
 
-export type Emit = (msg: unknown) => void;
+import type { ServerToClientMessage } from "./ws-types";
+
+export type Emit = (msg: ServerToClientMessage) => void;
 
 function okText(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };

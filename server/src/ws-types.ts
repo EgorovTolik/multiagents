@@ -186,6 +186,7 @@ export interface WsMsgError {
   type: "error";
   message: string;
   ctxId?: string;
+  error?: object;
 }
 
 export interface WsMsgHandoffCancelled {
@@ -193,10 +194,12 @@ export interface WsMsgHandoffCancelled {
   ctxId: string;
 }
 
+import type { Message } from "./context-store";
+
 export interface WsMsgSystemMessage {
   type: "message";
   ctxId: string;
-  message: string;
+  message: string | Message;
 }
 
 export interface WsMsgQueued {
@@ -242,11 +245,110 @@ export interface WsMsgAssistantEnd {
 export interface WsMsgHandoff {
   type: "handoff";
   ctxId: string;
-  handoff: { agentId: string };
+  handoff: object;
+}
+
+// === Handoff / Agent interaction messages ===
+
+export interface WsMsgHandoffPending {
+  type: "handoff_pending";
+  ctxId: string;
+  handoff: object;
+}
+
+export interface WsMsgChainWaiting {
+  type: "chain_waiting";
+  ctxId: string;
+  agentId: string;
+}
+
+export interface WsMsgAskUser {
+  type: "ask_user";
+  ctxId: string;
+  agentId: string;
+  question: string;
+}
+
+export interface WsMsgAgentNotification {
+  type: "agent_notification";
+  ctxId: string;
+  message: string;
+  sticky?: boolean;
+}
+
+// === Plan messages ===
+
+export interface WsMsgPlanCreated {
+  type: "plan_created";
+  ctxId: string;
+  planId: string;
+}
+
+export interface WsMsgPlanUpdated {
+  type: "plan_updated";
+  ctxId: string;
+  planId: string;
+}
+
+export interface WsMsgPlanDeleted {
+  type: "plan_deleted";
+  ctxId: string;
 }
 
 export interface WsMsgSystemNotice {
   type: "system_notice";
+  text: string;
+}
+
+// === Recovery messages ===
+
+export interface WsMsgRecoveryStarted {
+  type: "recovery_started";
+  ctxId: string;
+  brokenAgent: string;
+  attempt: number;
+  maxAttempts: number;
+}
+
+export interface WsMsgRecoveryCompleted {
+  type: "recovery_completed";
+  ctxId: string;
+  success: boolean;
+  count: number;
+  reason?: string;
+}
+
+export interface WsMsgRecoveryDecision {
+  type: "recovery_decision";
+  ctxId: string;
+  decision: string;
+  targetAgent: string;
+  reason: string;
+}
+
+// === Other messages ===
+
+export interface WsMsgSkillsApplied {
+  type: "skills_applied";
+  ctxId: string;
+  skills: string[];
+}
+
+export interface WsMsgApiKey {
+  type: "api_key";
+  key: string;
+  label?: string;
+}
+
+export interface WsMsgImage {
+  type: "image";
+  ctxId: string;
+  filename: string;
+  url: string;
+}
+
+export interface WsMsgText {
+  type: "text";
   text: string;
 }
 
@@ -274,4 +376,18 @@ export type ServerToClientMessage =
   | WsMsgThinkingDelta
   | WsMsgAssistantEnd
   | WsMsgHandoff
-  | WsMsgSystemNotice;
+  | WsMsgHandoffPending
+  | WsMsgChainWaiting
+  | WsMsgAskUser
+  | WsMsgAgentNotification
+  | WsMsgPlanCreated
+  | WsMsgPlanUpdated
+  | WsMsgPlanDeleted
+  | WsMsgSystemNotice
+  | WsMsgRecoveryStarted
+  | WsMsgRecoveryCompleted
+  | WsMsgRecoveryDecision
+  | WsMsgSkillsApplied
+  | WsMsgApiKey
+  | WsMsgImage
+  | WsMsgText;
