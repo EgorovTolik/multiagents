@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Emit } from "./runner.ts";
+import type { ServerToClientMessage } from "./ws-types";
 import type { Message } from "./context-store";
 
 const IMAGE_EXT: Record<string, string> = {
@@ -13,7 +13,7 @@ const IMAGE_EXT: Record<string, string> = {
 interface ImageManagerOptions {
   getCtxDir: (ctxId: string) => string;
   storeAppendMessage: (ctxId: string, msg: Message) => void;
-  emit: Emit;
+  emit: (msg: ServerToClientMessage) => void;
 }
 
 /** Менеджер изображений из результатов инструментов (скриншоты MCP и т.п.). */
@@ -61,7 +61,7 @@ export class ImageManager {
     this.pendingImages.delete(key);
     const msg: Message = { role: "assistant", agentId, text: imgs.join("\n"), ts: Date.now() };
     this.options.storeAppendMessage(ctxId, msg);
-    this.options.emit({ type: "assistant_end", ctxId, agentId, text: msg.text });
+    this.options.emit({ type: "assistant_end", ctxId, agentId, msgId: 0, text: msg.text });
   }
 
   /** Добавить накопленные изображения для агента. */

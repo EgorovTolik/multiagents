@@ -55,47 +55,49 @@ export default function LearningPage({ onBack }: Props) {
           }
         }
         break;
-      case "delta":
+      case "message_start":
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => {
-            const last = m[m.length - 1];
-            // Проверяем: сообщение уже стримится (оканчивается на …) или это возобновление после перезагрузки
-            const isStreaming = last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || last.streaming);
-            if (isStreaming) {
-              const copy = [...m];
-              // Если это возобновление после перезагрузки — удаляем флаг streaming
-              const baseText = last.text.endsWith("…") ? last.text.slice(0, -1) : last.text;
-              copy[m.length - 1] = { ...last, text: baseText + msg.text + "…", streaming: false };
-              return copy;
-            }
-            return [...m, { role: "assistant", agentId: msg.agentId, text: msg.text + "…", ts: Date.now() }];
+            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() }];
           });
         }
         break;
       case "thinking_delta":
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => {
-            const last = m[m.length - 1];
-            // Проверяем: сообщение уже стримится или это возобновление после перезагрузки
-            const isStreaming = last?.role === "assistant" && last.agentId === msg.agentId && (last.text.endsWith("…") || last.streaming || (last.text === "" && !!last.thinking));
-            if (isStreaming) {
+            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            if (idx >= 0) {
               const copy = [...m];
-              copy[m.length - 1] = { ...last, thinking: (last.thinking ?? "") + msg.text, streaming: false };
+              copy[idx] = { ...copy[idx], thinking: (copy[idx].thinking ?? "") + msg.text };
               return copy;
             }
-            return [...m, { role: "assistant", agentId: msg.agentId, text: "", thinking: msg.text, ts: Date.now() }];
+            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() }];
+          });
+        }
+        break;
+      case "delta":
+        if (activeSession && msg.ctxId === activeSession.id) {
+          setMessages((m) => {
+            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            if (idx >= 0) {
+              const copy = [...m];
+              copy[idx] = { ...copy[idx], text: copy[idx].text + msg.text };
+              return copy;
+            }
+            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() }];
           });
         }
         break;
       case "assistant_end":
         if (activeSession && msg.ctxId === activeSession.id) {
           setMessages((m) => {
-            const i = [...m].reverse().findIndex((x) => x.role === "assistant" && x.agentId === msg.agentId);
-            if (i < 0) return m;
-            const idx = m.length - 1 - i;
-            const copy = [...m];
-            copy[idx] = { role: "assistant", agentId: msg.agentId, text: msg.text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
-            return copy;
+            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            if (idx >= 0) {
+              const copy = [...m];
+              copy[idx] = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text || copy[idx].text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
+              return copy;
+            }
+            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() }];
           });
           setSentText(null);
         }

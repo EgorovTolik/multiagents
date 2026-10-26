@@ -11,6 +11,7 @@ export interface Handoff {
 export interface Message {
   role: "user" | "assistant" | "system";
   agentId?: string;
+  msgId?: number;
   text: string;
   /** Рассуждения модели (thinking) — раскрывающийся блок в UI. */
   thinking?: string;
@@ -59,9 +60,10 @@ export type ServerMsg =
   | { type: "context_created"; context: ContextMeta }
   | { type: "context_loaded"; context: ContextMeta | undefined; messages: Message[] }
   | { type: "message"; ctxId: string; message: Message }
-  | { type: "delta"; ctxId: string; agentId: string; text: string }
-  | { type: "thinking_delta"; ctxId: string; agentId: string; text: string }
-  | { type: "assistant_end"; ctxId: string; agentId: string; text: string; thinking?: string }
+  | { type: "delta"; ctxId: string; agentId: string; msgId: number; text: string }
+  | { type: "thinking_delta"; ctxId: string; agentId: string; msgId: number; text: string }
+  | { type: "message_start"; ctxId: string; agentId: string; msgId: number }
+  | { type: "assistant_end"; ctxId: string; agentId: string; msgId: number; text: string; thinking?: string }
   | { type: "run_start"; ctxId: string; agentId: string }
   | { type: "run_end"; ctxId: string; agentId: string }
   | { type: "handoff"; ctxId: string; handoff: Handoff }

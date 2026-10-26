@@ -224,6 +224,7 @@ export interface WsMsgDelta {
   type: "delta";
   ctxId: string;
   agentId: string;
+  msgId: number;
   text: string;
 }
 
@@ -231,13 +232,22 @@ export interface WsMsgThinkingDelta {
   type: "thinking_delta";
   ctxId: string;
   agentId: string;
+  msgId: number;
   text: string;
+}
+
+export interface WsMsgMessageStart {
+  type: "message_start";
+  ctxId: string;
+  agentId: string;
+  msgId: number;
 }
 
 export interface WsMsgAssistantEnd {
   type: "assistant_end";
   ctxId: string;
   agentId: string;
+  msgId: number;
   text: string;
   thinking?: string;
 }
@@ -374,6 +384,7 @@ export type ServerToClientMessage =
   | WsMsgRunEnd
   | WsMsgDelta
   | WsMsgThinkingDelta
+  | WsMsgMessageStart
   | WsMsgAssistantEnd
   | WsMsgHandoff
   | WsMsgHandoffPending

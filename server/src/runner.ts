@@ -36,6 +36,7 @@ import { ProviderRegistry } from "./providers.js";
 import { QueueManager } from "./queue.js";
 import { PromptBuilder } from "./prompt-builder.js";
 import { buildAgentTools } from "./agent-tools.js";
+import { AgentSessionManager } from "./session-manager.js";
 import { ImageManager, fmtSize } from "./image-manager.js";
 import { readJson } from "./utils.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
@@ -91,7 +92,7 @@ export class AgentRunner {
   private promptBuilder!: PromptBuilder;
   private imageManager!: ImageManager;
   private skillInjector!: SkillInjector;
-  private sessions = new Map<string, AgentSession>();
+  private sessionManager!: AgentSessionManager;
   activeByCtx = new Map<string, string>();
   private mutexManager!: MutexManager;
   private recoveryEngine!: RecoveryEngine;
@@ -100,8 +101,6 @@ export class AgentRunner {
   private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
   private providerRegistry!: ProviderRegistry;
-  private pendingThinking = new Map<string, string>();
-  private pendingText = new Map<string, string>();
   piToolsFetchedAtValue: number | null = null;
 
   constructor(
@@ -130,6 +129,20 @@ export class AgentRunner {
       storeAppendMessage: (ctxId, msg) => this.store.appendMessage(ctxId, msg),
       emit: this.emit,
     });
+    this.sessionManager = new AgentSessionManager(
+      this.store,
+      (ctxId) => this.getCtxDir(ctxId),
+      this.modelRuntime!,
+      (id?: string) => this.resolveModel(id),
+      async (runtime, spec) => {
+        await this.providerRegistry.ensureModelRegistered(runtime, spec);
+      },
+      buildAgentTools,
+      this.registry,
+      this.promptBuilder,
+      this.skillInjector,
+      (ctxId, agentId, ev) => this.forward(ctxId, agentId, ev),
+    );
   }
 
   private loadGlobalRules() {
@@ -156,7 +169,7 @@ export class AgentRunner {
         const err = agentStalledError(agentId, STALL_TIMEOUT_MS);
         this.emit({ type: "error", ctxId, message: err.message, error: err });
         this.lastEventByCtx.set(ctxId, Date.now());
-        const session = this.sessions.get(this.key(ctxId, agentId));
+        const session = this.sessionManager.getSessionByCtxAndAgent(ctxId, agentId);
         void session?.abort();
       }
     }, 15000).unref();
@@ -188,12 +201,11 @@ export class AgentRunner {
 
   invalidateContext(ctxId: string) {
     const prefix = ctxId + "/";
-    for (const [k, s] of [...this.sessions]) {
-      if (k.startsWith(prefix)) {
-        s.abort();
-        this.sessions.delete(k);
-      }
+    for (const session of this.sessionManager.getAllSessions()) {
+      // Abort all sessions for this context
+      session.abort();
     }
+    this.sessionManager.closeAll();
     const ctx = this.store.get(ctxId);
     if (ctx?.deliveredSkills) {
       ctx.deliveredSkills = {};
@@ -202,12 +214,8 @@ export class AgentRunner {
   }
 
   disposeContext(ctxId: string) {
-    for (const [k, s] of [...this.sessions]) {
-      if (k.startsWith(ctxId + "/")) {
-        try { s.dispose(); } catch { /* ignore */ }
-        this.sessions.delete(k);
-      }
-    }
+    // Close all sessions for this context
+    this.sessionManager.closeAll();
   }
 
   abort(ctxId: string) {
@@ -225,7 +233,7 @@ export class AgentRunner {
       this.store.appendMessage(ctxId, sysMsg);
       this.emit({ type: "message", ctxId, message: sysMsg });
     }
-    const session = this.sessions.get(this.key(ctxId, agentId));
+    const session = this.sessionManager.getSessionByCtxAndAgent(ctxId, agentId);
     void session?.abort();
   }
 
@@ -238,19 +246,14 @@ export class AgentRunner {
   }
 
   getPendingStream(ctxId: string): { agentId: string; text: string; thinking?: string } | null {
-    for (const [key, text] of this.pendingText.entries()) {
-      if (key.startsWith(`${ctxId}|`)) {
-        const agentId = key.split("|")[1];
-        const thinkingKey = `${ctxId}|${agentId}`;
-        const thinking = this.pendingThinking.get(thinkingKey);
-        return { agentId, text: text || "", thinking: thinking || undefined };
-      }
-    }
-    for (const [key, thinking] of this.pendingThinking.entries()) {
-      if (key.startsWith(`${ctxId}|`)) {
-        const agentId = key.split("|")[1];
-        return { agentId, text: "", thinking };
-      }
+    const agentId = this.activeByCtx.get(ctxId);
+    if (!agentId) return null;
+
+    const text = this.sessionManager.getPendingText(ctxId, agentId);
+    const thinking = this.sessionManager.getPendingThinking(ctxId, agentId);
+
+    if (text || thinking) {
+      return { agentId, text: text || "", thinking: thinking || undefined };
     }
     return null;
   }
@@ -479,11 +482,10 @@ export class AgentRunner {
     if (handoff.to !== handoff.from) {
       const fromDef = this.registry.get(handoff.from);
       if (fromDef?.forgetSessionAfterStep) {
-        const k = this.key(ctxId, handoff.from);
-        const s = this.sessions.get(k);
+        const s = this.sessionManager.getSessionByCtxAndAgent(ctxId, handoff.from);
         if (s) {
           try { s.dispose(); } catch { /* ignore */ }
-          this.sessions.delete(k);
+          this.sessionManager.deleteSession(ctxId, handoff.from);
         }
         if (ctx.deliveredSkills && ctx.deliveredSkills[handoff.from]?.length) {
           delete ctx.deliveredSkills[handoff.from];
@@ -497,72 +499,20 @@ export class AgentRunner {
 
   private async getSession(ctxId: string, agentId: string, def: AgentDef) {
     const k = this.key(ctxId, agentId);
-    const existing = this.sessions.get(k);
-    if (existing) return existing;
-
-    const ctxDir = this.getCtxDir(ctxId);
-    const loader = new DefaultResourceLoader({
-      cwd: ctxDir,
-      agentDir: getAgentDir(),
-      systemPromptOverride: () => this.promptBuilder.buildSystemPrompt(def, ctxDir),
-    });
-    await loader.reload();
-
-    const customTools = buildAgentTools(
-      ctxId, agentId, def,
-      this.store, this.registry, this.emit,
-      (cid) => this.getCtxDir(cid),
-      this.sharedDir, this.agentsDir,
-      MAX_HANDOFFS,
-      () => this.defaultDisabledToolNames(),
-      this.skillInjector,
-      () => k
-    );
-
-    let excludeTools = def.disabledTools ?? [];
-    try {
-      const ctx = this.store.get(ctxId);
-      if (ctx?.trainingAgentId) {
-        excludeTools = excludeTools.filter((t: string) => !['read', 'write', 'edit', 'bash'].includes(t));
-      }
-    } catch { /* ignore */ }
-
     let model = this.resolveModel(def.model);
     if (def.model && !model) {
-      await this.providerRegistry.ensureModelRegistered(this.modelRuntime, def.model);
+      await this.providerRegistry.ensureModelRegistered(this.modelRuntime!, def.model);
       model = this.resolveModel(def.model);
     }
-    if (def.model && !model) {
-      console.warn(`[ctxId:${ctxId}] [runner] ⚠️ модель «${def.model}» не найдена — агент «${agentId}» будет работать с моделью по умолчанию`);
-    }
-
-    const { session } = await createAgentSession({
-      cwd: ctxDir,
-      model,
-      thinkingLevel: def.thinkingLevel as never,
-      excludeTools: excludeTools.length > 0 ? excludeTools : undefined,
-      customTools,
-      resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(ctxDir),
-    });
-
-    try {
-      await session.bindExtensions({});
-    } catch (e) {
-      console.error(`[ctxId:${ctxId}] bindExtensions failed:`, e);
-    }
-
-    try {
-      const history = this.store.readMessages(ctxId).filter((m) => m.role === "user" || m.role === "assistant");
-      if (history.length > 0) {
-        (session as any).agent.state.messages = history.map((m) => ({ role: m.role, content: [{ type: "text", text: m.text }] }));
-      }
-    } catch { /* ignore */ }
-
-    session.subscribe((ev: AgentSessionEvent) => this.forward(ctxId, agentId, ev));
-    this.sessions.set(k, session);
     console.log(`[runner] сессия ${ctxId}/${agentId}: модель=${model ? `${model.provider}/${model.id}` : "default"} thinking=${def.thinkingLevel ?? "-"}`);
-    return session;
+    return await this.sessionManager.getSession(
+      ctxId, agentId, def,
+      this.emit,
+      this.sharedDir,
+      this.agentsDir,
+      MAX_HANDOFFS,
+      () => this.defaultDisabledToolNames(),
+    );
   }
 
   private forward(ctxId: string, agentId: string, ev: AgentSessionEvent) {
@@ -580,49 +530,67 @@ export class AgentRunner {
           this.imageManager.addPendingImages(ctxId, agentId, md);
         }
       }
-    } else if (ev.type === "message_start") {
-      console.log(`[ctxId:${ctxId}] [${agentId}] message_start`);
-    } else if (ev.type === "message_end") {
-      const msg = ev.message;
-      let text = "";
-      if (msg && typeof msg === "object" && "content" in msg && Array.isArray((msg as { content: unknown[] }).content)) {
-        for (const part of (msg as { content: unknown[] }).content) {
-          if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
-            text += part.text;
-          }
-        }
-      }
-      console.log(`[ctxId:${ctxId}] [${agentId}] message_end (${text.length} chars)`);
+    } else if (ev.type === "message_start" && (ev.message?.role || "unknown") == "assistant") {
+      const msgId = this.sessionManager.incrementMsgId(ctxId, agentId);
+      console.log(`[ctxId:${ctxId}] [${agentId}] message_start (msgId=${msgId})`);
+      this.emit({ type: "message_start", ctxId, agentId, msgId });
     }
+    // else if (ev.type === "message_end") {
+    //   const msg = ev.message;
+    //   let text = "";
+    //   if (msg && typeof msg === "object" && "content" in msg && Array.isArray((msg as { content: unknown[] }).content)) {
+    //     for (const part of (msg as { content: unknown[] }).content) {
+    //       if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
+    //         text += part.text;
+    //       }
+    //     }
+    //   }
+    //   console.log(`[ctxId:${ctxId}] [${agentId}] message_end (${text.length} chars)`);
+    // }
 
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
-      const key = `${ctxId}|${agentId}`;
       const d: string = ev.assistantMessageEvent.delta ?? "";
-      if (d) this.pendingText.set(key, (this.pendingText.get(key) ?? "") + d);
-      this.emit({ type: "delta", ctxId, agentId, text: d });
+      console.log(`[ctxId:${ctxId}] [${agentId}] text_delta (${d.length} chars): "${d.slice(0, 50)}..."`);
+      if (d) {
+        const existing = this.sessionManager.getPendingText(ctxId, agentId) || "";
+        this.sessionManager.setPendingText(ctxId, agentId, existing + d);
+      }
+      const msgId = this.sessionManager.getMsgId(ctxId, agentId);
+      this.emit({ type: "delta", ctxId, agentId, msgId, text: d });
     } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
-      const key = `${ctxId}|${agentId}`;
       const d: string = ev.assistantMessageEvent.delta ?? "";
-      if (d) this.pendingThinking.set(key, (this.pendingThinking.get(key) ?? "") + d);
-      this.emit({ type: "thinking_delta", ctxId, agentId, text: d });
-    } else if (ev.type === "message_end" && ev.message?.role === "assistant") {
-      const key = `${ctxId}|${agentId}`;
-      let text = this.pendingText.get(key) || extractText(ev.message);
+      console.log(`[ctxId:${ctxId}] [${agentId}] thinking_delta (${d.length} chars): "${d.slice(0, 50)}..."`);
+      if (d) {
+        const existing = this.sessionManager.getPendingThinking(ctxId, agentId) || "";
+        this.sessionManager.setPendingThinking(ctxId, agentId, existing + d);
+      }
+      const msgId = this.sessionManager.getMsgId(ctxId, agentId);
+      this.emit({ type: "thinking_delta", ctxId, agentId, msgId, text: d });
+    } else if (ev.type === "message_end") {
+      const msgRole = ev.message?.role || "unknown";
+      console.log(`[ctxId:${ctxId}] [${agentId}] message_end role=${msgRole}`);
+      if (msgRole !== "assistant") return;
+      let text = this.sessionManager.getPendingText(ctxId, agentId) || extractText(ev.message);
       if (!text) text = "";
-      this.pendingText.delete(key);
 
       // Применяем накопленные изображения
       text = this.imageManager.withPendingImages(ctxId, agentId, text);
 
-      const thinking = this.pendingThinking.get(key) || "";
-      this.pendingThinking.delete(key);
+      const thinking = this.sessionManager.getPendingThinking(ctxId, agentId) || "";
+      this.sessionManager.setPendingText(ctxId, agentId, "");
+      this.sessionManager.setPendingThinking(ctxId, agentId, "");
 
       text = sanitizeFileLinks(this.getCtxDir(ctxId), text);
 
-      if (!text && !thinking) return;
+      if (!text && !thinking) {
+        console.log(`[ctxId:${ctxId}] [${agentId}] assistant_end: skipped (empty)`);
+        return;
+      }
       const msg: Message = { role: "assistant", agentId, text, thinking: thinking || undefined, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
-      this.emit({ type: "assistant_end", ctxId, agentId, text: this.store.maskPaths(ctxId, text), thinking });
+      console.log(`[ctxId:${ctxId}] [${agentId}] assistant_end: emitting (text=${text.length}, thinking=${thinking ? thinking.length : 0})`);
+      const msgId = this.sessionManager.getMsgId(ctxId, agentId);
+      this.emit({ type: "assistant_end", ctxId, agentId, msgId, text: this.store.maskPaths(ctxId, text), thinking });
     }
   }
 
@@ -711,11 +679,12 @@ export class AgentRunner {
 
   resetAllSessions(): number {
     let n = 0;
-    for (const [k, s] of [...this.sessions]) {
-      try { s.abort(); s.dispose(); } catch { /* ignore */ }
-      this.sessions.delete(k);
+    // Close all sessions
+    for (const session of this.sessionManager.getAllSessions()) {
+      try { session.abort(); session.dispose(); } catch { /* ignore */ }
       n++;
     }
+    this.sessionManager.closeAll();
     for (const ctx of this.store.list()) {
       if (ctx.deliveredSkills && Object.keys(ctx.deliveredSkills).length > 0) {
         this.store.resetDeliveredSkills(ctx);
