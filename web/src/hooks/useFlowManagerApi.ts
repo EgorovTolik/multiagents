@@ -10,8 +10,6 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [flowMessages, setFlowMessages] = useState<Message[]>([]);
   const [flowRunning, setFlowRunning] = useState(false);
-  // Отслеживаем завершение последнего сообщения — для создания нового при следующем ответе
-  const lastMsgCompletedRef = useRef(true);
 
   // Отдельное WebSocket подключение для flow-manager коммуникации
   const wsRef = useRef<WebSocket | null>(null);
@@ -62,47 +60,49 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
             setFlowRunning(true);
           } else if (msg.type === "run_end") {
             setFlowRunning(false);
-          } else if (msg.type === "assistant_end") {
-            // Агент завершил ответ — обновляем последнее сообщение полным финальным текстом и размышлениями
-            lastMsgCompletedRef.current = true;
-            setFlowMessages((prev) => {
-              const i = [...prev].reverse().findIndex((m) => m.role === "assistant" && m.agentId === msg.agentId);
-              if (i < 0) return prev;
-              const idx = prev.length - 1 - i;
-              const copy = [...prev];
-              copy[idx] = {
-                role: "assistant",
-                agentId: msg.agentId,
-                text: msg.text,
-                thinking: msg.thinking || copy[idx].thinking || undefined,
-                ts: Date.now(),
-              };
-              return copy;
-            });
+          } else if (msg.type === "message_start") {
+            // Создаём новое сообщение с уникальным msgId
+            console.log(`[mistakes] message_start msgId=${msg.msgId}`);
+            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() };
+            setFlowMessages((prev) => [...prev, newBubble]);
           } else if (msg.type === "thinking_delta") {
-            // Стриминг размышлений — если предыдущий ответ завершён, создаём новое сообщение
+            // Обновляем thinking существующего сообщения по msgId
             setFlowMessages((prev) => {
-              const last = prev[prev.length - 1];
-              // Если последнее сообщение уже завершено — начинаем новое
-              if (lastMsgCompletedRef.current || !last || last.role !== "assistant" || last.agentId !== msg.agentId) {
-                lastMsgCompletedRef.current = false;
-                return [...prev, { role: "assistant", agentId: msg.agentId, text: "", thinking: msg.text, ts: Date.now() }];
+              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], thinking: (copy[idx].thinking ?? "") + msg.text };
+                return copy;
               }
-              // Иначе добавляем к существующему
-              const updated = { ...last, thinking: (last.thinking ?? "") + msg.text };
-              return [...prev.slice(0, -1), updated];
+              // Если сообщения нет — создаём новое
+              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() };
+              return [...prev, newBubble];
             });
           } else if (msg.type === "delta") {
+            // Обновляем текст существующего сообщения по msgId
             setFlowMessages((prev) => {
-              const last = prev[prev.length - 1];
-              // Если предыдущий ответ завершён — начинаем новое сообщение
-              if (lastMsgCompletedRef.current || !last || last.role !== "assistant" || last.agentId !== msg.agentId) {
-                lastMsgCompletedRef.current = false;
-                return [...prev, { role: "assistant", agentId: msg.agentId, text: msg.text, ts: Date.now() }];
+              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], text: copy[idx].text + msg.text };
+                return copy;
               }
-              // Иначе продолжаем существующее
-              const updated = { ...last, text: last.text + msg.text };
-              return [...prev.slice(0, -1), updated];
+              // Если сообщения нет — создаём новое
+              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() };
+              return [...prev, newBubble];
+            });
+          } else if (msg.type === "assistant_end") {
+            // Агент завершил ответ — обновляем сообщение полным финальным текстом по msgId
+            setFlowMessages((prev) => {
+              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text || copy[idx].text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
+                return copy;
+              }
+              // Если сообщения нет — создаём новое
+              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() };
+              return [...prev, newBubble];
             });
           }
         } catch (e) {

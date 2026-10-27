@@ -77,10 +77,14 @@ export default function App() {
   const activeCtxIdRef = useRef<string | null>(null);
   activeCtxIdRef.current = activeCtx?.id ?? null;
 
+  let lastType = "";
   // ─── WS message handler ────────────────────────────────────────────────────────
   const handle = useCallback(
     (msg: ServerMsg) => {
-      // console.log('ev', msg);
+      //if (msg.type != lastType) {
+      //  lastType = msg.type;
+      //  console.log(msg);
+      //}
       switch (msg.type) {
         case "agents":
           setAgents(msg.agents);
@@ -162,8 +166,12 @@ export default function App() {
           break;
         case "message_start":
           if (msg.ctxId !== activeCtx?.id) break;
+          console.log(`[bubble] message_start msgId=${msg.msgId} creating new bubble`);
           setMessages((m) => {
-            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() }];
+            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() };
+            const newM = [...m, newBubble];
+            console.log(`[bubble] created bubble, now ${newM.length} messages`);
+            return newM;
           });
           break;
         case "thinking_delta":
@@ -175,7 +183,8 @@ export default function App() {
               copy[idx] = { ...copy[idx], thinking: (copy[idx].thinking ?? "") + msg.text };
               return copy;
             }
-            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() }];
+            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() };
+            return [...m, newBubble];
           });
           break;
         case "delta":
@@ -187,19 +196,24 @@ export default function App() {
               copy[idx] = { ...copy[idx], text: copy[idx].text + msg.text };
               return copy;
             }
-            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() }];
+            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() };
+            return [...m, newBubble];
           });
           break;
         case "assistant_end":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
             const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            console.log(`[bubble] assistant_end msgId=${msg.msgId} found at idx=${idx}, text=${msg.text?.length ?? 0}, thinking=${msg.thinking?.length ?? 0}`);
             if (idx >= 0) {
               const copy = [...m];
               copy[idx] = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text || copy[idx].text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
+              console.log(`[bubble] updated bubble at idx=${idx}, new text=${copy[idx].text.length}, thinking=${copy[idx].thinking?.length ?? 0}`);
               return copy;
             }
-            return [...m, { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() }];
+            console.log(`[bubble] creating new bubble for msgId=${msg.msgId}`);
+            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() };
+            return [...m, newBubble];
           });
           break;
         case "run_start":
