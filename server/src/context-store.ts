@@ -396,7 +396,11 @@ export class ContextStore {
     const p = path.join(dir, "messages.jsonl");
     if (!fs.existsSync(p)) return [];
     const lines = fs.readFileSync(p, "utf8").split("\n").filter(Boolean);
-    const remaining = lines.slice(0, fromIndex).map((l) => JSON.parse(l));
+    // Убедиться что fromIndex — это число
+    const idx = typeof fromIndex === "number" ? fromIndex : Number(fromIndex);
+    if (Number.isNaN(idx) || idx < 0) return [];
+    // slice(0, idx) keeps indices 0..idx-1, removes idx and above
+    const remaining = lines.slice(0, idx).map((l) => JSON.parse(l));
     fs.writeFileSync(p, remaining.map((m) => JSON.stringify(m)).join("\n") + (remaining.length ? "\n" : ""), "utf8");
     return remaining;
   }

@@ -52,6 +52,11 @@ export function InputArea({
     }
   }, [autoFocus]);
 
+  // Автоматически регулировать размер при любом изменении input (включая очистку после отправки)
+  useEffect(() => {
+    autoExpand();
+  }, [input]);
+
   function autoExpand() {
     const el = textareaRef.current;
     if (!el) return;

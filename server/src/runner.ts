@@ -444,7 +444,7 @@ export class AgentRunner {
     }
 
     if (ev.type === "tool_execution_start") {
-      console.log(`[ctxId:${ctxId}] [${agentId}] tool_call: ${ev.toolName}`);
+      console.log(`[ctxId:${ctxId}] [${agentId}] tool_call: ${ev.toolName} - ${ev.args}`);
     } else if (ev.type === "tool_execution_end") {
       console.log(`[ctxId:${ctxId}] [${agentId}] tool_result: ${ev.isError ? `ERROR` : "OK"}`);
       if (!ev.isError) {

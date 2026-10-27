@@ -20,5 +20,6 @@
     }
   },
   "recoveryMode": "router_agent",
-  "maxRecoveries": 40
+  "maxRecoveries": 40,
+  "stallTimeoutMs": 500000
 }
