@@ -24,9 +24,14 @@ interface ProviderEntry {
   apiKey: string;
 }
 
-
-
-export default function SettingsPage({ onBack, busyCount }: { onBack: () => void; /** Сколько цепочек активно прямо сейчас (по WS-событиям) — мгновенная реакция кнопки. */ busyCount?: number | null }) {
+export default function SettingsPage({
+  onBack,
+  busyCount,
+}: {
+  onBack: () => void;
+  /** Сколько цепочек активно прямо сейчас (по WS-событиям) — мгновенная реакция кнопки. */ busyCount?:
+    number | null;
+}) {
   const [cfg, setCfg] = useState<SystemConfig | null>(null);
   const [original, setOriginal] = useState<SystemConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -50,17 +55,20 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
         .catch(() => {});
     poll();
     const t = setInterval(poll, 5000);
-    return () => { stopped = true; clearInterval(t); };
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
   }, []);
 
   const resetSessions = async () => {
     const ok = window.confirm(
       "Сбросить все сессии агентов?\n\n" +
-      "Последствия:\n" +
-      "• Закроются ВСЕ в-памяти сессии всех чатов.\n" +
-      "• При следующем сообщении история перечитается из файлов — всё, что модель знала, но не записала в чат, будет потеряно для неё.\n" +
-      "• Навыки контекстов будут переданы агентам заново.\n\n" +
-      "Сама история чатов на диске не меняется. Продолжить?",
+        "Последствия:\n" +
+        "• Закроются ВСЕ в-памяти сессии всех чатов.\n" +
+        "• При следующем сообщении история перечитается из файлов — всё, что модель знала, но не записала в чат, будет потеряно для неё.\n" +
+        "• Навыки контекстов будут переданы агентам заново.\n\n" +
+        "Сама история чатов на диске не меняется. Продолжить?"
     );
     if (!ok) return;
     setResetting(true);
@@ -95,7 +103,11 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
         setOriginal(JSON.parse(JSON.stringify(data)));
         // Providers
         const provs = data.providers ?? {};
-        const entries = Object.entries(provs).map(([id, p]) => ({ id, url: p.url ?? "", apiKey: p.apiKey ?? "" }));
+        const entries = Object.entries(provs).map(([id, p]) => ({
+          id,
+          url: p.url ?? "",
+          apiKey: p.apiKey ?? "",
+        }));
         setProviders(entries);
         setOrigProviders(JSON.stringify(entries));
         // Default selected provider from current model
@@ -110,7 +122,9 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
       .catch((e) => setError(String(e)));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Load models when provider changes
   useEffect(() => {
@@ -144,7 +158,10 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (anyDirty) { e.preventDefault(); e.returnValue = ""; }
+      if (anyDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
@@ -244,10 +261,11 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
       {/* Content */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-2xl space-y-5">
-
           {/* Session reset */}
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-            <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500">Сессии агентов</h2>
+            <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Сессии агентов
+            </h2>
             <p className="mt-1.5 text-sm text-slate-400">
               {busy > 0
                 ? `Активных цепочек: ${busy}. Сброс станет доступен, когда все агенты завершат работу.`
@@ -257,12 +275,24 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
               <button
                 onClick={resetSessions}
                 disabled={busy > 0 || resetting}
-                title={busy > 0 ? "Агенты работают — сброс недоступен" : "Закрыть все в-памяти сессии агентов"}
+                title={
+                  busy > 0
+                    ? "Агенты работают — сброс недоступен"
+                    : "Закрыть все в-памяти сессии агентов"
+                }
                 className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {resetting ? "Сброс…" : "Сбросить сессии"}
               </button>
-              {resetMsg && <span className={resetMsg.startsWith("✓") ? "text-sm text-emerald-400" : "text-sm text-red-400"}>{resetMsg}</span>}
+              {resetMsg && (
+                <span
+                  className={
+                    resetMsg.startsWith("✓") ? "text-sm text-emerald-400" : "text-sm text-red-400"
+                  }
+                >
+                  {resetMsg}
+                </span>
+              )}
             </div>
           </div>
 
@@ -281,11 +311,15 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                 className="w-40 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
               >
                 {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.id || "—"}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.id || "—"}
+                  </option>
                 ))}
               </select>
               <select
-                value={modelValue.includes("/") ? modelValue.split("/").slice(1).join("/") : modelValue}
+                value={
+                  modelValue.includes("/") ? modelValue.split("/").slice(1).join("/") : modelValue
+                }
                 onChange={(e) => {
                   const modelName = e.target.value;
                   set("model", modelName ? `${modelProvider}/${modelName}` : "");
@@ -294,23 +328,33 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                 className="flex-1 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500 disabled:opacity-50"
               >
                 <option value="">
-                  {modelsLoading ? "Загрузка…" : availableModels.length === 0 ? "Недоступно" : "Выберите модель"}
+                  {modelsLoading
+                    ? "Загрузка…"
+                    : availableModels.length === 0
+                      ? "Недоступно"
+                      : "Выберите модель"}
                 </option>
                 {availableModels.map((m) => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
                 ))}
               </select>
             </div>
             {modelsStale && (
-              <p className="text-xs text-amber-500">⚠️ Провайдер недоступен — показан кеш моделей.</p>
+              <p className="text-xs text-amber-500">
+                ⚠️ Провайдер недоступен — показан кеш моделей.
+              </p>
             )}
             {modelValue && (
-              <p className="text-xs text-slate-600">Текущая: <code className="text-slate-400">{modelValue}</code></p>
+              <p className="text-xs text-slate-600">
+                Текущая: <code className="text-slate-400">{modelValue}</code>
+              </p>
             )}
           </div>
 
           {/* Port */}
-          <Field label="Порт сервера" hint="Изменение порта требует перезапуск сервера.">
+          <Field label="Порт сервера" help="Изменение порта требует перезапуск сервера.">
             <input
               type="number"
               value={cfg.port ?? 3000}
@@ -333,7 +377,10 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                       placeholder="id (e.g. eac-mac-ai)"
                     />
                     <button
-                      onClick={() => { setProviders(providers.filter((_, j) => j !== i)); setSaved(false); }}
+                      onClick={() => {
+                        setProviders(providers.filter((_, j) => j !== i));
+                        setSaved(false);
+                      }}
                       className="rounded-lg border border-slate-700 px-2 text-xs text-slate-500 hover:border-rose-500 hover:text-rose-400"
                     >
                       ✕
@@ -356,7 +403,10 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                 </div>
               ))}
               <button
-                onClick={() => { setProviders([...providers, { id: "", url: "", apiKey: "" }]); setSaved(false); }}
+                onClick={() => {
+                  setProviders([...providers, { id: "", url: "", apiKey: "" }]);
+                  setSaved(false);
+                }}
                 className="text-xs text-indigo-400 hover:text-indigo-300"
               >
                 + Добавить провайдера
@@ -366,9 +416,11 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
 
           {/* Limits */}
           <div className="border-t border-slate-800 pt-5">
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">Ограничения</h2>
+            <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+              Ограничения
+            </h2>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Макс. передач в цепочке" hint="Защита от бесконечных циклов.">
+              <Field label="Макс. передач в цепочке" help="Защита от бесконечных циклов.">
                 <input
                   type="number"
                   value={cfg.maxHandoffs ?? 200}
@@ -376,7 +428,10 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Макс. авто-восстановлений" hint="Сколько раз система чинит прерванную цепочку.">
+              <Field
+                label="Макс. авто-восстановлений"
+                help="Сколько раз система чинит прерванную цепочку."
+              >
                 <input
                   type="number"
                   value={cfg.maxRecoveries ?? 2}
@@ -384,7 +439,10 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Таймаут зависшей сессии (сек)" hint="Нет событий дольше — сессия прерывается.">
+              <Field
+                label="Таймаут зависшей сессии (сек)"
+                help="Нет событий дольше — сессия прерывается."
+              >
                 <input
                   type="number"
                   value={Math.round((cfg.stallTimeoutMs ?? 180000) / 1000)}
@@ -392,7 +450,7 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 />
               </Field>
-              <Field label="Макс. размер файла (МБ)" hint="Ограничение на загрузку файлов.">
+              <Field label="Макс. размер файла (МБ)" help="Ограничение на загрузку файлов.">
                 <input
                   type="number"
                   value={cfg.maxUploadSizeMb ?? 50}
@@ -402,10 +460,15 @@ export default function SettingsPage({ onBack, busyCount }: { onBack: () => void
               </Field>
             </div>
             <div className="mt-4">
-              <Field label="Режим восстановления цепочки" hint="Что делать, если агент завершил ход, не передав диалог дальше."> 
+              <Field
+                label="Режим восстановления цепочки"
+                help="Что делать, если агент завершил ход, не передав диалог дальше."
+              >
                 <select
                   value={cfg.recoveryMode ?? "router_agent"}
-                  onChange={(e) => set("recoveryMode", e.target.value as "router_agent" | "orchestrator_check")}
+                  onChange={(e) =>
+                    set("recoveryMode", e.target.value as "router_agent" | "orchestrator_check")
+                  }
                   className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
                 >
                   <option value="router_agent">Агент-маршрутизатор (chain-router)</option>

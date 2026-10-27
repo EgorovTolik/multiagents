@@ -41,7 +41,10 @@ export function useToasts() {
   const notify = useCallback((text: string, opts?: { sticky?: boolean; action?: ToastAction }) => {
     const id = nextId++;
     const now = Date.now();
-    setToasts((t) => [...t, { id, text, createdAt: now, sticky: opts?.sticky, action: opts?.action }]);
+    setToasts((t) => [
+      ...t,
+      { id, text, createdAt: now, sticky: opts?.sticky, action: opts?.action },
+    ]);
     if (!opts?.sticky) {
       const timer = setTimeout(() => {
         // Используем функциональную форму для получения актуального состояния
@@ -55,7 +58,13 @@ export function useToasts() {
   return { toasts, notify, dismiss };
 }
 
-export function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss?: (id: number) => void }) {
+export function ToastContainer({
+  toasts,
+  onDismiss,
+}: {
+  toasts: Toast[];
+  onDismiss?: (id: number) => void;
+}) {
   return (
     <div className="pointer-events-none fixed bottom-6 left-1/2 z-[9999] flex w-80 max-w-[90vw] -translate-x-1/2 flex-col items-stretch gap-2">
       {toasts.map((t) => (

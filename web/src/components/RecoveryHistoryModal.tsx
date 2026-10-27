@@ -19,19 +19,27 @@ function formatTime(ts: number): string {
 
 function decisionLabel(d: string): string {
   switch (d) {
-    case "router_fallback": return "Маршрутизатор → оркестратор";
-    case "auto_recover_incomplete": return "Возврат агенту для продолжения";
-    case "route_to_router": return "Разбор маршрута (chain-router)";
-    case "orchestrator_check": return "Проверка оркестратором";
-    default: return d;
+    case "router_fallback":
+      return "Маршрутизатор → оркестратор";
+    case "auto_recover_incomplete":
+      return "Возврат агенту для продолжения";
+    case "route_to_router":
+      return "Разбор маршрута (chain-router)";
+    case "orchestrator_check":
+      return "Проверка оркестратором";
+    default:
+      return d;
   }
 }
 
 function eventIcon(e: RecoveryEntry["event"]): string {
   switch (e) {
-    case "started": return "⚠️";
-    case "decision": return "🔄";
-    case "completed": return e === "completed" ? "✅" : "❌";
+    case "started":
+      return "⚠️";
+    case "decision":
+      return "🔄";
+    case "completed":
+      return "✅";
   }
 }
 
@@ -71,7 +79,14 @@ export function RecoveryHistoryModal({
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white"
             aria-label="Закрыть"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -85,21 +100,45 @@ export function RecoveryHistoryModal({
             <table className="w-full">
               <thead className="sticky top-0 bg-slate-800">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Время</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Событие</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Агент</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">Детали</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Время
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Событие
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Агент
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Детали
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
                 {history.map((entry, i) => (
                   <tr key={i} className="hover:bg-slate-800/50">
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-400">{formatTime(entry.ts)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-400">
+                      {formatTime(entry.ts)}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       <span className="inline-flex items-center gap-1.5">
                         {eventIcon(entry.event)}
-                        <span className={entry.event === "completed" && entry.success ? "text-emerald-400" : entry.event === "completed" && !entry.success ? "text-rose-400" : "text-slate-300"}>
-                          {entry.event === "started" ? "Начато" : entry.event === "decision" ? "Решение" : entry.success ? "Завершено" : "Ошибка"}
+                        <span
+                          className={
+                            entry.event === "completed" && entry.success
+                              ? "text-emerald-400"
+                              : entry.event === "completed" && !entry.success
+                                ? "text-rose-400"
+                                : "text-slate-300"
+                          }
+                        >
+                          {entry.event === "started"
+                            ? "Начато"
+                            : entry.event === "decision"
+                              ? "Решение"
+                              : entry.success
+                                ? "Завершено"
+                                : "Ошибка"}
                         </span>
                       </span>
                     </td>
@@ -112,7 +151,9 @@ export function RecoveryHistoryModal({
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-400">
                       {entry.event === "started" && (
-                        <span>Попытка {entry.attempt}/{entry.maxAttempts}</span>
+                        <span>
+                          Попытка {entry.attempt}/{entry.maxAttempts}
+                        </span>
                       )}
                       {entry.event === "decision" && entry.decision && (
                         <span>{decisionLabel(entry.decision)}</span>

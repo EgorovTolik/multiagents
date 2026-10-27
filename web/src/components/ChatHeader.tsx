@@ -42,7 +42,15 @@ export function ChatHeader({
         className="-ml-1 rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white md:hidden"
         aria-label="Меню"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
           <path d="M3 6h18M3 12h18M3 18h18" />
         </svg>
       </button>
@@ -58,9 +66,7 @@ export function ChatHeader({
           {agentName(running.agentId)} работает…
         </span>
       )}
-      {recoveryCount >= 0 && (
-        <RecoveryBadge count={recoveryCount} onClick={onOpenRecoveryModal} />
-      )}
+      {recoveryCount >= 0 && <RecoveryBadge count={recoveryCount} onClick={onOpenRecoveryModal} />}
       {planProgress && (
         <PlanStatusBadge
           done={planProgress.done}
@@ -71,9 +77,19 @@ export function ChatHeader({
       )}
       <span
         className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ${
-          wsStatus === "connected" ? "bg-emerald-400" : wsStatus === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-500"
+          wsStatus === "connected"
+            ? "bg-emerald-400"
+            : wsStatus === "connecting"
+              ? "bg-amber-400 animate-pulse"
+              : "bg-red-500"
         }`}
-        title={wsStatus === "connected" ? "Подключено" : wsStatus === "connecting" ? "Подключение…" : "Отключено"}
+        title={
+          wsStatus === "connected"
+            ? "Подключено"
+            : wsStatus === "connecting"
+              ? "Подключение…"
+              : "Отключено"
+        }
       />
       <div className="flex shrink-0 gap-1.5 sm:gap-2">
         {pending && (

@@ -38,7 +38,11 @@ export function fmtClock(ts: number): string {
 
 /** Заголовок группы по дате создания: «15 июля 2026» */
 export function fmtDay(ts: number): string {
-  return new Date(ts).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  return new Date(ts).toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 /** Цвет бейджа агента */

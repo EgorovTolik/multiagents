@@ -63,7 +63,14 @@ export type ServerMsg =
   | { type: "delta"; ctxId: string; agentId: string; msgId: number; text: string }
   | { type: "thinking_delta"; ctxId: string; agentId: string; msgId: number; text: string }
   | { type: "message_start"; ctxId: string; agentId: string; msgId: number }
-  | { type: "assistant_end"; ctxId: string; agentId: string; msgId: number; text: string; thinking?: string }
+  | {
+      type: "assistant_end";
+      ctxId: string;
+      agentId: string;
+      msgId: number;
+      text: string;
+      thinking?: string;
+    }
   | { type: "run_start"; ctxId: string; agentId: string }
   | { type: "run_end"; ctxId: string; agentId: string }
   | { type: "handoff"; ctxId: string; handoff: Handoff }
@@ -77,18 +84,36 @@ export type ServerMsg =
   | { type: "message_received"; ctxId: string }
   | { type: "context_renamed"; ctxId: string; name: string }
   | { type: "history_truncated"; ctxId: string }
-  | { type: "archive_status"; ctxId: string; state: "queued" | "preparing" | "ready" | "error"; url?: string; error?: string }
+  | {
+      type: "archive_status";
+      ctxId: string;
+      state: "queued" | "preparing" | "ready" | "error";
+      url?: string;
+      error?: string;
+    }
   | { type: "training_session_reopened" }
   // Recovery events (real-time chain recovery notifications)
-  | { type: "recovery_started"; ctxId: string; brokenAgent: string; attempt: number; maxAttempts: number }
-  | { type: "recovery_decision"; ctxId: string; decision: string; targetAgent?: string; reason?: string }
+  | {
+      type: "recovery_started";
+      ctxId: string;
+      brokenAgent: string;
+      attempt: number;
+      maxAttempts: number;
+    }
+  | {
+      type: "recovery_decision";
+      ctxId: string;
+      decision: string;
+      targetAgent?: string;
+      reason?: string;
+    }
   | { type: "recovery_completed"; ctxId: string; success: boolean; count: number; reason?: string }
   | { type: "agent_notification"; ctxId: string; message: string; sticky?: boolean }
   // Plan management events
   | { type: "plan_created"; ctxId: string; planId: string }
   | { type: "plan_updated"; ctxId: string; planId: string }
   | { type: "plan_deleted"; ctxId: string }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string };
 
 // === Plan Management Types ===
 
@@ -99,7 +124,7 @@ export interface PlanStep {
   taskFiles?: Array<{ file: string; timestamp: number }>;
   resultsFiles?: Array<{ file: string; timestamp: number }>;
   planFile?: string;
-  status: 'pending' | 'in_progress' | 'done' | 'blocked';
+  status: "pending" | "in_progress" | "done" | "blocked";
   steps?: PlanStep[];
   plan?: Plan; // Embedded subplan (loaded from planFile)
 }
@@ -110,7 +135,7 @@ export interface Plan {
   description?: string;
   createdBy: string;
   createdAt: number;
-  status: 'planning' | 'approved' | 'executing' | 'completed' | 'archived';
+  status: "planning" | "approved" | "executing" | "completed" | "archived";
   steps: PlanStep[];
 }
 
@@ -150,11 +175,15 @@ export function useServer(onMessage: (msg: ServerMsg) => void): ClientApi {
         // авто-реконнект через 2 сек
         if (!closed) timer = setTimeout(connect, 2000);
       };
-      ws.onerror = () => { /* onclose сработает после */ };
+      ws.onerror = () => {
+        /* onclose сработает после */
+      };
       ws.onmessage = (ev) => {
         try {
           handlerRef.current(JSON.parse(ev.data));
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       };
     }
 
@@ -201,7 +230,9 @@ export interface TrainingSession {
 
 /** Создать обучающую сессию для агента */
 export async function createTrainingSession(agentId: string): Promise<TrainingSession> {
-  const r = await fetch(`/api/training/sessions/${encodeURIComponent(agentId)}`, { method: "POST" });
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(agentId)}`, {
+    method: "POST",
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   return r.json();
 }
@@ -215,7 +246,9 @@ export async function listTrainingSessions(agentId: string): Promise<TrainingSes
 
 /** Завершить обучающую сессию (пометить как completed, не удаляя историю) */
 export async function completeTrainingSession(sessionId: string): Promise<void> {
-  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}/complete`, { method: "POST" });
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}/complete`, {
+    method: "POST",
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
 }
 
@@ -231,7 +264,9 @@ export async function renameTrainingSession(sessionId: string, name: string): Pr
 
 /** Удалить обучающую сессию */
 export async function deleteTrainingSession(sessionId: string): Promise<void> {
-  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  const r = await fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
 }
 

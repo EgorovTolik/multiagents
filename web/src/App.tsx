@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "highlight.js/styles/atom-one-dark.css";
-import type { AgentInfo, ClientApi, ContextMeta, Handoff, Message, ServerMsg, SkillInfo } from "./api";
+import type {
+  AgentInfo,
+  ClientApi,
+  ContextMeta,
+  Handoff,
+  Message,
+  ServerMsg,
+  SkillInfo,
+} from "./api";
 import { useServer, fetchContextSizes } from "./api";
 import AgentEditor from "./AgentEditor";
 import SettingsPage from "./SettingsPage";
@@ -41,16 +49,19 @@ export default function App() {
   /** Чаты, ожидающие освобождения занятого агента: chatId → agentId. */
   const [waitingAgents, setWaitingAgents] = useState<Record<string, string>>({});
   /** Для компонентов, ожидающих «текущий» статус активного чата. */
-  const running = activeCtx && runnings[activeCtx.id]
-    ? { ctxId: activeCtx.id, agentId: runnings[activeCtx.id] }
-    : null;
+  const running =
+    activeCtx && runnings[activeCtx.id]
+      ? { ctxId: activeCtx.id, agentId: runnings[activeCtx.id] }
+      : null;
   const [pending, setPending] = useState<Handoff | null>(null);
   const [input, setInput] = useState("");
   const [renamingCtx, setRenamingCtx] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [sentText, setSentText] = useState<string | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; mediaType: string; data: string; size: number }[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<
+    { name: string; mediaType: string; data: string; size: number }[]
+  >([]);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [archiveStatus, setArchiveStatus] = useState<Record<string, ArchiveInfo>>({});
@@ -82,8 +93,8 @@ export default function App() {
   const handle = useCallback(
     (msg: ServerMsg) => {
       if (msg.type != lastType) {
-       lastType = msg.type;
-       console.log(msg);
+        lastType = msg.type;
+        console.log(msg);
       }
       switch (msg.type) {
         case "agents":
@@ -95,7 +106,7 @@ export default function App() {
         case "skills_applied":
           if (msg.ctxId === activeCtx?.id) setAppliedSkills(msg.skills);
           break;
-        case "contexts":
+        case "contexts": {
           setContexts(msg.contexts);
           // Инициализируем recoveryCounts из context.json
           const counts: Record<string, number> = {};
@@ -106,18 +117,27 @@ export default function App() {
           // Инициализируем activePlans из context.json
           const plans: Record<string, Plan | null> = {};
           for (const ctx of msg.contexts) {
-            if (ctx.activePlanId) plans[ctx.id] = { id: ctx.activePlanId, title: "Загрузка...", status: "planning", steps: [], createdBy: "", createdAt: 0 };
+            if (ctx.activePlanId)
+              plans[ctx.id] = {
+                id: ctx.activePlanId,
+                title: "Загрузка...",
+                status: "planning",
+                steps: [],
+                createdBy: "",
+                createdAt: 0,
+              };
           }
           setActivePlans(plans);
           if (!activeCtx && msg.contexts.length > 0) {
             const latest = msg.contexts.reduce((a: ContextMeta, b: ContextMeta) =>
-              (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a,
+              (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a
             );
             if (latest.lastMessageAt) {
               apiRef.current?.send({ type: "load_context", ctxId: latest.id });
             }
           }
           break;
+        }
         case "context_created":
           setContexts((c) => [msg.context, ...c]);
           setActiveCtx(msg.context);
@@ -131,44 +151,71 @@ export default function App() {
         case "history_truncated":
           apiRef.current?.send({ type: "load_context", ctxId: msg.ctxId });
           break;
-        case "context_loaded":
+        case "context_loaded": {
           if (msg.context) {
-            setActiveCtx(msg.context);
+            const ctx = msg.context;
+            setActiveCtx(ctx);
             setMessages(msg.messages);
-            setAppliedSkills(msg.context.skills ?? []);
+            setAppliedSkills(ctx.skills ?? []);
             // Обновляем recoveryCount из загруженного контекста
-            if (msg.context.recoveryCount != null) {
-              setRecoveryCounts((rc) => ({ ...rc, [msg.context!.id]: msg.context!.recoveryCount! }));
+            if (ctx.recoveryCount != null) {
+              setRecoveryCounts((rc) => ({ ...rc, [ctx.id]: ctx.recoveryCount! }));
             }
             // Загружаем активный план если есть activePlanId
-            if (msg.context.activePlanId) {
-              setActivePlans((ap) => ({ ...ap, [msg.context!.id]: { id: msg.context!.activePlanId!, title: "Загрузка...", status: "planning", steps: [], createdBy: "", createdAt: 0 } }));
+            if (ctx.activePlanId) {
+              setActivePlans((ap) => ({
+                ...ap,
+                [ctx.id]: {
+                  id: ctx.activePlanId!,
+                  title: "Загрузка...",
+                  status: "planning",
+                  steps: [],
+                  createdBy: "",
+                  createdAt: 0,
+                },
+              }));
               // Асинхронно загружаем данные плана
-              fetch(`/api/contexts/${msg.context.id}/active-plan`).then(async (res) => {
-                const data = await res.json();
-                console.log('Plan loaded for context', msg.context.id, 'steps:', data.plan?.steps?.length);
-                if (data.plan) {
-                  setActivePlans((ap) => ({ ...ap, [msg.context!.id]: data.plan }));
-                  console.log('Plan state updated for', msg.context.id);
-                }
-              }).catch((e) => console.error('Failed to load plan:', e));
+              fetch(`/api/contexts/${ctx.id}/active-plan`)
+                .then(async (res) => {
+                  const data = await res.json();
+                  console.log(
+                    "Plan loaded for context",
+                    ctx.id,
+                    "steps:",
+                    data.plan?.steps?.length
+                  );
+                  if (data.plan) {
+                    setActivePlans((ap) => ({ ...ap, [ctx.id]: data.plan }));
+                    console.log("Plan state updated for", ctx.id);
+                  }
+                })
+                .catch((e) => console.error("Failed to load plan:", e));
             }
           } else {
             setAppliedSkills([]);
           }
           break;
+        }
         case "message":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => [...m, msg.message]);
           if (msg.message.role === "system") {
-            setActiveCtx((c) => (c ? { ...c, activeAgentId: msg.message.agentId ?? c.activeAgentId } : c));
+            setActiveCtx((c) =>
+              c ? { ...c, activeAgentId: msg.message.agentId ?? c.activeAgentId } : c
+            );
           }
           break;
         case "message_start":
           if (msg.ctxId !== activeCtx?.id) break;
           console.log(`[bubble] message_start msgId=${msg.msgId} creating new bubble`);
           setMessages((m) => {
-            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() };
+            const newBubble: Message = {
+              role: "assistant",
+              agentId: msg.agentId,
+              msgId: msg.msgId,
+              text: "",
+              ts: Date.now(),
+            };
             const newM = [...m, newBubble];
             console.log(`[bubble] created bubble, now ${newM.length} messages`);
             return newM;
@@ -177,42 +224,79 @@ export default function App() {
         case "thinking_delta":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
-            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            const idx = m.findIndex(
+              (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+            );
             if (idx >= 0) {
               const copy = [...m];
               copy[idx] = { ...copy[idx], thinking: (copy[idx].thinking ?? "") + msg.text };
               return copy;
             }
-            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() };
+            const newBubble: Message = {
+              role: "assistant",
+              agentId: msg.agentId,
+              msgId: msg.msgId,
+              text: "",
+              thinking: msg.text,
+              ts: Date.now(),
+            };
             return [...m, newBubble];
           });
           break;
         case "delta":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
-            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+            const idx = m.findIndex(
+              (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+            );
             if (idx >= 0) {
               const copy = [...m];
               copy[idx] = { ...copy[idx], text: copy[idx].text + msg.text };
               return copy;
             }
-            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() };
+            const newBubble: Message = {
+              role: "assistant",
+              agentId: msg.agentId,
+              msgId: msg.msgId,
+              text: msg.text,
+              ts: Date.now(),
+            };
             return [...m, newBubble];
           });
           break;
         case "assistant_end":
           if (msg.ctxId !== activeCtx?.id) break;
           setMessages((m) => {
-            const idx = m.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
-            console.log(`[bubble] assistant_end msgId=${msg.msgId} found at idx=${idx}, text=${msg.text?.length ?? 0}, thinking=${msg.thinking?.length ?? 0}`);
+            const idx = m.findIndex(
+              (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+            );
+            console.log(
+              `[bubble] assistant_end msgId=${msg.msgId} found at idx=${idx}, text=${msg.text?.length ?? 0}, thinking=${msg.thinking?.length ?? 0}`
+            );
             if (idx >= 0) {
               const copy = [...m];
-              copy[idx] = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text || copy[idx].text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
-              console.log(`[bubble] updated bubble at idx=${idx}, new text=${copy[idx].text.length}, thinking=${copy[idx].thinking?.length ?? 0}`);
+              copy[idx] = {
+                role: "assistant",
+                agentId: msg.agentId,
+                msgId: msg.msgId,
+                text: msg.text || copy[idx].text,
+                thinking: msg.thinking || copy[idx].thinking || undefined,
+                ts: Date.now(),
+              };
+              console.log(
+                `[bubble] updated bubble at idx=${idx}, new text=${copy[idx].text.length}, thinking=${copy[idx].thinking?.length ?? 0}`
+              );
               return copy;
             }
             console.log(`[bubble] creating new bubble for msgId=${msg.msgId}`);
-            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() };
+            const newBubble: Message = {
+              role: "assistant",
+              agentId: msg.agentId,
+              msgId: msg.msgId,
+              text: msg.text,
+              thinking: msg.thinking || undefined,
+              ts: Date.now(),
+            };
             return [...m, newBubble];
           });
           break;
@@ -220,21 +304,29 @@ export default function App() {
           setRunnings((r) => ({ ...r, [msg.ctxId]: msg.agentId }));
           setWaitingAgents((w) => {
             if (!(msg.ctxId in w)) return w;
-            const c = { ...w }; delete c[msg.ctxId]; return c;
+            const c = { ...w };
+            delete c[msg.ctxId];
+            return c;
           });
           break;
         case "run_end":
           setRunnings((r) => {
             if (!(msg.ctxId in r)) return r;
-            const c = { ...r }; delete c[msg.ctxId]; return c;
+            const c = { ...r };
+            delete c[msg.ctxId];
+            return c;
           });
           setWaitingAgents((w) => {
             if (!(msg.ctxId in w)) return w;
-            const c = { ...w }; delete c[msg.ctxId]; return c;
+            const c = { ...w };
+            delete c[msg.ctxId];
+            return c;
           });
           break;
         case "run_state":
-          setRunnings(Object.fromEntries((msg.actives ?? []).map((a: any) => [a.ctxId, a.agentId])));
+          setRunnings(
+            Object.fromEntries((msg.actives ?? []).map((a: any) => [a.ctxId, a.agentId]))
+          );
           break;
         case "chain_waiting":
           // Цепочка стоит: агент занят в другом чате
@@ -246,11 +338,17 @@ export default function App() {
           if (msg.ctxId === activeCtx?.id) setMessages([]);
           break;
         case "handoff":
-          setContexts((cs) => cs.map((c) =>
-            c.id === msg.ctxId ? { ...c, activeAgentId: msg.handoff.to, handoffs: [...c.handoffs, msg.handoff] } : c,
-          ));
+          setContexts((cs) =>
+            cs.map((c) =>
+              c.id === msg.ctxId
+                ? { ...c, activeAgentId: msg.handoff.to, handoffs: [...c.handoffs, msg.handoff] }
+                : c
+            )
+          );
           if (msg.ctxId !== activeCtx?.id) break;
-          setActiveCtx((c) => (c ? { ...c, activeAgentId: msg.handoff.to, handoffs: [...c.handoffs, msg.handoff] } : c));
+          setActiveCtx((c) =>
+            c ? { ...c, activeAgentId: msg.handoff.to, handoffs: [...c.handoffs, msg.handoff] } : c
+          );
           setPending(null);
           break;
         case "handoff_pending":
@@ -295,7 +393,10 @@ export default function App() {
             ],
           }));
           if (msg.ctxId === activeCtx?.id) {
-            notify(`⚠️ Цепочка прервалась (${msg.brokenAgent}) — восстанавливаю (попытка ${msg.attempt}/${msg.maxAttempts})`, { sticky: false });
+            notify(
+              `⚠️ Цепочка прервалась (${msg.brokenAgent}) — восстанавливаю (попытка ${msg.attempt}/${msg.maxAttempts})`,
+              { sticky: false }
+            );
           }
           break;
         case "recovery_decision":
@@ -314,14 +415,26 @@ export default function App() {
           if (msg.ctxId === activeCtx?.id) {
             let decisionText = msg.decision;
             switch (msg.decision) {
-              case "router_fallback": decisionText = "Маршрутизатор не принял решение — передача оркестратору"; break;
-              case "auto_recover_incomplete": decisionText = "Задача не завершена — возврат агенту для продолжения"; break;
-              case "route_to_router": decisionText = "Цепочка прервалась — разбор маршрута через chain-router"; break;
-              case "orchestrator_check": decisionText = "Цепочка прервалась — автопроверка оркестратором"; break;
+              case "router_fallback":
+                decisionText = "Маршрутизатор не принял решение — передача оркестратору";
+                break;
+              case "auto_recover_incomplete":
+                decisionText = "Задача не завершена — возврат агенту для продолжения";
+                break;
+              case "route_to_router":
+                decisionText = "Цепочка прервалась — разбор маршрута через chain-router";
+                break;
+              case "orchestrator_check":
+                decisionText = "Цепочка прервалась — автопроверка оркестратором";
+                break;
             }
             const agentNamesRef = agents;
-            const targetName = msg.targetAgent ? (agentNamesRef.find((a) => a.id === msg.targetAgent)?.name ?? msg.targetAgent) : null;
-            notify(`🔄 Решение: ${decisionText}${targetName ? ` → ${targetName}` : ""}`, { sticky: false });
+            const targetName = msg.targetAgent
+              ? (agentNamesRef.find((a) => a.id === msg.targetAgent)?.name ?? msg.targetAgent)
+              : null;
+            notify(`🔄 Решение: ${decisionText}${targetName ? ` → ${targetName}` : ""}`, {
+              sticky: false,
+            });
           }
           break;
         case "recovery_completed":
@@ -344,7 +457,9 @@ export default function App() {
             }
           } else {
             if (msg.ctxId === activeCtx?.id) {
-              notify(`❌ Восстановление не удалось: ${msg.reason ?? "лимит исчерпан"}`, { sticky: true });
+              notify(`❌ Восстановление не удалось: ${msg.reason ?? "лимит исчерпан"}`, {
+                sticky: true,
+              });
             }
           }
           break;
@@ -356,21 +471,25 @@ export default function App() {
         case "plan_created":
           // Перезагружаем активный план при создании
           setActivePlans((ap) => ({ ...ap, [msg.ctxId]: null }));
-          fetch(`/api/contexts/${msg.ctxId}/active-plan`).then(async (res) => {
-            const data = await res.json();
-            if (data.plan) {
-              setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
-            }
-          }).catch(() => {});
+          fetch(`/api/contexts/${msg.ctxId}/active-plan`)
+            .then(async (res) => {
+              const data = await res.json();
+              if (data.plan) {
+                setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
+              }
+            })
+            .catch(() => {});
           break;
         case "plan_updated":
           // Перезагружаем активный план при изменении
-          fetch(`/api/contexts/${msg.ctxId}/active-plan`).then(async (res) => {
-            const data = await res.json();
-            if (data.plan) {
-              setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
-            }
-          }).catch(() => {});
+          fetch(`/api/contexts/${msg.ctxId}/active-plan`)
+            .then(async (res) => {
+              const data = await res.json();
+              if (data.plan) {
+                setActivePlans((ap) => ({ ...ap, [msg.ctxId]: data.plan }));
+              }
+            })
+            .catch(() => {});
           break;
         case "plan_deleted":
           // Очищаем план при удалении
@@ -385,7 +504,9 @@ export default function App() {
           setTimeout(() => setErrors((e) => e.slice(1)), 5000);
           break;
       }
-    }, [activeCtx?.id, agents, notify]);
+    },
+    [activeCtx?.id, agents, notify]
+  );
 
   const api = useServer(handle);
   apiRef.current = api;
@@ -394,11 +515,17 @@ export default function App() {
   const ctxIdsKey = contexts.map((c) => c.id).join(",");
   useEffect(() => {
     let cancelled = false;
-    const refresh = () => fetchContextSizes().then((s) => { if (!cancelled) setContextSizes(s); });
+    const refresh = () =>
+      fetchContextSizes().then((s) => {
+        if (!cancelled) setContextSizes(s);
+      });
     refresh();
     // файлы в контекстах растут во время работы агентов — обновляем раз в 10 сек
     const t = setInterval(refresh, 10000);
-    return () => { cancelled = true; clearInterval(t); };
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [ctxIdsKey]);
 
   // ─── Actions ───────────────────────────────────────────────────────────────────
@@ -412,13 +539,19 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = () => {
         const base64 = (reader.result as string).split(",")[1];
-        setAttachedFiles((prev) => [...prev, { name: file.name, mediaType: file.type || "application/octet-stream", data: base64, size: file.size }]);
+        setAttachedFiles((prev) => [
+          ...prev,
+          {
+            name: file.name,
+            mediaType: file.type || "application/octet-stream",
+            data: base64,
+            size: file.size,
+          },
+        ]);
       };
       reader.readAsDataURL(file);
     });
   }, []);
-
-
 
   const renameContext = () => {
     const name = renameValue.trim();
@@ -427,7 +560,10 @@ export default function App() {
   };
 
   // useCallback — чтобы memo(MessageRow) работал: идентичность колбэков стабильна
-  const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
+  const agentName = useCallback(
+    (id: string) => agents.find((a) => a.id === id)?.name ?? id,
+    [agents]
+  );
 
   // Calculate plan progress (done/total steps)
   function planProgress(plan: Plan | null) {
@@ -437,7 +573,7 @@ export default function App() {
     const countSteps = (steps: any[]) => {
       for (const step of steps) {
         total++;
-        if (step.status === 'done') done++;
+        if (step.status === "done") done++;
         if (step.steps && step.steps.length > 0) countSteps(step.steps);
       }
     };
@@ -479,18 +615,37 @@ export default function App() {
 
   // ─── Agent Editor / Settings routes (after all hooks — Rules of Hooks) ─────────
   if (route === "#/agents") {
-    return <AgentEditor onBack={() => { window.location.hash = ""; }} />;
+    return (
+      <AgentEditor
+        onBack={() => {
+          window.location.hash = "";
+        }}
+      />
+    );
   }
   if (route === "#/settings") {
-    return <SettingsPage onBack={() => { window.location.hash = ""; }} busyCount={Object.keys(runnings).length} />;
+    return (
+      <SettingsPage
+        onBack={() => {
+          window.location.hash = "";
+        }}
+        busyCount={Object.keys(runnings).length}
+      />
+    );
   }
   if (route === "#/skills") {
-    return <SkillsPage onBack={() => { window.location.hash = ""; }} />;
+    return (
+      <SkillsPage
+        onBack={() => {
+          window.location.hash = "";
+        }}
+      />
+    );
   }
   if (route.startsWith("#/training/")) {
     return (
       <LearningPage
-        onBack={(agentId) => {
+        onBack={(_agentId) => {
           window.location.hash = "#/agents";
         }}
       />
@@ -518,8 +673,14 @@ export default function App() {
         onSidebarClose={() => setSidebarOpen(false)}
         onCreateContext={() => api.send({ type: "create_context", name: "Новый чат" })}
         onSelectContext={loadContext}
-        onDeleteContext={(id) => { if (confirm(`Удалить контекст "${contexts.find(c => c.id === id)?.name}"?`)) api.send({ type: "delete_context", ctxId: id }); }}
-        onRenameStart={(id) => { setRenamingCtx(id); setRenameValue(contexts.find(c => c.id === id)?.name ?? ""); }}
+        onDeleteContext={(id) => {
+          if (confirm(`Удалить контекст "${contexts.find((c) => c.id === id)?.name}"?`))
+            api.send({ type: "delete_context", ctxId: id });
+        }}
+        onRenameStart={(id) => {
+          setRenamingCtx(id);
+          setRenameValue(contexts.find((c) => c.id === id)?.name ?? "");
+        }}
         onRenameChange={setRenameValue}
         onRenameConfirm={renameContext}
         onRenameCancel={() => setRenamingCtx(null)}
@@ -558,7 +719,7 @@ export default function App() {
             onApplySkills={applySkills}
             onCancelHandoff={() => api.send({ type: "cancel_handoff", ctxId: activeCtx.id })}
             onAbort={() => api.send({ type: "abort", ctxId: activeCtx.id })}
-            recoveryHistory={recoveryHistories[activeCtx.id] ?? []}
+            _recoveryHistory={recoveryHistories[activeCtx.id] ?? []}
             onOpenRecoveryModal={() => setRecoveryModalOpen(true)}
           />
         ) : (
@@ -566,7 +727,9 @@ export default function App() {
             <div className="text-center">
               <p className="text-3xl">🤖</p>
               <p className="mt-3 text-sm text-slate-400 sm:text-base">
-                <span className="hidden sm:inline">Выбери контекст задачи слева или создай новый</span>
+                <span className="hidden sm:inline">
+                  Выбери контекст задачи слева или создай новый
+                </span>
                 <span className="sm:hidden">Открой меню ☰ и выбери контекст</span>
               </p>
               <button
@@ -608,6 +771,20 @@ export default function App() {
 
       {/* Toasts */}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
+
+      {/* Errors overlay */}
+      {errors.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+          {errors.map((err, i) => (
+            <div
+              key={i}
+              className="rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg"
+            >
+              {err}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

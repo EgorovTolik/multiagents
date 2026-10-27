@@ -63,7 +63,12 @@ export function InputArea({
     <div className="border-t border-slate-800 p-3 sm:p-4">
       {/* Панель инструментов над полем ввода */}
       <div className="mb-2 flex items-center gap-2">
-        <SkillPicker skills={skills} applied={appliedSkills} onApply={onApplySkills} disabled={skillsDisabled} />
+        <SkillPicker
+          skills={skills}
+          applied={appliedSkills}
+          onApply={onApplySkills}
+          disabled={skillsDisabled}
+        />
       </div>
       {attachedFiles.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -78,9 +83,15 @@ export function InputArea({
               ) : (
                 <div className="flex h-16 w-24 flex-col items-center justify-center rounded-md border border-slate-700 bg-slate-800 px-1">
                   <span className="text-lg">📄</span>
-                  <span className="w-full truncate text-center text-[10px] text-slate-400">{f.name}</span>
+                  <span className="w-full truncate text-center text-[10px] text-slate-400">
+                    {f.name}
+                  </span>
                   <span className="text-[9px] text-slate-500">
-                    {f.size < 1024 ? f.size + " Б" : f.size < 1048576 ? (f.size / 1024).toFixed(1) + " КБ" : (f.size / 1048576).toFixed(1) + " МБ"}
+                    {f.size < 1024
+                      ? f.size + " Б"
+                      : f.size < 1048576
+                        ? (f.size / 1024).toFixed(1) + " КБ"
+                        : (f.size / 1048576).toFixed(1) + " МБ"}
                   </span>
                 </div>
               )}
@@ -101,7 +112,10 @@ export function InputArea({
           accept="*/*"
           multiple
           className="hidden"
-          onChange={(e) => { if (e.target.files) onAddFiles(e.target.files); e.target.value = ""; }}
+          onChange={(e) => {
+            if (e.target.files) onAddFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -113,9 +127,15 @@ export function InputArea({
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => { onInputChange(e.target.value); autoExpand(); }}
+          onChange={(e) => {
+            onInputChange(e.target.value);
+            autoExpand();
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); }
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
           }}
           onPaste={(e) => {
             const items = e.clipboardData?.items;
@@ -127,7 +147,10 @@ export function InputArea({
                   if (file) files.push(file);
                 }
               }
-              if (files.length > 0) { e.preventDefault(); onAddFiles(files); }
+              if (files.length > 0) {
+                e.preventDefault();
+                onAddFiles(files);
+              }
             }
           }}
           rows={2}
@@ -140,7 +163,9 @@ export function InputArea({
           disabled={disabled}
           className="self-stretch rounded-lg bg-indigo-600 px-4 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 sm:px-5"
         >
-          <span className="hidden sm:inline">{sentText !== null ? "Отправлено…" : "Отправить"}</span>
+          <span className="hidden sm:inline">
+            {sentText !== null ? "Отправлено…" : "Отправить"}
+          </span>
           <span className="sm:hidden">➤</span>
         </button>
       </div>

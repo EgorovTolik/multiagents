@@ -25,7 +25,7 @@ export interface ChatComponentProps {
   /** Количество восстановлений цепочки в этом чате */
   recoveryCount?: number;
   /** История событий восстановления для этого чата */
-  recoveryHistory?: import("./RecoveryHistoryModal").RecoveryEntry[];
+  _recoveryHistory?: import("./RecoveryHistoryModal").RecoveryEntry[];
   /** Колбэк открытия модалки истории восстановлений */
   onOpenRecoveryModal?: () => void;
   /** Прогресс активного плана (null если плана нет) */
@@ -74,7 +74,7 @@ export function ChatComponent({
   pending,
   waitingAgentId,
   recoveryCount = 0,
-  recoveryHistory = [],
+  _recoveryHistory = [],
   onOpenRecoveryModal,
   planProgress,
   onOpenPlanEditor,
@@ -122,7 +122,7 @@ export function ChatComponent({
   // ─── Имя агента по ID ─────────────────────────────────────────────────────
   const agentName = useCallback(
     (id: string) => agents.find((a) => a.id === id)?.name ?? id,
-    [agents],
+    [agents]
   );
 
   // ─── Определение индекса стримящегося сообщения ──────────────────────────
@@ -159,8 +159,6 @@ export function ChatComponent({
     setIsAtBottom(true);
   }, []);
 
-
-
   // ─── Отправка сообщения ──────────────────────────────────────────────────
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -174,11 +172,14 @@ export function ChatComponent({
 
   // ─── Уведомления об ошибках (локальные) ──────────────────────────────────
   const [errors, setErrors] = useState<string[]>([]);
-  const handleTruncate = useCallback((idx: number) => {
-    if (!confirm("Удалить историю начиная с этого сообщения?")) return;
-    // Отправка команды через props callback или напрямую через api
-    api.send({ type: "truncate_history", ctxId, fromIndex: idx });
-  }, [ctxId, api]);
+  const handleTruncate = useCallback(
+    (idx: number) => {
+      if (!confirm("Удалить историю начиная с этого сообщения?")) return;
+      // Отправка команды через props callback или напрямую через api
+      api.send({ type: "truncate_history", ctxId, fromIndex: idx });
+    },
+    [ctxId, api]
+  );
 
   // Обработка WS-ошибок для этого чата (через api.onMessage — если поддерживается)
   useEffect(() => {
@@ -228,18 +229,32 @@ export function ChatComponent({
       {/* Pending handoff banner */}
       {pending && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
-          ⏳ Запланирована передача: {agentName(pending.from)} → {agentName(pending.to)} — {pending.reason}
+          ⏳ Запланирована передача: {agentName(pending.from)} → {agentName(pending.to)} —{" "}
+          {pending.reason}
         </div>
       )}
 
       {/* Messages area */}
       <div
         className="relative flex-1 min-h-0"
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) onAddFiles(e.dataTransfer.files); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files.length) onAddFiles(e.dataTransfer.files);
+        }}
       >
-        <div className="h-full overflow-y-auto px-3 py-3 sm:px-5 sm:py-4" ref={scrollRef} onScroll={onScroll}>
+        <div
+          className="h-full overflow-y-auto px-3 py-3 sm:px-5 sm:py-4"
+          ref={scrollRef}
+          onScroll={onScroll}
+        >
           {messages.map((m, i) => (
             <MessageRow
               key={i}
@@ -268,7 +283,16 @@ export function ChatComponent({
           }`}
           title="К последнему сообщению"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M12 5v14M5 12l7 7 7-7" />
           </svg>
         </button>
@@ -283,7 +307,9 @@ export function ChatComponent({
 
       {/* Error banner */}
       {errors.length > 0 && (
-        <div className="border-t border-slate-800 px-3 py-1 text-xs text-rose-400 sm:px-4">{errors[errors.length - 1]}</div>
+        <div className="border-t border-slate-800 px-3 py-1 text-xs text-rose-400 sm:px-4">
+          {errors[errors.length - 1]}
+        </div>
       )}
 
       {/* Input area */}
@@ -295,7 +321,11 @@ export function ChatComponent({
         attachedFiles={attachedFiles}
         onRemoveFile={(i) => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
         placeholder={`Сообщение для: ${agentName(context.activeAgentId)}`}
-        disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
+        disabled={
+          (input.trim() === "" && attachedFiles.length === 0) ||
+          sentText !== null ||
+          api.status !== "connected"
+        }
         sentText={sentText}
         skills={skills}
         appliedSkills={appliedSkills}
@@ -305,9 +335,7 @@ export function ChatComponent({
       />
 
       {/* Fullscreen image viewer */}
-      {lightboxUrl && (
-        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
-      )}
+      {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </div>
   );
 }

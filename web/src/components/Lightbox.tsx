@@ -12,7 +12,11 @@ export function Lightbox({ url, onClose }: { url: string; onClose: () => void })
         ✕
       </button>
       <div className="max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-        <img src={url} alt="Preview" className="max-h-[80vh] max-w-[90vw] rounded-lg object-contain" />
+        <img
+          src={url}
+          alt="Preview"
+          className="max-h-[80vh] max-w-[90vw] rounded-lg object-contain"
+        />
         <div className="mt-3 flex justify-center">
           <a
             href={url}

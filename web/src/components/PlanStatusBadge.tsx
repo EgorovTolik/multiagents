@@ -8,7 +8,7 @@ export function PlanStatusBadge({
 }: {
   done: number;
   total: number;
-  status: 'planning' | 'approved' | 'executing' | 'completed' | 'archived';
+  status: "planning" | "approved" | "executing" | "completed" | "archived";
   onClick?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -16,11 +16,11 @@ export function PlanStatusBadge({
 
   // Color coding based on plan status
   let colorClass = "border-blue-500/60 bg-blue-500/10 text-blue-300";
-  if (status === 'planning') {
+  if (status === "planning") {
     colorClass = "border-yellow-500/60 bg-yellow-500/10 text-yellow-300";
-  } else if (status === 'completed') {
+  } else if (status === "completed") {
     colorClass = "border-green-500/60 bg-green-500/10 text-green-300";
-  } else if (status === 'archived') {
+  } else if (status === "archived") {
     colorClass = "border-gray-500/60 bg-gray-500/10 text-gray-400";
   }
 

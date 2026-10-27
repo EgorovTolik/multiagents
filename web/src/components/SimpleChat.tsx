@@ -49,9 +49,7 @@ export default function SimpleChat({ messages, title, agentName, msgIds }: Simpl
       </div>
 
       {/* Fullscreen image viewer */}
-      {lightboxUrl && (
-        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
-      )}
+      {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </div>
   );
 }

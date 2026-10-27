@@ -6,7 +6,7 @@ interface UseFlowManagerApiOptions {
   analyzedCtxId: string;
 }
 
-export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptions) {
+export function useFlowManagerApi({ api: _api, analyzedCtxId }: UseFlowManagerApiOptions) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [flowMessages, setFlowMessages] = useState<Message[]>([]);
   const [flowRunning, setFlowRunning] = useState(false);
@@ -63,45 +63,84 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
           } else if (msg.type === "message_start") {
             // Создаём новое сообщение с уникальным msgId
             console.log(`[mistakes] message_start msgId=${msg.msgId}`);
-            const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", ts: Date.now() };
+            const newBubble: Message = {
+              role: "assistant",
+              agentId: msg.agentId,
+              msgId: msg.msgId,
+              text: "",
+              ts: Date.now(),
+            };
             setFlowMessages((prev) => [...prev, newBubble]);
           } else if (msg.type === "thinking_delta") {
             // Обновляем thinking существующего сообщения по msgId
             setFlowMessages((prev) => {
-              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              const idx = prev.findIndex(
+                (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+              );
               if (idx >= 0) {
                 const copy = [...prev];
                 copy[idx] = { ...copy[idx], thinking: (copy[idx].thinking ?? "") + msg.text };
                 return copy;
               }
               // Если сообщения нет — создаём новое
-              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: "", thinking: msg.text, ts: Date.now() };
+              const newBubble: Message = {
+                role: "assistant",
+                agentId: msg.agentId,
+                msgId: msg.msgId,
+                text: "",
+                thinking: msg.text,
+                ts: Date.now(),
+              };
               return [...prev, newBubble];
             });
           } else if (msg.type === "delta") {
             // Обновляем текст существующего сообщения по msgId
             setFlowMessages((prev) => {
-              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              const idx = prev.findIndex(
+                (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+              );
               if (idx >= 0) {
                 const copy = [...prev];
                 copy[idx] = { ...copy[idx], text: copy[idx].text + msg.text };
                 return copy;
               }
               // Если сообщения нет — создаём новое
-              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, ts: Date.now() };
+              const newBubble: Message = {
+                role: "assistant",
+                agentId: msg.agentId,
+                msgId: msg.msgId,
+                text: msg.text,
+                ts: Date.now(),
+              };
               return [...prev, newBubble];
             });
           } else if (msg.type === "assistant_end") {
             // Агент завершил ответ — обновляем сообщение полным финальным текстом по msgId
             setFlowMessages((prev) => {
-              const idx = prev.findIndex(x => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId);
+              const idx = prev.findIndex(
+                (x) => x.role === "assistant" && x.agentId === msg.agentId && x.msgId === msg.msgId
+              );
               if (idx >= 0) {
                 const copy = [...prev];
-                copy[idx] = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text || copy[idx].text, thinking: msg.thinking || copy[idx].thinking || undefined, ts: Date.now() };
+                copy[idx] = {
+                  role: "assistant",
+                  agentId: msg.agentId,
+                  msgId: msg.msgId,
+                  text: msg.text || copy[idx].text,
+                  thinking: msg.thinking || copy[idx].thinking || undefined,
+                  ts: Date.now(),
+                };
                 return copy;
               }
               // Если сообщения нет — создаём новое
-              const newBubble: Message = { role: "assistant", agentId: msg.agentId, msgId: msg.msgId, text: msg.text, thinking: msg.thinking || undefined, ts: Date.now() };
+              const newBubble: Message = {
+                role: "assistant",
+                agentId: msg.agentId,
+                msgId: msg.msgId,
+                text: msg.text,
+                thinking: msg.thinking || undefined,
+                ts: Date.now(),
+              };
               return [...prev, newBubble];
             });
           }
@@ -140,15 +179,14 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
             const msgsData = await msgsResponse.json();
             // Все сообщения в mistakes сессии относятся к flow-manager диалогу,
             // даже если agentId был сброшен на orchestrator во время тестирования
-            const mapped: Message[] = (msgsData.messages || [])
-              .map((m: any, i: number) => ({
-                role: m.role,
-                agentId: m.agentId,
-                text: m.text,
-                thinking: m.thinking,
-                ts: m.ts || Date.now(),
-                id: `msg-${i + 1}`,
-              }));
+            const mapped: Message[] = (msgsData.messages || []).map((m: any, i: number) => ({
+              role: m.role,
+              agentId: m.agentId,
+              text: m.text,
+              thinking: m.thinking,
+              ts: m.ts || Date.now(),
+              id: `msg-${i + 1}`,
+            }));
             setFlowMessages(mapped);
           }
         } catch (e) {
@@ -186,18 +224,18 @@ export function useFlowManagerApi({ api, analyzedCtxId }: UseFlowManagerApiOptio
 
   const getSessionId = useCallback((): string | null => sessionId, [sessionId]);
 
-  const send = useCallback(
-    (message: { type: string; ctxId?: string; text?: string }) => {
-      console.log("[FlowManagerApi] send called:", JSON.stringify(message).substring(0, 100));
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log("[FlowManagerApi] WS is OPEN, sending...");
-        wsRef.current.send(JSON.stringify(message));
-      } else {
-        console.warn("[FlowManagerApi] FlowManager WS not connected, readyState:", wsRef.current?.readyState);
-      }
-    },
-    []
-  );
+  const send = useCallback((message: { type: string; ctxId?: string; text?: string }) => {
+    console.log("[FlowManagerApi] send called:", JSON.stringify(message).substring(0, 100));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("[FlowManagerApi] WS is OPEN, sending...");
+      wsRef.current.send(JSON.stringify(message));
+    } else {
+      console.warn(
+        "[FlowManagerApi] FlowManager WS not connected, readyState:",
+        wsRef.current?.readyState
+      );
+    }
+  }, []);
 
   const getFlowMessages = useCallback((): Message[] => flowMessages, [flowMessages]);
 

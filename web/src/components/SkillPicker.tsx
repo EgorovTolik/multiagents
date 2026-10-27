@@ -60,7 +60,9 @@ export function SkillPicker({
       >
         ⚡ Навыки
         {applied.length > 0 && (
-          <span className="rounded-full bg-indigo-600/50 px-1.5 text-xs text-indigo-200">{applied.length}</span>
+          <span className="rounded-full bg-indigo-600/50 px-1.5 text-xs text-indigo-200">
+            {applied.length}
+          </span>
         )}
       </button>
 
@@ -95,14 +97,20 @@ export function SkillPicker({
                 >
                   <span
                     className={`text-sm ${
-                      isApplied ? "text-slate-500" : isSelected ? "text-emerald-300" : "text-slate-200"
+                      isApplied
+                        ? "text-slate-500"
+                        : isSelected
+                          ? "text-emerald-300"
+                          : "text-slate-200"
                     }`}
                   >
                     {isSelected && "✓ "}
                     {s.name}
                     {isApplied && <span className="ml-1.5 text-xs text-slate-600">(применён)</span>}
                   </span>
-                  <span className={`mt-0.5 text-xs ${isApplied ? "text-slate-600" : "text-slate-400"}`}>
+                  <span
+                    className={`mt-0.5 text-xs ${isApplied ? "text-slate-600" : "text-slate-400"}`}
+                  >
                     {s.description}
                   </span>
                 </button>

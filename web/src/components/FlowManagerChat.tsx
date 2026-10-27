@@ -132,7 +132,13 @@ export function FlowManagerChat({
       )}
 
       <ChatHeader
-        ctx={{ id: ctxId, name: "Агент", createdAt: 0, activeAgentId: "flow-manager", handoffs: [] }}
+        ctx={{
+          id: ctxId,
+          name: "Агент",
+          createdAt: 0,
+          activeAgentId: "flow-manager",
+          handoffs: [],
+        }}
         running={runningAgentId ? { agentId: runningAgentId } : null}
         pending={null}
         wsStatus={api.status}
@@ -147,11 +153,24 @@ export function FlowManagerChat({
       {/* Messages area */}
       <div
         className="relative flex-1 min-h-0"
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) onAddFiles(e.dataTransfer.files); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files.length) onAddFiles(e.dataTransfer.files);
+        }}
       >
-        <div className="h-full overflow-y-auto px-3 py-3 sm:px-5 sm:py-4" ref={scrollRef} onScroll={onScroll}>
+        <div
+          className="h-full overflow-y-auto px-3 py-3 sm:px-5 sm:py-4"
+          ref={scrollRef}
+          onScroll={onScroll}
+        >
           {messages.map((m, i) => (
             <MessageRow
               key={i}
@@ -180,7 +199,16 @@ export function FlowManagerChat({
           }`}
           title="К последнему сообщению"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M12 5v14M5 12l7 7 7-7" />
           </svg>
         </button>
@@ -188,7 +216,9 @@ export function FlowManagerChat({
 
       {/* Error banner */}
       {errors.length > 0 && (
-        <div className="border-t border-slate-800 px-3 py-1 text-xs text-rose-400 sm:px-4">{errors[errors.length - 1]}</div>
+        <div className="border-t border-slate-800 px-3 py-1 text-xs text-rose-400 sm:px-4">
+          {errors[errors.length - 1]}
+        </div>
       )}
 
       {/* Input area */}
@@ -200,7 +230,11 @@ export function FlowManagerChat({
         attachedFiles={attachedFiles}
         onRemoveFile={(i) => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
         placeholder={`Сообщение для ${agentName("flow-manager")}`}
-        disabled={(input.trim() === "" && attachedFiles.length === 0) || sentText !== null || api.status !== "connected"}
+        disabled={
+          (input.trim() === "" && attachedFiles.length === 0) ||
+          sentText !== null ||
+          api.status !== "connected"
+        }
         sentText={sentText}
         skills={skills}
         appliedSkills={appliedSkills}

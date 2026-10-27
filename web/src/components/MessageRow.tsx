@@ -34,13 +34,19 @@ function MessageMenu({ onTruncate, onCopy }: { onTruncate: () => void; onCopy: (
       {open && (
         <span className="absolute right-0 top-full z-50 mt-1 block w-36 rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-xl">
           <button
-            onClick={() => { setOpen(false); onCopy(); }}
+            onClick={() => {
+              setOpen(false);
+              onCopy();
+            }}
             className="block w-full px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-slate-700"
           >
             Копировать
           </button>
           <button
-            onClick={() => { setOpen(false); onTruncate(); }}
+            onClick={() => {
+              setOpen(false);
+              onTruncate();
+            }}
             className="block w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-slate-700"
           >
             Удалить
@@ -98,13 +104,21 @@ function MessageRowInner({
     setTimeout(() => setCopied(false), 500);
   }, [msgId, notify]);
 
-  const menuBtn = <MessageMenu onTruncate={() => onTruncate(index)} onCopy={() => { navigator.clipboard.writeText(m.text); notify("Скопировано"); }} />;
+  const menuBtn = (
+    <MessageMenu
+      onTruncate={() => onTruncate(index)}
+      onCopy={() => {
+        navigator.clipboard.writeText(m.text);
+        notify("Скопировано");
+      }}
+    />
+  );
 
   if (m.role === "system") {
     // Системные сообщения: отделяем тип от контента для визуальной чёткости
     let typePart = "";
     let contentPart = m.text;
-    
+
     // Разбираем передачи между агентами
     const handoffMatch = m.text.match(/^Передача:\s+(.+?)\s+→\s+(.+?)\s+—\s+(.*)$/);
     if (handoffMatch) {
@@ -124,7 +138,9 @@ function MessageRowInner({
           contentPart = m.text.substring(quoteStart + 1, quoteEnd);
         } else {
           // Если кавычки не найдены — берём весь текст после двоеточия
-          contentPart = m.text.substring(questionStartIdx + "задал вопрос пользователю:".length).trim();
+          contentPart = m.text
+            .substring(questionStartIdx + "задал вопрос пользователю:".length)
+            .trim();
         }
       }
     }
@@ -181,7 +197,9 @@ function MessageRowInner({
           <span
             onClick={handleCopyMsgId}
             className={`mb-1 ml-1 inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[10px] transition-colors duration-500 ${
-              copied ? "border-red-400 bg-red-900/30" : "border-slate-700 bg-slate-900 hover:border-slate-600"
+              copied
+                ? "border-red-400 bg-red-900/30"
+                : "border-slate-700 bg-slate-900 hover:border-slate-600"
             } text-slate-400`}
             title="Кликните чтобы скопировать ID"
           >
@@ -195,29 +213,33 @@ function MessageRowInner({
               <summary className="cursor-pointer select-none px-3 py-1.5 font-medium text-violet-400/90 hover:text-violet-300">
                 💭 Размышления{streaming ? " (идут…)" : ""}
               </summary>
-              <div ref={thinkingRef} className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-800 px-3 py-2 italic leading-relaxed text-slate-400">
+              <div
+                ref={thinkingRef}
+                className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-800 px-3 py-2 italic leading-relaxed text-slate-400"
+              >
                 {m.thinking}
               </div>
             </details>
           )}
-          {m.text && (streaming ? (
-            <div className="whitespace-pre-wrap break-words">{m.text}</div>
-          ) : (
-            <div className="md-content">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
-                components={{
-                  a: mdLink,
-                  img: ({ src, alt }) => (
-                    <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
-                  ),
-                }}
-              >
-                {m.text}
-              </ReactMarkdown>
-            </div>
-          ))}
+          {m.text &&
+            (streaming ? (
+              <div className="whitespace-pre-wrap break-words">{m.text}</div>
+            ) : (
+              <div className="md-content">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                  components={{
+                    a: mdLink,
+                    img: ({ src, alt }) => (
+                      <img src={src} alt={alt ?? ""} onClick={() => src && onImageClick(src)} />
+                    ),
+                  }}
+                >
+                  {m.text}
+                </ReactMarkdown>
+              </div>
+            ))}
           <div className="mt-1 text-left text-[10px] text-slate-500">{fmtTime(m.ts)}</div>
         </div>
       </div>

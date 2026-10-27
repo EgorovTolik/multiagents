@@ -43,7 +43,9 @@ export default function MarkdownEditor({
           <button
             onClick={() => setMode("edit")}
             className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-              mode === "edit" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+              mode === "edit"
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
             }`}
           >
             Редактор
@@ -51,7 +53,9 @@ export default function MarkdownEditor({
           <button
             onClick={() => setMode("preview")}
             className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
-              mode === "preview" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+              mode === "preview"
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
             }`}
           >
             Предпросмотр
@@ -75,12 +79,15 @@ export default function MarkdownEditor({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
+                // @ts-expect-error — react-markdown link component type mismatch
                 components={{ a: mdLink }}
               >
                 {value}
               </ReactMarkdown>
             ) : (
-              <p className="text-sm italic text-slate-500">Пусто — переключитесь в режим редактирования.</p>
+              <p className="text-sm italic text-slate-500">
+                Пусто — переключитесь в режим редактирования.
+              </p>
             )}
           </div>
         )}

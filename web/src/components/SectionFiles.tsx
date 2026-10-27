@@ -32,12 +32,23 @@ export function SectionFiles({
                 onChange={(e) => onChange(i, "filename", e.target.value)}
                 className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 font-mono text-xs outline-none focus:border-indigo-500"
               />
-              <button onClick={() => onRemove(i)} className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10" title="Удалить файл">✕</button>
+              <button
+                onClick={() => onRemove(i)}
+                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                title="Удалить файл"
+              >
+                ✕
+              </button>
             </div>
             {content(f, i)}
           </div>
         ))}
-        <button onClick={onAdd} className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-xs text-slate-400 hover:border-indigo-500 hover:text-indigo-300">+ Добавить файл</button>
+        <button
+          onClick={onAdd}
+          className="w-full rounded-lg border border-dashed border-slate-600 py-2 text-xs text-slate-400 hover:border-indigo-500 hover:text-indigo-300"
+        >
+          + Добавить файл
+        </button>
       </div>
     </Field>
   );

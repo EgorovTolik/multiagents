@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import PageHeader from "./components/PageHeader";
 import SimpleChat from "./components/SimpleChat";
 import { FlowManagerChat } from "./components/FlowManagerChat";
-import type { AgentInfo, ClientApi, ContextMeta, Message } from "./api";
+import type { AgentInfo, ClientApi, Message } from "./api";
 import { useFlowManagerApi } from "./hooks/useFlowManagerApi";
 import type { AttachedFile } from "./components/InputArea";
 
@@ -37,7 +37,7 @@ export default function MistakesPage({ analyzedCtxId, api, agents }: MistakesPag
       .then((r) => r.json())
       .then((data) => setAnalyzedCtx(data))
       .catch((e) => console.warn("Failed to load analyzed context info:", e));
-    
+
     // Загрузить историю сообщений анализируемого контекста
     // Фильтруем flow-manager сообщения — они не должны отображаться в истории задачи
     fetch(`/api/contexts/${analyzedCtxId}/messages`)
@@ -59,34 +59,44 @@ export default function MistakesPage({ analyzedCtxId, api, agents }: MistakesPag
 
     // Восстановить существующую mistakes сессию или создать новую
     // Вызывается один раз при монтировании и изменении analyzedCtxId
-    flowManagerApi.loadExistingSession().catch((e) => console.warn("Failed to load/create mistakes session:", e));
+    flowManagerApi
+      .loadExistingSession()
+      .catch((e) => console.warn("Failed to load/create mistakes session:", e));
   }, [analyzedCtxId]);
 
-  const agentName = useCallback((id: string) => agents.find((a) => a.id === id)?.name ?? id, [agents]);
+  const agentName = useCallback(
+    (id: string) => agents.find((a) => a.id === id)?.name ?? id,
+    [agents]
+  );
 
   // Отправка сообщения flow-manager (создаёт сессию при первом сообщении)
-  const handleFlowSend = useCallback(async (text: string) => {
-    if (!text.trim()) return;
-    setFlowSentText(text);
-    setFlowInput("");
+  const handleFlowSend = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
+      setFlowSentText(text);
+      setFlowInput("");
 
-    let sessionId = flowManagerApi.getSessionId();
-    // Если сессия ещё не создана — создаём её сейчас и используем возвращённый ID
-    if (!sessionId) {
-      sessionId = await flowManagerApi.createSession();
-    }
-    if (!sessionId) return;
+      let sessionId = flowManagerApi.getSessionId();
+      // Если сессия ещё не создана — создаём её сейчас и используем возвращённый ID
+      if (!sessionId) {
+        sessionId = await flowManagerApi.createSession();
+      }
+      if (!sessionId) return;
 
-    // Отправить сообщение через WebSocket
-    flowManagerApi.send({ type: "message", ctxId: sessionId, text });
-  }, [analyzedCtxId, flowManagerApi]);
+      // Отправить сообщение через WebSocket
+      flowManagerApi.send({ type: "message", ctxId: sessionId, text });
+    },
+    [analyzedCtxId, flowManagerApi]
+  );
 
   return (
     <div className="flex h-dvh flex-col bg-slate-900 text-slate-100">
       {/* Заголовок */}
       <PageHeader
         title="Работа над ошибками"
-        onBack={() => { window.location.hash = ""; }}
+        onBack={() => {
+          window.location.hash = "";
+        }}
       />
 
       {/* Основной контент */}
@@ -123,9 +133,14 @@ export default function MistakesPage({ analyzedCtxId, api, agents }: MistakesPag
             attachedFiles={flowAttachedFiles}
             setAttachedFiles={setFlowAttachedFiles}
             onAddFiles={() => {}}
-            onSend={(text, files) => handleFlowSend(text)}
+            onSend={(text, _files) => handleFlowSend(text)}
             onApplySkills={() => {}}
-            onAbort={() => flowManagerApi.send({ type: "abort", ctxId: flowManagerApi.getSessionId() ?? analyzedCtxId })}
+            onAbort={() =>
+              flowManagerApi.send({
+                type: "abort",
+                ctxId: flowManagerApi.getSessionId() ?? analyzedCtxId,
+              })
+            }
           />
         </div>
       </div>

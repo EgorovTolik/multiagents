@@ -118,95 +118,104 @@ export function Sidebar({
           {(() => {
             let lastDay = "";
             return contexts.map((c) => {
-            const arch = archiveStatus[c.id];
-            // Группировка по дате создания: заголовок дня перед первым элементом этого дня
-            const dayKey = new Date(c.createdAt).toDateString();
-            const dayHeader = dayKey !== lastDay;
-            lastDay = dayKey;
-            return (
-              <Fragment key={c.id}>
-              {dayHeader && (
-                <div className="my-3 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  {fmtDay(c.createdAt)}
-                </div>
-              )}
-              <div
-                className={`group mb-1 flex items-center rounded-md pr-1 ${
-                  activeCtx?.id === c.id ? "bg-slate-800" : "hover:bg-slate-900"
-                }`}
-              >
-                {renamingCtx === c.id ? (
-                  <input
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => onRenameChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onRenameConfirm();
-                      if (e.key === "Escape") onRenameCancel();
-                    }}
-                    onBlur={onRenameConfirm}
-                    className="w-full min-w-0 flex-1 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-sm text-white outline-none"
-                  />
-                ) : (
-                  <button
-                    onClick={() => onSelectContext(c.id)}
-                    onDoubleClick={() => onRenameStart(c.id)}
-                    onContextMenu={(e) => openMenu(c.id, e)}
-                    title={contextSizes[c.id] != null
-                      ? `contexts/${c.id} (${formatBytes(contextSizes[c.id])})`
-                      : `contexts/${c.id}`}
-                    className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
-                      activeCtx?.id === c.id ? "text-white" : "text-slate-400"
+              const arch = archiveStatus[c.id];
+              // Группировка по дате создания: заголовок дня перед первым элементом этого дня
+              const dayKey = new Date(c.createdAt).toDateString();
+              const dayHeader = dayKey !== lastDay;
+              lastDay = dayKey;
+              return (
+                <Fragment key={c.id}>
+                  {dayHeader && (
+                    <div className="my-3 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      {fmtDay(c.createdAt)}
+                    </div>
+                  )}
+                  <div
+                    className={`group mb-1 flex items-center rounded-md pr-1 ${
+                      activeCtx?.id === c.id ? "bg-slate-800" : "hover:bg-slate-900"
                     }`}
                   >
-                    <div className="truncate font-medium">{c.name}</div>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                      <span
-                        className={`inline-block h-1.5 w-1.5 rounded-full ${
-                          activeCtx?.id === c.id && runningCtxIds.includes(c.id) ? "animate-pulse bg-emerald-400" : "bg-slate-600"
-                        }`}
+                    {renamingCtx === c.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => onRenameChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") onRenameConfirm();
+                          if (e.key === "Escape") onRenameCancel();
+                        }}
+                        onBlur={onRenameConfirm}
+                        className="w-full min-w-0 flex-1 rounded border border-indigo-500 bg-slate-900 px-2 py-1 text-sm text-white outline-none"
                       />
-                      <span className="min-w-0 truncate">{agentName(c.activeAgentId)}</span>
-                      {c.handoffs.length > 0 && (
-                        <span className="shrink-0 text-slate-600">· {c.handoffs.length} передач</span>
-                      )}
-                    </div>
-                    {/* Время создания — отдельной строкой, прижато к левому краю (дата — в заголовке группы) */}
-                    <div className="mt-0.5 text-left text-[11px] leading-none text-slate-600">
-                      {fmtClock(c.createdAt)}
-                    </div>
-                  </button>
-                )}
-                {/* Статус архива */}
-                {arch?.state === "queued" || arch?.state === "preparing" ? (
-                  <span
-                    className="mx-1 h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-slate-500 border-t-transparent"
-                    title="Подготовка архива…"
-                  />
-                ) : arch?.state === "ready" ? (
-                  <button
-                    onClick={() => onDownloadArchive(c.id)}
-                    title="Скачать архив"
-                    className="mx-1 shrink-0 rounded px-1.5 py-1 text-xs text-emerald-400 hover:bg-emerald-500/20"
-                  >
-                    ⬇
-                  </button>
-                ) : arch?.state === "error" ? (
-                  <span className="mx-1 shrink-0 cursor-help px-1 text-xs" title={`Ошибка архива: ${arch.error}`}>
-                    ⚠️
-                  </span>
-                ) : null}
-                {/* Кнопка меню */}
-                <button
-                  onClick={(e) => openMenu(c.id, e)}
-                  title="Действия"
-                  className="shrink-0 rounded px-1.5 py-1 text-sm text-slate-500 hover:bg-slate-800 hover:text-white md:opacity-0 md:group-hover:opacity-100"
-                >
-                  ⋮
-                </button>
-              </div>
-              </Fragment>
-            );
+                    ) : (
+                      <button
+                        onClick={() => onSelectContext(c.id)}
+                        onDoubleClick={() => onRenameStart(c.id)}
+                        onContextMenu={(e) => openMenu(c.id, e)}
+                        title={
+                          contextSizes[c.id] != null
+                            ? `contexts/${c.id} (${formatBytes(contextSizes[c.id])})`
+                            : `contexts/${c.id}`
+                        }
+                        className={`block w-full min-w-0 flex-1 px-3 py-2 text-left text-sm ${
+                          activeCtx?.id === c.id ? "text-white" : "text-slate-400"
+                        }`}
+                      >
+                        <div className="truncate font-medium">{c.name}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                          <span
+                            className={`inline-block h-1.5 w-1.5 rounded-full ${
+                              activeCtx?.id === c.id && runningCtxIds.includes(c.id)
+                                ? "animate-pulse bg-emerald-400"
+                                : "bg-slate-600"
+                            }`}
+                          />
+                          <span className="min-w-0 truncate">{agentName(c.activeAgentId)}</span>
+                          {c.handoffs.length > 0 && (
+                            <span className="shrink-0 text-slate-600">
+                              · {c.handoffs.length} передач
+                            </span>
+                          )}
+                        </div>
+                        {/* Время создания — отдельной строкой, прижато к левому краю (дата — в заголовке группы) */}
+                        <div className="mt-0.5 text-left text-[11px] leading-none text-slate-600">
+                          {fmtClock(c.createdAt)}
+                        </div>
+                      </button>
+                    )}
+                    {/* Статус архива */}
+                    {arch?.state === "queued" || arch?.state === "preparing" ? (
+                      <span
+                        className="mx-1 h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-slate-500 border-t-transparent"
+                        title="Подготовка архива…"
+                      />
+                    ) : arch?.state === "ready" ? (
+                      <button
+                        onClick={() => onDownloadArchive(c.id)}
+                        title="Скачать архив"
+                        className="mx-1 shrink-0 rounded px-1.5 py-1 text-xs text-emerald-400 hover:bg-emerald-500/20"
+                      >
+                        ⬇
+                      </button>
+                    ) : arch?.state === "error" ? (
+                      <span
+                        className="mx-1 shrink-0 cursor-help px-1 text-xs"
+                        title={`Ошибка архива: ${arch.error}`}
+                      >
+                        ⚠️
+                      </span>
+                    ) : null}
+                    {/* Кнопка меню */}
+                    <button
+                      onClick={(e) => openMenu(c.id, e)}
+                      title="Действия"
+                      className="shrink-0 rounded px-1.5 py-1 text-sm text-slate-500 hover:bg-slate-800 hover:text-white md:opacity-0 md:group-hover:opacity-100"
+                    >
+                      ⋮
+                    </button>
+                  </div>
+                </Fragment>
+              );
             });
           })()}
           {contexts.length === 0 && (
@@ -219,8 +228,14 @@ export function Sidebar({
           <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Агенты</span>
           <ul className="mt-2 space-y-1">
             {agents.map((a) => (
-              <li key={a.id} className="flex items-center gap-2 text-xs text-slate-400" title={a.description}>
-                <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${agentColor(a.id)}`}>
+              <li
+                key={a.id}
+                className="flex items-center gap-2 text-xs text-slate-400"
+                title={a.description}
+              >
+                <span
+                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${agentColor(a.id)}`}
+                >
                   {a.id}
                 </span>
                 <span className="truncate">{a.name}</span>
@@ -272,7 +287,7 @@ export function Sidebar({
               </button>
             </div>
           </>,
-          document.body,
+          document.body
         )}
     </>
   );

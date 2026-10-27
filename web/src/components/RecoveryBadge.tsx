@@ -1,12 +1,6 @@
 import { useState } from "react";
 
-export function RecoveryBadge({
-  count,
-  onClick,
-}: {
-  count: number;
-  onClick?: () => void;
-}) {
+export function RecoveryBadge({ count, onClick }: { count: number; onClick?: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   return (

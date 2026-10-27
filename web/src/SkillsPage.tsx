@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "./components/PageHeader";
-import { HelpTip } from "./components/HelpTip";
 import { Field } from "./components/Field";
 import { SectionFiles } from "./components/SectionFiles";
 import MarkdownEditor from "./components/MarkdownEditor";
@@ -40,9 +39,9 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<SkillDetail | null>(null);
   const [original, setOriginal] = useState<SkillDetail | null>(null);
   const [isNew, setIsNew] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_saving, setSaving] = useState(false);
+  const [_saved, setSaved] = useState(false);
+  const [_error, setError] = useState<string | null>(null);
 
   // Контекстное меню списка навыков (kebab-меню)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -91,16 +90,24 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
       if (!data || !original) return false;
       return JSON.stringify(data[field]) !== JSON.stringify(original[field]);
     },
-    [data, original],
+    [data, original]
   );
 
-  const anyDirty = !!(data && original && (isDirty("name") || isDirty("description") || isDirty("autoApply") || isDirty("body") || isDirty("files")));
+  const anyDirty = !!(
+    data &&
+    original &&
+    (isDirty("name") ||
+      isDirty("description") ||
+      isDirty("autoApply") ||
+      isDirty("body") ||
+      isDirty("files"))
+  );
 
   /** Запустить действие с защитой от потери изменений. */
   const guardedAction = (action: () => void) => {
     if (anyDirty) {
       const ok = window.confirm(
-        "Есть несохранённые изменения.\nЕсли вы уйдёте сейчас, внесённые данные будут потеряны.\n\nПродолжить?",
+        "Есть несохранённые изменения.\nЕсли вы уйдёте сейчас, внесённые данные будут потеряны.\n\nПродолжить?"
       );
       if (!ok) return;
       action();
@@ -178,7 +185,13 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
         : await fetch(`/api/skills/${encodeURIComponent(data.id)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: data.name, description: data.description, autoApply: !!data.autoApply, body: data.body, files: data.files }),
+            body: JSON.stringify({
+              name: data.name,
+              description: data.description,
+              autoApply: !!data.autoApply,
+              body: data.body,
+              files: data.files,
+            }),
           });
       const d = (await res.json()) as SkillDetail & { error?: string };
       if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
@@ -228,15 +241,15 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-dvh flex-col bg-slate-950 text-slate-100">
       {/* Верхняя панель */}
-      <PageHeader
-        title="Навыки"
-        onBack={() => guardedAction(onBack)}
-      />
+      <PageHeader title="Навыки" onBack={() => guardedAction(onBack)} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Мобильный overlay для drawer */}
         {listOpen && (
-          <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setListOpen(false)} />
+          <div
+            className="fixed inset-0 z-30 bg-black/50 md:hidden"
+            onClick={() => setListOpen(false)}
+          />
         )}
         {/* Левая панель: список навыков (drawer на мобильных, статичная на md+) */}
         <aside
@@ -321,8 +334,23 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
             <p className="text-slate-500">Выберите навык слева или создайте новый…</p>
           ) : (
             <div className="mx-auto max-w-3xl space-y-5">
+              {/* Save button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => save()}
+                  disabled={!anyDirty}
+                  className="rounded-lg border border-indigo-500 bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Сохранить
+                </button>
+              </div>
+
               {/* ID */}
-              <Field label="ID" dirty={false} help="Уникальный идентификатор: строчные латинские буквы, цифры, _ и дефис. После создания изменить нельзя.">
+              <Field
+                label="ID"
+                dirty={false}
+                help="Уникальный идентификатор: строчные латинские буквы, цифры, _ и дефис. После создания изменить нельзя."
+              >
                 <input
                   value={data.id}
                   disabled={!isNew}
@@ -367,10 +395,13 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                   className="mt-0.5 h-4 w-4 accent-indigo-500"
                 />
                 <span className="text-sm">
-                  <span className={`block ${data.autoApply ? "text-slate-200" : "text-slate-400"}`}>Разрешить автоприменение агентом</span>
+                  <span className={`block ${data.autoApply ? "text-slate-200" : "text-slate-400"}`}>
+                    Разрешить автоприменение агентом
+                  </span>
                   <span className="mt-0.5 block text-xs leading-snug text-slate-500">
-                    Любой агент может сам применить этот навык к себе в рамках чата (инструмент use_skill) —
-                    без вашего участия. В чате появится системное сообщение о применении.
+                    Любой агент может сам применить этот навык к себе в рамках чата (инструмент
+                    use_skill) — без вашего участия. В чате появится системное сообщение о
+                    применении.
                   </span>
                 </span>
               </label>
@@ -392,7 +423,9 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
               {/* Дополнительные файлы */}
               <SectionFiles
                 title="Дополнительные файлы"
-                help={"Отдельные .md-файлы навыка. Сохраняются в skills/<id>/files/ и доступны агенту через artifact_store tool."}
+                help={
+                  "Отдельные .md-файлы навыка. Сохраняются в skills/<id>/files/ и доступны агенту через artifact_store tool."
+                }
                 files={data.files ?? []}
                 dirty={isDirty("files")}
                 onAdd={addFile}
@@ -407,8 +440,6 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
                   />
                 )}
               />
-
-
             </div>
           )}
         </main>
@@ -418,5 +449,3 @@ export default function SkillsPage({ onBack }: { onBack: () => void }) {
 }
 
 // ─── Компоненты формы ──────────────────────────────────────────────────────────────
-
-

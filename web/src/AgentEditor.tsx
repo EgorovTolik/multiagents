@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { HelpTip } from "./components/HelpTip";
 import { Field } from "./components/Field";
 import { SectionFiles } from "./components/SectionFiles";
 import MarkdownEditor from "./components/MarkdownEditor";
-import { createTrainingSession } from "./api";
 
 interface AgentFileEntry {
   filename: string;
@@ -70,9 +68,7 @@ interface PiToolGroupInfo {
 }
 
 function borderClass(dirty: boolean): string {
-  return dirty
-    ? "border-red-500"
-    : "border-emerald-600/40";
+  return dirty ? "border-red-500" : "border-emerald-600/40";
 }
 
 export default function AgentEditor({ onBack }: { onBack: () => void }) {
@@ -104,33 +100,42 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   const [modelsError, setModelsError] = useState(false);
   useEffect(() => {
     let stopped = false;
-    const done = () => { if (!stopped) setModelsLoading(false); };
+    const done = () => {
+      if (!stopped) setModelsLoading(false);
+    };
     fetch("/api/config")
       .then((r) => r.json())
-      .then((cfg: { model?: string; providers?: Record<string, { url: string; apiKey: string }> }) => {
-        if (stopped) return;
-        setGlobalModel(cfg.model ?? "");
-        const provs = cfg.providers ?? {};
-        const ids = Object.keys(provs);
-        if (ids.length === 0) { done(); return; }
-        Promise.all(
-          ids.map((id) =>
-            fetch(`/api/providers/${encodeURIComponent(id)}/models`)
-              .then((r) => r.json())
-              .then((d: { models: string[] }) =>
-                (d.models ?? []).map((m) => `${id}/${m}`)
-              )
-              .catch(() => null as string[] | null)
-          )
-        ).then((results) => {
+      .then(
+        (cfg: { model?: string; providers?: Record<string, { url: string; apiKey: string }> }) => {
           if (stopped) return;
-          const ok = results.filter(Boolean) as string[][];
-          setAllModels(ok.flat().sort());
-          setModelsError(ok.length === 0);
-        }).finally(done);
-      })
+          setGlobalModel(cfg.model ?? "");
+          const provs = cfg.providers ?? {};
+          const ids = Object.keys(provs);
+          if (ids.length === 0) {
+            done();
+            return;
+          }
+          Promise.all(
+            ids.map((id) =>
+              fetch(`/api/providers/${encodeURIComponent(id)}/models`)
+                .then((r) => r.json())
+                .then((d: { models: string[] }) => (d.models ?? []).map((m) => `${id}/${m}`))
+                .catch(() => null as string[] | null)
+            )
+          )
+            .then((results) => {
+              if (stopped) return;
+              const ok = results.filter(Boolean) as string[][];
+              setAllModels(ok.flat().sort());
+              setModelsError(ok.length === 0);
+            })
+            .finally(done);
+        }
+      )
       .catch(done);
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+    };
   }, []);
 
   // Загрузка деталей выбранного агента
@@ -151,20 +156,29 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       if (!data || !original) return false;
       return JSON.stringify(data[field]) !== JSON.stringify(original[field]);
     },
-    [data, original],
+    [data, original]
   );
 
-  const anyDirty = !!(data && original && (
-    isDirty("name") || isDirty("description") || isDirty("disabledTools") ||
-    isDirty("model") || isDirty("thinkingLevel") || isDirty("forgetSessionAfterStep") ||
-    isDirty("systemPrompt") ||
-    isDirty("rules") || isDirty("skills")
-  ));
+  const anyDirty = !!(
+    data &&
+    original &&
+    (isDirty("name") ||
+      isDirty("description") ||
+      isDirty("disabledTools") ||
+      isDirty("model") ||
+      isDirty("thinkingLevel") ||
+      isDirty("forgetSessionAfterStep") ||
+      isDirty("systemPrompt") ||
+      isDirty("rules") ||
+      isDirty("skills"))
+  );
 
   /** Запустить действие с защитой от потери изменений. */
   const guardedAction = (action: () => void) => {
     if (anyDirty) {
-      const ok = window.confirm("Есть несохранённые изменения.\nЕсли вы уйдёте сейчас, внесённые данные будут потеряны.\n\nПродолжить?");
+      const ok = window.confirm(
+        "Есть несохранённые изменения.\nЕсли вы уйдёте сейчас, внесённые данные будут потеряны.\n\nПродолжить?"
+      );
       if (!ok) return;
       action();
     } else {
@@ -186,8 +200,6 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
 
   // Мобильный drawer со списком агентов
   const [listOpen, setListOpen] = useState(false);
-
-
 
   const save = async () => {
     if (!data || !original) return;
@@ -214,7 +226,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   };
 
   const updateField = <K extends keyof AgentDetail>(key: K, value: AgentDetail[K]) => {
-    setData((prev) => prev ? { ...prev, [key]: value } : prev);
+    setData((prev) => (prev ? { ...prev, [key]: value } : prev));
     setSaved(false);
   };
 
@@ -223,7 +235,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
     listKey: "rules" | "skills",
     index: number,
     field: "filename" | "content",
-    value: string,
+    value: string
   ) => {
     if (!data) return;
     const arr = [...(data[listKey] as AgentFileEntry[])];
@@ -233,7 +245,10 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
 
   const addFile = (listKey: "rules" | "skills") => {
     if (!data) return;
-    const arr = [...(data[listKey] as AgentFileEntry[]), { filename: `new-${listKey}.md`, content: "" }];
+    const arr = [
+      ...(data[listKey] as AgentFileEntry[]),
+      { filename: `new-${listKey}.md`, content: "" },
+    ];
     updateField(listKey, arr as never);
   };
 
@@ -258,7 +273,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
         setOpenGroups(Object.fromEntries((d.groups ?? []).map((g) => [g.id, false])));
         setToolsFetchedAt(d.fetchedAt ?? null);
       })
-      .catch(() => { /* ignore — раздел инструментов pi останется пустым */ });
+      .catch(() => {
+        /* ignore — раздел инструментов pi останется пустым */
+      });
   }, []);
 
   /** Перезапрос списка инструментов pi (после изменения mcp.json / `pi install`). */
@@ -273,7 +290,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
         setOpenGroups((s) => Object.fromEntries(d.groups!.map((g) => [g.id, s[g.id] ?? true])));
         setToolsFetchedAt(d.fetchedAt ?? null);
       }
-    } catch { /* ignore */ } finally {
+    } catch {
+      /* ignore */
+    } finally {
       setToolsRefreshing(false);
     }
   }, []);
@@ -281,7 +300,7 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
   /** Включён ли инструмент (всё включено, кроме denylist). */
   const isToolEnabled = useCallback(
     (name: string): boolean => !!(data && !data.disabledTools.includes(name)),
-    [data],
+    [data]
   );
 
   const toggleTool = (tool: string) => {
@@ -301,7 +320,15 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
           className="rounded-lg border border-slate-700 bg-slate-800 p-2 text-slate-300 hover:bg-slate-700 md:hidden"
           aria-label="Список агентов"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
             <line x1="2" y1="4" x2="14" y2="4" />
             <line x1="2" y1="8" x2="14" y2="8" />
             <line x1="2" y1="12" x2="14" y2="12" />
@@ -339,7 +366,10 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
       <div className="flex flex-1 overflow-hidden">
         {/* Мобильный overlay для drawer */}
         {listOpen && (
-          <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setListOpen(false)} />
+          <div
+            className="fixed inset-0 z-30 bg-black/50 md:hidden"
+            onClick={() => setListOpen(false)}
+          />
         )}
         {/* Левая панель: список агентов (drawer на мобильных, статичная на md+) */}
         <aside
@@ -409,17 +439,36 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               </Field>
 
               {/* System tools — always on */}
-              <Field label="Инструменты системы" dirty={isDirty("disabledTools")} help="Инструменты протокола работы проекта. Заблокированные отключить нельзя; ask_user можно выключить, чтобы запретить агенту задавать вопросы пользователю.">
-                <div className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}>
+              <Field
+                label="Инструменты системы"
+                dirty={isDirty("disabledTools")}
+                help="Инструменты протокола работы проекта. Заблокированные отключить нельзя; ask_user можно выключить, чтобы запретить агенту задавать вопросы пользователю."
+              >
+                <div
+                  className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}
+                >
                   {SYSTEM_TOOLS.map((tool) =>
                     tool.locked ? (
-                      <label key={tool.name} title="Системное свойство (не отключаемое)" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs opacity-70">
-                        <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-indigo-500" />
+                      <label
+                        key={tool.name}
+                        title="Системное свойство (не отключаемое)"
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs opacity-70"
+                      >
+                        <input
+                          type="checkbox"
+                          checked
+                          disabled
+                          className="h-3.5 w-3.5 accent-indigo-500"
+                        />
                         <span className="font-mono">{tool.name}</span>
                         <span className="text-slate-500">— {tool.label}</span>
                       </label>
                     ) : (
-                      <label key={tool.name} title={`Отключить «${tool.label.toLowerCase()}» для этого агента`} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800">
+                      <label
+                        key={tool.name}
+                        title={`Отключить «${tool.label.toLowerCase()}» для этого агента`}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800"
+                      >
                         <input
                           type="checkbox"
                           checked={isToolEnabled(tool.name)}
@@ -429,16 +478,26 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                         <span className="font-mono">{tool.name}</span>
                         <span className="text-slate-500">— {tool.label}</span>
                       </label>
-                    ),
+                    )
                   )}
                 </div>
               </Field>
 
               {/* Plan management tools — separate group */}
-              <Field label="Инструменты планирования" dirty={isDirty("disabledTools")} help="Инструменты для создания и управления планами задач.">
-                <div className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}>
+              <Field
+                label="Инструменты планирования"
+                dirty={isDirty("disabledTools")}
+                help="Инструменты для создания и управления планами задач."
+              >
+                <div
+                  className={`flex flex-wrap gap-2 rounded-lg border bg-slate-900 p-3 ${borderClass(false)}`}
+                >
                   {PLAN_TOOLS.map((tool) => (
-                    <label key={tool.name} title={`Отключить «${tool.label.toLowerCase()}» для этого агента`} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800">
+                    <label
+                      key={tool.name}
+                      title={`Отключить «${tool.label.toLowerCase()}» для этого агента`}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800"
+                    >
                       <input
                         type="checkbox"
                         checked={isToolEnabled(tool.name)}
@@ -453,8 +512,14 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               </Field>
 
               {/* PI tools — grouped, master checkbox per group */}
-              <Field label="Инструменты PI" dirty={isDirty("disabledTools")} help="Всё, что установлено через `pi install`, включено по умолчанию. Снимите галочку, чтобы отключить инструмент или группу целиком.">
-                <div className={`space-y-2 rounded-lg border bg-slate-900 p-3 ${borderClass(isDirty("disabledTools"))}`}>
+              <Field
+                label="Инструменты PI"
+                dirty={isDirty("disabledTools")}
+                help="Всё, что установлено через `pi install`, включено по умолчанию. Снимите галочку, чтобы отключить инструмент или группу целиком."
+              >
+                <div
+                  className={`space-y-2 rounded-lg border bg-slate-900 p-3 ${borderClass(isDirty("disabledTools"))}`}
+                >
                   <div className="flex items-center justify-between px-1 pb-1">
                     <span className="text-[10px] uppercase tracking-wider text-slate-500">
                       {toolsFetchedAt
@@ -485,7 +550,11 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                           className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-slate-800/60"
                           onClick={() => setOpenGroups((s) => ({ ...s, [group.id]: !open }))}
                         >
-                          <span className={`text-xs text-slate-500 transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+                          <span
+                            className={`text-xs text-slate-500 transition-transform ${open ? "rotate-90" : ""}`}
+                          >
+                            ▶
+                          </span>
                           <input
                             type="checkbox"
                             checked={allEnabled}
@@ -494,7 +563,12 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                               if (!data) return;
                               const names = new Set(group.tools.map((t) => t.name));
                               const disabled = allEnabled
-                                ? [...new Set([...data.disabledTools, ...group.tools.map((t) => t.name)])]
+                                ? [
+                                    ...new Set([
+                                      ...data.disabledTools,
+                                      ...group.tools.map((t) => t.name),
+                                    ]),
+                                  ]
                                 : data.disabledTools.filter((t) => !names.has(t));
                               updateField("disabledTools", disabled);
                             }}
@@ -510,7 +584,11 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                         {open && (
                           <div className="grid gap-1 border-t border-slate-800 px-3 py-2 sm:grid-cols-2">
                             {group.tools.map((tool) => (
-                              <label key={tool.name} title={tool.description || undefined} className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800/60">
+                              <label
+                                key={tool.name}
+                                title={tool.description || undefined}
+                                className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-slate-800/60"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={isToolEnabled(tool.name)}
@@ -532,17 +610,31 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               <Field
                 label="Модель (опционально, override)"
                 dirty={isDirty("model")}
-                help={modelsLoading
-                  ? undefined
-                  : modelsError
-                    ? "⚠️ Не удалось получить список моделей — проверьте доступность серверов. Можно ввести модель вручную." + " По умолчанию используется глобальная модель из config.json."
-                    : 'По умолчанию используется глобальная модель из config.json. Выберите конкретную модель для override.'}
+                help={
+                  modelsLoading
+                    ? undefined
+                    : modelsError
+                      ? "⚠️ Не удалось получить список моделей — проверьте доступность серверов. Можно ввести модель вручную." +
+                        " По умолчанию используется глобальная модель из config.json."
+                      : "По умолчанию используется глобальная модель из config.json. Выберите конкретную модель для override."
+                }
               >
                 {modelsLoading && (
                   <div className="mb-2 flex items-center gap-2 text-xs text-indigo-300">
                     <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
                     </svg>
                     Обновляем список моделей с серверов…
                   </div>
@@ -553,9 +645,13 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                   onChange={(e) => updateField("model", e.target.value || null)}
                   className={`w-full rounded-lg border bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 ${borderClass(isDirty("model"))}`}
                 >
-                  <option value="">{globalModel ? `(глобальная: ${globalModel})` : "(использовать глобальную)"}</option>
+                  <option value="">
+                    {globalModel ? `(глобальная: ${globalModel})` : "(использовать глобальную)"}
+                  </option>
                   {allModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -569,7 +665,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
                 >
                   <option value="">(по умолчанию)</option>
                   {["off", "minimal", "low", "medium", "high", "xhigh"].map((l) => (
-                    <option key={l} value={l}>{l}</option>
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -578,7 +676,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               <Field
                 label="Забывать сессию после завершения шага"
                 dirty={isDirty("forgetSessionAfterStep")}
-                help={'Когда этот агент завершает свой шаг и чат передаётся другому агенту, его pi-сессия удаляется (остаётся только история сообщений в чате). При возврате строится новая сессия из истории — естественное «сжатие» контекста агента.'}
+                help={
+                  "Когда этот агент завершает свой шаг и чат передаётся другому агенту, его pi-сессия удаляется (остаётся только история сообщений в чате). При возврате строится новая сессия из истории — естественное «сжатие» контекста агента."
+                }
               >
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
@@ -604,7 +704,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               {/* Rules */}
               <SectionFiles
                 title="Правила (rules/)"
-                help={'Отдельные .md-файлы с правилами для агента. Каждый файл — одно правило (напр. commit-messages.md, safety-first.md). Содержимое подключается к системному промпту автоматически.'}
+                help={
+                  "Отдельные .md-файлы с правилами для агента. Каждый файл — одно правило (напр. commit-messages.md, safety-first.md). Содержимое подключается к системному промпту автоматически."
+                }
                 files={data.rules}
                 dirty={isDirty("rules")}
                 onAdd={() => addFile("rules")}
@@ -623,7 +725,9 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
               {/* Skills */}
               <SectionFiles
                 title="Навыки (skills/)"
-                help={'Markdown-файлы с инструкциями для повторяющихся задач. Формат: frontmatter (name, description) + тело. Агент выбирает нужный навык по контексту.'}
+                help={
+                  "Markdown-файлы с инструкциями для повторяющихся задач. Формат: frontmatter (name, description) + тело. Агент выбирает нужный навык по контексту."
+                }
                 files={data.skills}
                 dirty={isDirty("skills")}
                 onAdd={() => addFile("skills")}
@@ -653,13 +757,8 @@ export default function AgentEditor({ onBack }: { onBack: () => void }) {
           )}
         </main>
       </div>
-
     </div>
   );
 }
 
 // --- Вспомогательные компоненты ---
-
-
-
-

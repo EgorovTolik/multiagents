@@ -6,7 +6,7 @@ function StepItem({
   onStatusChange,
 }: {
   step: PlanStep;
-  onStatusChange: (stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked') => void;
+  onStatusChange: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -19,13 +19,6 @@ function StepItem({
     in_progress: "text-blue-400",
     done: "text-emerald-400",
     blocked: "text-rose-400",
-  };
-
-  const statusLabels: Record<string, string> = {
-    pending: "Ожидание",
-    in_progress: "Выполняется",
-    done: "Готово",
-    blocked: "Заблокировано",
   };
 
   return (
@@ -44,18 +37,21 @@ function StepItem({
 
         <input
           type="checkbox"
-          checked={step.status === 'done'}
-          onChange={() => onStatusChange(step.id, step.status === 'done' ? 'in_progress' : 'done')}
+          checked={step.status === "done"}
+          onChange={() => onStatusChange(step.id, step.status === "done" ? "in_progress" : "done")}
           className="accent-emerald-500"
         />
 
-        <span className={`text-sm ${statusColors[step.status]}`}>
-          {step.task}
-        </span>
+        <span className={`text-sm ${statusColors[step.status]}`}>{step.task}</span>
 
         <select
           value={step.status}
-          onChange={(e) => onStatusChange(step.id, e.target.value as 'pending' | 'in_progress' | 'done' | 'blocked')}
+          onChange={(e) =>
+            onStatusChange(
+              step.id,
+              e.target.value as "pending" | "in_progress" | "done" | "blocked"
+            )
+          }
           className="ml-auto rounded border border-slate-700 bg-slate-800 text-xs text-slate-300"
         >
           <option value="pending">Ожидание</option>
@@ -68,7 +64,7 @@ function StepItem({
       {expanded && hasNested && (
         <div className="border-l border-slate-700/50 pl-4">
           {/* Шаги (inline или из встроенного подплана — getter автоматически определит) */}
-          {step.steps.map((sub) => (
+          {(step.steps ?? []).map((sub) => (
             <StepItem key={sub.id} step={sub} onStatusChange={onStatusChange} />
           ))}
         </div>
@@ -86,7 +82,7 @@ export function PlanEditorModal({
   isOpen: boolean;
   onClose: () => void;
   plan: Plan | null;
-  onStatusChange: (stepId: string, status: 'pending' | 'in_progress' | 'done' | 'blocked') => void;
+  onStatusChange: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
 }) {
   useEffect(() => {
     if (!isOpen) return;
@@ -105,7 +101,7 @@ export function PlanEditorModal({
   const countSteps = (steps: PlanStep[]) => {
     for (const step of steps) {
       total++;
-      if (step.status === 'done') done++;
+      if (step.status === "done") done++;
       // Рекурсивно считаем подшаги — getter автоматически определит inline или embedded
       if (step.steps && step.steps.length > 0) countSteps(step.steps);
     }
@@ -132,7 +128,14 @@ export function PlanEditorModal({
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white"
             aria-label="Закрыть"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
