@@ -10,15 +10,8 @@ import { AgentRegistry } from "./registry";
 import { SkillRegistry } from "./skill-registry";
 import { ContextStore } from "./context-store";
 import { AgentRunner } from "./runner";
-import {
-  notFoundError,
-  validationError,
-  conflictError,
-  internalError,
-  networkError,
-  toErrorObject,
-} from "./error-types";
-import { validateParam, parseModelList, readMarkdownDir, syncMarkdownDir, readJson } from "./utils";
+import { toErrorObject } from "./error-types";
+import { readJson } from "./utils";
 import { createAgentsRouter } from "./api/agents";
 import { createContextsRouter } from "./api/contexts";
 import { createPlansRouter } from "./api/plans";
@@ -58,7 +51,7 @@ fs.mkdirSync(ARCHIVES_DIR, { recursive: true });
 // Поддерживает обе структуры: legacy apiKeys и новую providers
 function syncAuthKeys(): void {
   const authPath = path.join(AGENTS_DIR, "auth.json");
-  let existing: Record<string, unknown> = readJson(authPath, {});
+  const existing: Record<string, unknown> = readJson(authPath, {});
 
   // Новая структура: providers: { id: { url, apiKey } }
   const providers: Record<string, { url?: string; apiKey?: string }> = config.providers ?? {};
@@ -252,23 +245,6 @@ const wss = new WebSocketServer({ server });
 
 
 
-/** Проверить, доступен ли агент для обучения (не в пайпе и не в другой обучающей сессии). */
-function isAgentAvailableForTraining(agentId: string): { available: boolean; reason?: string } {
-  // Проверяем, не работает ли агент сейчас в каком-то чате
-  for (const active of runner.getActives()) {
-    if (active.agentId === agentId) {
-      return { available: false, reason: `Агент «${agentId}» сейчас работает` };
-    }
-  }
-  // Проверяем, нет ли у агента уже активной обучающей сессии
-  const contexts = store.list();
-  for (const ctx of contexts) {
-    if (ctx.trainingAgentId === agentId && !ctx.handoffs.length) {
-      return { available: false, reason: `У агента «${agentId}» уже есть обучающая сессия` };
-    }
-  }
-  return { available: true };
-}
 
 // === Обучающие сессии: REST API ===
 
@@ -295,12 +271,13 @@ wss.on("connection", (ws) => {
     }
     try {
       switch (msg.type) {
-        case "list_contexts":
+        case "list_contexts": {
           // Фильтруем обучающие и flow-mistakes сессии из основного списка
           const allCtx = store.list();
           const regularCtx = allCtx.filter((c) => !c.trainingAgentId && !c.flowMistakesOfCtxId);
           send({ type: "contexts", contexts: regularCtx });
           break;
+        }
         case "create_context": {
           const c = store.create(msg.name ?? "Новая задача");
           send({ type: "context_created", context: c });
@@ -369,7 +346,7 @@ wss.on("connection", (ws) => {
             }
           }
           // Если это завершённая обучающая сессия — автоматически переоткрываем её
-          let trainingCtx = store.getTraining(msg.ctxId);
+          const trainingCtx = store.getTraining(msg.ctxId);
           if (trainingCtx && trainingCtx.completed) {
             trainingCtx.completed = false;
             store.save(trainingCtx, "training");

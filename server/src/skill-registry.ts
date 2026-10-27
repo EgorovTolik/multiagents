@@ -52,8 +52,7 @@ export class SkillRegistry {
       const bodyPath = path.join(dir, "SKILL.md");
       if (!fs.existsSync(bodyPath)) continue;
       const cfgPath = path.join(dir, "config.json");
-      let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
-      cfg = readJson(cfgPath, {});
+      const cfg = readJson<{ name?: string; description?: string; autoApply?: boolean }>(cfgPath, {});
 
       const files = this.readSkillFiles(dir);
 
@@ -74,8 +73,7 @@ export class SkillRegistry {
     const bodyPath = path.join(dir, "SKILL.md");
     if (!fs.existsSync(bodyPath)) return this.skills.get(id); // fallback кэш
     const cfgPath = path.join(dir, "config.json");
-    let cfg: { name?: string; description?: string; autoApply?: boolean } = {};
-    cfg = readJson(cfgPath, {});
+    const cfg = readJson<{ name?: string; description?: string; autoApply?: boolean }>(cfgPath, {});
 
     const files = this.readSkillFiles(dir);
 

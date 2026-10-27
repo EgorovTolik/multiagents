@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { SkillRegistry, type SkillDef } from "./skill-registry";
-import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
+import { SkillRegistry } from "./skill-registry";
+import { ContextStore, type ContextMeta, type Message } from "./context-store";
 import { AgentRegistry } from "./registry";
 
 import type { ServerToClientMessage } from "./ws-types";

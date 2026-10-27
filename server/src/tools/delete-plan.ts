@@ -42,7 +42,7 @@ export function makeDeletePlanTool(ctxId: string, store: ContextStore, emit: Emi
           if (plan) {
             planTitle = plan.title;
           }
-        } catch (e) {
+        } catch {
           // Если план не загрузился — продолжаем, просто не выводим название
         }
 

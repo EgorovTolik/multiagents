@@ -39,9 +39,20 @@ export function createTrainingRouter(store: ContextStore, runner: AgentRunner, r
       return;
     }
 
-    if (runner.activeByCtx.has(agentId)) {
-      res.status(409).json(conflictError(`Агент «${def.name}» занят в задаче`));
-      return;
+    // Проверить, занят ли агент в чате
+    for (const active of runner.getActives()) {
+      if (active.agentId === agentId) {
+        res.status(409).json(conflictError(`Агент «${def.name}» сейчас работает`));
+        return;
+      }
+    }
+    // Проверить, нет ли у агента уже активной обучающей сессии
+    const contexts = store.list();
+    for (const c of contexts) {
+      if (c.trainingAgentId === agentId && !c.handoffs.length) {
+        res.status(409).json(conflictError(`У агента «${def.name}» уже есть обучающая сессия`));
+        return;
+      }
     }
 
     const ctx = store.create(`Обучение ${def.name}`, "training");

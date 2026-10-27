@@ -7,31 +7,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
-import { Type } from "typebox";
 import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
   SessionManager,
-  type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 
 import { AgentRegistry, type AgentDef } from "./registry";
 import type { ProjectConfig } from "./api-types";
-import {
-  agentStalledError,
-  agentRunError,
-  chainBrokenError,
-  internalError,
-} from "./error-types";
+import { agentRunError } from "./error-types";
 import { RecoveryEngine, ORCHESTRATOR_ID } from "./recovery.js";
 import { PlanService } from "./plan-service.js";
 import { MutexManager } from "./mutex.js";
 import { SkillInjector } from "./skills-injector.js";
 import type { SkillRegistry } from "./skill-registry";
-import { ContextStore, type ContextMeta, type Handoff, type Message } from "./context-store";
+import { ContextStore, type Message } from "./context-store";
 import { ProviderRegistry } from "./providers.js";
 import { QueueManager } from "./queue.js";
 import { PromptBuilder } from "./prompt-builder.js";
@@ -87,8 +80,6 @@ function loadSystemConfig(): { maxHandoffs: number; maxRecoveries: number; stall
 
 const sysCfg = loadSystemConfig();
 let MAX_HANDOFFS = sysCfg.maxHandoffs;
-let MAX_RECOVERIES = sysCfg.maxRecoveries;
-const STALL_TIMEOUT_MS = sysCfg.stallTimeoutMs;
 
 export class AgentRunner {
   private promptBuilder!: PromptBuilder;
@@ -214,7 +205,6 @@ export class AgentRunner {
   }
 
   invalidateContext(ctxId: string) {
-    const prefix = ctxId + "/";
     for (const session of this.sessionManager.getAllSessions()) {
       // Abort all sessions for this context
       session.abort();
@@ -227,7 +217,7 @@ export class AgentRunner {
     }
   }
 
-  disposeContext(ctxId: string) {
+  disposeContext(_ctxId: string) {
     // Close all sessions for this context
     this.sessionManager.closeAll();
   }
@@ -390,48 +380,48 @@ export class AgentRunner {
       this.mutexManager.releaseAgent(agentId);
       this.imageManager.flushPendingImages(ctxId, agentId);
       this.emit({ type: "run_end", ctxId, agentId });
-
-      const ctx = this.store.get(ctxId)!;
-      const pending = ctx.pendingHandoff;
-      ctx.pendingHandoff = undefined;
-      if (pending && this.registry.get(pending.to)) {
-        this.handoffManager.doHandoff(ctxId, ctx, pending, this.promptBuilder.buildHandoffPrompt(pending), (ctxId, text) => {
-          void this.run(ctxId, text);
-        });
-        return;
-      }
-
-      if (agentId === "agent-creator") {
-        this.registry.reload();
-        this.emit({ type: "agents", agents: this.registry.list() });
-      }
-
-      // Обрыв цепочки — делегируем RecoveryManager
-      const lastTask = ctx.handoffs[ctx.handoffs.length - 1];
-      const chainBreakHandled = await this.recoveryManager.handleChainBreak(
-        ctxId, ctx, agentId, lastTask,
-        (ctxId, ctx, handoff, prompt) => {
-          this.handoffManager.doHandoff(ctxId, ctx, handoff, prompt, (cid, text) => {
-            void this.run(cid, text);
-          });
-        },
-      );
-      if (chainBreakHandled) return;
-
-      if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
-        ctx.activeAgentId = ORCHESTRATOR_ID;
-        ctx.inChain = false;
-      }
-      this.store.save(ctx);
-      this.activeByCtx.delete(ctxId);
-      this.dispatchQueue();
     }
+
+    // Обработка после завершения сессии — вне finally чтобы избежать return in finally
+    const ctxAfterRun = this.store.get(ctxId)!;
+    const pending = ctxAfterRun.pendingHandoff;
+    ctxAfterRun.pendingHandoff = undefined;
+    if (pending && this.registry.get(pending.to)) {
+      this.handoffManager.doHandoff(ctxId, ctxAfterRun, pending, this.promptBuilder.buildHandoffPrompt(pending), (ctxId, text) => {
+        void this.run(ctxId, text);
+      });
+      return;
+    }
+
+    if (agentId === "agent-creator") {
+      this.registry.reload();
+      this.emit({ type: "agents", agents: this.registry.list() });
+    }
+
+    // Обрыв цепочки — делегируем RecoveryManager
+    const lastTask = ctxAfterRun.handoffs[ctxAfterRun.handoffs.length - 1];
+    const chainBreakHandled = await this.recoveryManager.handleChainBreak(
+      ctxId, ctxAfterRun, agentId, lastTask,
+      (ctxId, ctx, handoff, prompt) => {
+        this.handoffManager.doHandoff(ctxId, ctx, handoff, prompt, (cid, text) => {
+          void this.run(cid, text);
+        });
+      },
+    );
+    if (chainBreakHandled) return;
+
+    if (ctxAfterRun.activeAgentId !== ORCHESTRATOR_ID && !ctxAfterRun.awaitingUser) {
+      ctxAfterRun.activeAgentId = ORCHESTRATOR_ID;
+      ctxAfterRun.inChain = false;
+    }
+    this.store.save(ctxAfterRun);
+    this.activeByCtx.delete(ctxId);
+    this.dispatchQueue();
   }
 
 
 
   private async getSession(ctxId: string, agentId: string, def: AgentDef) {
-    const k = this.key(ctxId, agentId);
     let model = this.resolveModel(def.model);
     if (def.model && !model) {
       await this.providerRegistry.ensureModelRegistered(this.modelRuntime!, def.model);
@@ -541,7 +531,6 @@ export class AgentRunner {
   private piToolGroupsCache: ToolGroup[] | null = null;
   async listPiTools(force = false): Promise<ToolGroup[]> {
     if (!force && this.piToolGroupsCache) return this.piToolGroupsCache;
-    const startTime = Date.now();
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ma-tools-probe-"));
     try {
       const loader = new DefaultResourceLoader({ cwd: probeDir, agentDir: getAgentDir() });

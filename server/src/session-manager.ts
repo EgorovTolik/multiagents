@@ -5,7 +5,6 @@ import {
   SessionManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
-import path from "node:path";
 
 import type { AgentDef } from "./registry.js";
 import type { ContextStore } from "./context-store.js";
@@ -120,7 +119,7 @@ export class AgentSessionManager {
 
   /** Закрыть все сессии. */
   async closeAll() {
-    for (const [key, session] of [...this.sessions]) {
+    for (const [_key, session] of [...this.sessions]) {
       try { session.dispose(); } catch { /* ignore */ }
     }
     this.sessions.clear();

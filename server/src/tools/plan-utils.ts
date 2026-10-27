@@ -47,13 +47,13 @@ export async function getTargetPlan(
 /**
  * Отформатировать текст ошибки для ответа инструмента.
  */
-export function toolError(text: string): { content: [{ type: "text"; text: string }]; details: {} } {
+export function toolError(text: string): { content: [{ type: "text"; text: string }]; details: object } {
   return { content: [{ type: "text" as const, text }], details: {} };
 }
 
 /**
  * Отформатировать успешный ответ инструмента.
  */
-export function toolOk(text: string): { content: [{ type: "text"; text: string }]; details: {} } {
+export function toolOk(text: string): { content: [{ type: "text"; text: string }]; details: object } {
   return { content: [{ type: "text" as const, text }], details: {} };
 }

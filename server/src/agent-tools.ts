@@ -19,18 +19,6 @@ import { makeUpdatePlanStepTaskTool } from "./tools/update-plan-step-task";
 import { makeListPlansTool } from "./tools/list-plans";
 import { makeSetActivePlanTool } from "./tools/set-active-plan";
 
-interface ToolContext {
-  ctxId: string;
-  agentId: string;
-  store: ContextStore;
-  registry: AgentRegistry;
-  emit: Emit;
-  sharedDir: string;
-  agentsDir: string;
-  maxHandoffs: number;
-  defaultDisabledToolNames: () => Promise<string[]>;
-}
-
 function okText(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
 }
@@ -95,7 +83,7 @@ export function makeRouteTool(ctxId: string, agentId: string, store: ContextStor
   });
 }
 
-export function makeAskUserTool(ctxId: string, agentId: string, store: ContextStore, emit: Emit, sessionsKey: () => string) {
+export function makeAskUserTool(ctxId: string, agentId: string, store: ContextStore, emit: Emit, _sessionsKey: () => string) {
   return defineTool({
     name: "ask_user",
     label: "Спросить пользователя",
@@ -137,7 +125,7 @@ export function makeHandoffFileTool(ctxId: string, getCtxDir: (ctxId: string) =>
     }),
     execute: async (_id, params: { type: "task" | "result"; title: string; body: string }) => {
       const ctxDir = getCtxDir(ctxId);
-      let meta = store.get(ctxId);
+      const meta = store.get(ctxId);
       if (!meta) return errText(`Контекст ${ctxId} не найден`);
 
       let fileNum: number;

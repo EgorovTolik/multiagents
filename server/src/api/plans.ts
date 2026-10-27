@@ -1,5 +1,4 @@
 import { Router } from "express";
-import type { ContextStore } from "../context-store";
 import type { AgentRunner } from "../runner";
 
 export function createPlansRouter(runner: AgentRunner) {
@@ -10,13 +9,13 @@ export function createPlansRouter(runner: AgentRunner) {
   // Получить план
   router.get("/api/plans/:planId", async (req, res) => {
     try {
-      const { planId } = req.params;
+      const targetPlanId = req.params.planId;
       const ctxId = req.query.ctxId as string;
       if (!ctxId) {
         res.status(400).json({ error: "ctxId query parameter required" });
         return;
       }
-      let plan = await planService.loadPlan(ctxId, planId);
+      const plan = await planService.loadPlan(ctxId, targetPlanId);
       if (!plan) {
         res.status(404).json({ error: "Plan not found" });
       } else {
@@ -46,7 +45,6 @@ export function createPlansRouter(runner: AgentRunner) {
   // Обновить план
   router.put("/api/plans/:planId", async (req, res) => {
     try {
-      const { planId } = req.params;
       const ctxId = req.query.ctxId as string;
       if (!ctxId) {
         res.status(400).json({ error: "ctxId query parameter required" });
@@ -71,7 +69,7 @@ export function createPlansRouter(runner: AgentRunner) {
       if (!activePlanId) {
         res.json({ planId: null });
       } else {
-        let plan = await planService.loadPlan(ctxId, activePlanId);
+        const plan = await planService.loadPlan(ctxId, activePlanId);
         if (plan) {
           const detailed = await plan.detailed();
           res.json({ planId: activePlanId, plan: detailed });
