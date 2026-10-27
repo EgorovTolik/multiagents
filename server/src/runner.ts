@@ -532,25 +532,11 @@ export class AgentRunner {
       }
     } else if (ev.type === "message_start" && (ev.message?.role || "unknown") == "assistant") {
       const msgId = this.sessionManager.incrementMsgId(ctxId, agentId);
-      console.log(`[ctxId:${ctxId}] [${agentId}] message_start (msgId=${msgId})`);
       this.emit({ type: "message_start", ctxId, agentId, msgId });
     }
-    // else if (ev.type === "message_end") {
-    //   const msg = ev.message;
-    //   let text = "";
-    //   if (msg && typeof msg === "object" && "content" in msg && Array.isArray((msg as { content: unknown[] }).content)) {
-    //     for (const part of (msg as { content: unknown[] }).content) {
-    //       if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
-    //         text += part.text;
-    //       }
-    //     }
-    //   }
-    //   console.log(`[ctxId:${ctxId}] [${agentId}] message_end (${text.length} chars)`);
-    // }
 
     if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
       const d: string = ev.assistantMessageEvent.delta ?? "";
-      console.log(`[ctxId:${ctxId}] [${agentId}] text_delta (${d.length} chars): "${d.slice(0, 50)}..."`);
       if (d) {
         const existing = this.sessionManager.getPendingText(ctxId, agentId) || "";
         this.sessionManager.setPendingText(ctxId, agentId, existing + d);
@@ -559,7 +545,6 @@ export class AgentRunner {
       this.emit({ type: "delta", ctxId, agentId, msgId, text: d });
     } else if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "thinking_delta") {
       const d: string = ev.assistantMessageEvent.delta ?? "";
-      console.log(`[ctxId:${ctxId}] [${agentId}] thinking_delta (${d.length} chars): "${d.slice(0, 50)}..."`);
       if (d) {
         const existing = this.sessionManager.getPendingThinking(ctxId, agentId) || "";
         this.sessionManager.setPendingThinking(ctxId, agentId, existing + d);
@@ -568,7 +553,6 @@ export class AgentRunner {
       this.emit({ type: "thinking_delta", ctxId, agentId, msgId, text: d });
     } else if (ev.type === "message_end") {
       const msgRole = ev.message?.role || "unknown";
-      console.log(`[ctxId:${ctxId}] [${agentId}] message_end role=${msgRole}`);
       if (msgRole !== "assistant") return;
       let text = this.sessionManager.getPendingText(ctxId, agentId) || extractText(ev.message);
       if (!text) text = "";
@@ -583,12 +567,10 @@ export class AgentRunner {
       text = sanitizeFileLinks(this.getCtxDir(ctxId), text);
 
       if (!text && !thinking) {
-        console.log(`[ctxId:${ctxId}] [${agentId}] assistant_end: skipped (empty)`);
         return;
       }
       const msg: Message = { role: "assistant", agentId, text, thinking: thinking || undefined, ts: Date.now() };
       this.store.appendMessage(ctxId, msg);
-      console.log(`[ctxId:${ctxId}] [${agentId}] assistant_end: emitting (text=${text.length}, thinking=${thinking ? thinking.length : 0})`);
       const msgId = this.sessionManager.getMsgId(ctxId, agentId);
       this.emit({ type: "assistant_end", ctxId, agentId, msgId, text: this.store.maskPaths(ctxId, text), thinking });
     }
