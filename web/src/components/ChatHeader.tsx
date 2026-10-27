@@ -97,7 +97,9 @@ export function ChatHeader({
             onClick={onCancelHandoff}
             className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-xs text-amber-300 hover:bg-amber-500/20 sm:px-3"
           >
-            <span className="hidden sm:inline">Отменить передачу → {agentName(pending.to)}</span>
+            <span className="hidden sm:inline">
+              Отменить передачу → {agentName(pending.to)}{pending.fileRef ? ` (${pending.fileRef.title})` : ""}
+            </span>
             <span className="sm:hidden">✕ {agentName(pending.to)}</span>
           </button>
         )}

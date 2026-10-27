@@ -28,21 +28,43 @@ export class PromptBuilder {
       "Пользователь видит все передачи в интерфейсе и может их прерывать.";
     p +=
       "\n\n## Управление задачами\n\n" +
-      "При получении новой задачи от предыдущего агента вызови get_task_file_name — это создаст файл задания с уникальным номером. Запиши в него задачу через write/edit.\n" +
-      "После завершения работы вызови get_result_file_name — это вернёт путь к файлу результата для этой задачи. Запиши результат и передай управление следующему агенту или заверши ход.";
+      "При передаче задачи используй route_to_agent с type='task', title и body — инструмент автоматически создаст файл задания.\n" +
+      "После завершения работы вызови route_to_agent с type='result', title и body — инструмент создаст файл результата и передаст управление дальше по цепочке.";
     return p;
   }
 
   /** Промпт передачи диалога (обычный handoff). */
   buildHandoffPrompt(pending: Handoff): string {
-    return (
-      `Диалог передан агентом ${pending.from}.\n` +
-      `Причина: ${pending.reason}\n\n` +
-      `Контекст задачи:\n${pending.context}\n\n` +
-      `ВАЖНО: если в контексте указан путь к файлу ТЗ (tasks/task-<timestamp>.md) — сначала прочитай его, потом приступай к работе.\n` +
-      `По завершении вызови handoff_file(type="result", title="...", body="...") — инструмент создаст файл и вернёт путь. Упомяни путь в сообщении пользователю.\n` +
-      `Если следующий шаг требует другой экспертизы — вызови handoff_file(type="task", ...) и передай диалог через route_to_agent.`
-    );
+    let prompt = `Диалог передан агентом ${pending.from}.\nПричина: ${pending.reason}\n\n`;
+
+    if (pending.fileRef) {
+      const { path, type, title } = pending.fileRef;
+      if (type === "task") {
+        prompt += `📄 **Файл задания:** ${path}\n   Название: «${title}»\n\n`;
+        prompt += `**Прочитай файл задания перед началом работы.**\n\n`;
+      } else {
+        prompt += `📄 **Файл результата (от предыдущего агента):** ${path}\n   Название: «${title}»\n\n`;
+      }
+    } else if (pending.context) {
+      // Legacy format — context string without fileRef
+      prompt += `Контекст задачи:\n${pending.context}\n\n`;
+    }
+
+    prompt += `✅ **Как закончить работу:**\n`;
+    prompt += `Когда задача будет выполнена, вызови route_to_agent с type="result":\n\n`;
+    prompt += `route_to_agent({\n`;
+    prompt += `  agentId: "<id следующего агента>",\n`;
+    prompt += `  reason: "Краткая причина",\n`;
+    prompt += `  type: "result",\n`;
+    prompt += `  title: "Название результата",\n`;
+    prompt += `  body: "Подробное описание результата"\n`;
+    prompt += `})\n\n`;
+
+    if (pending.fileRef && pending.fileRef.type === "task") {
+      prompt += `Если следующий шаг требует другой экспертизы, передай задачу дальше через route_to_agent с type="task".`;
+    }
+
+    return prompt;
   }
 
   /** Обновить глобальные правила окружения. */

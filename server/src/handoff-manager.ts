@@ -56,6 +56,11 @@ export class HandoffManager {
       }
     }
 
+    // Сохраняем handoff.id в сессии целевого агента для формирования result-файла
+    if (handoff.id !== undefined) {
+      this.sessionManager.setCurrentHandoffId(ctxId, handoff.to, handoff.id);
+    }
+
     runFn(ctxId, prompt);
   }
 }

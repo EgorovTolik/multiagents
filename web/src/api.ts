@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 
+/** Ссылка на файл задания или результата. */
+export interface FileRef {
+  path: string;
+  type: "task" | "result";
+  title: string;
+  timestamp: number;
+}
+
 export interface Handoff {
   from: string;
   to: string;
   reason: string;
-  context: string;
+  context?: string;     // опциональный дополнительный контекст (legacy)
+  fileRef?: FileRef;    // ссылка на файл задания/результата
+  id?: number;          // уникальный идентификатор handoff (ctx.taskCounter)
   ts: number;
 }
 

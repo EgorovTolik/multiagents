@@ -44,12 +44,20 @@ git -C "$PROJECT" commit -m "Initial project upload via git-manager"
 
 ### Шаг 4: Запиши результат и передай дальше
 Когда задача выполнена:
-1. Вызови `handoff_file(type="result", title="...", body="...")` — запиши что сделал.
-2. Вызови `route_to_agent(agentId="orchestrator", reason="Задача git-менеджера выполнена", context="Результат записан в [путь к файлу]")`.
-
-Если возникла проблема, которую не можешь решить сам:
-1. Вызови `handoff_file(type="result", title="Проблема при выполнении git-задачи", body="Описание проблемы")`.
-2. Вызови `route_to_agent(agentId="orchestrator", reason="Нужна помощь с git-задачей", context="...")`.
+```route_to_agent({
+  agentId: "orchestrator",
+  reason: "Задача git-менеджера выполнена",
+  type: "result",
+  title: "Результат: ...",
+  body: "Что сделал, какие файлы созданы/изменены..."
+})```Если возникла проблема, которую не можешь решить сам:
+```route_to_agent({
+  agentId: "orchestrator",
+  reason: "Нужна помощь с git-задачей",
+  type: "result",
+  title: "Проблема при выполнении git-задачи",
+  body: "Описание проблемы, что пытался сделать..."
+})```
 
 ## Пример: Заливка проекта в GitHub
 

@@ -2,11 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+/** Ссылка на файл задания или результата. */
+export interface FileRef {
+  path: string;         // абсолютный путь к файлу
+  type: "task" | "result";
+  title: string;
+  timestamp: number;
+}
+
 export interface Handoff {
   from: string;
   to: string;
   reason: string;
-  context: string;
+  context?: string;     // опциональный дополнительный контекст (legacy)
+  fileRef?: FileRef;    // ссылка на файл задания/результата
+  id?: number;          // уникальный идентификатор handoff (ctx.taskCounter) для формирования имён файлов
   ts: number;
 }
 

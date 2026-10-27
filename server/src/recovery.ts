@@ -81,6 +81,17 @@ export class RecoveryEngine {
     ctxId?: string
   ): { context: string; taskTitle?: string } | null {
     try {
+      // Проверяем последний Handoff — если это задача (type="task"), она не завершена
+      if (lastTask && lastTask.fileRef && lastTask.fileRef.type === "task") {
+        const { path, title } = lastTask.fileRef;
+        console.log(`[${ctxId ? `ctxId:${ctxId}` : "system"}] [recovery] ${agentId}: обнаружена незавершённая задача: «${title}» (${path})`);
+        return {
+          context: `Продолжи выполнение задачи. Файл задания: ${path}`,
+          taskTitle: title,
+        };
+      }
+
+      // Legacy fallback — проверяем файлы на диске для старых handoffs без fileRef
       const tasksDir = path.join(ctxDir, "tasks");
       if (!fs.existsSync(tasksDir)) return null;
 
@@ -110,7 +121,7 @@ export class RecoveryEngine {
           if (titleMatch) taskTitle = titleMatch[1];
         } catch { /* ignore */ }
 
-        console.log(`[${ctxId ? `ctxId:${ctxId}` : "system"}] [recovery] ${agentId}: обнаружена незавершённая задача: ${lastTaskFile}`);
+        console.log(`[${ctxId ? `ctxId:${ctxId}` : "system"}] [recovery] ${agentId}: обнаружена незавершённая задача (legacy): ${lastTaskFile}`);
         return {
           context: `Продолжи выполнение задачи. Файл задания: ${taskFilePath}`,
           taskTitle: taskTitle || undefined,
@@ -168,13 +179,14 @@ export class RecoveryEngine {
   }
 
   /** Fallback-промпт для оркестратора: маршрутизатор не смог принять решение. */
+  /** Fallback-промпт для оркестратора: маршрутизатор не смог принять решение. */
   buildRouterFallbackPrompt(task: Handoff | undefined, lastMsg: string | undefined): string {
     return (
       `⚠️ ЦЕПОЧКА ПРЕРВАЛАСЬ, и агент-маршрутизатор (chain-router) не смог принять решение о передаче.\n\n` +
       `Задание, которое было передано предыдущему агенту:\n` +
       `— Причина: ${task?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${task?.context ?? "неизвестно"}\n\n` +
-      `Последнее сообщение маршрутизатора:\n${lastMsg ?? "(нет)"}\n\n` +
+      (task?.fileRef ? `— Файл задания: ${task.fileRef.path} («${task.fileRef.title}»)\n` : `— Контекст: ${task?.context ?? "неизвестно"}\n`) +
+      `\nПоследнее сообщение маршрутизатора:\n${lastMsg ?? "(нет)"}\n\n` +
       `Ты входишь в РЕЖИМ ВОССТАНОВЛЕНИЯ (разреши себе использовать read/bash для проверки состояния).\n` +
       `1. Если работа полностью завершена — кратко сообщи пользователю итог.\n` +
       `2. Если работа НЕ завершена — передай дальше по цепочке через route_to_agent с корректирующим промптом.`
@@ -195,19 +207,14 @@ export class RecoveryEngine {
       `Изначальное задание:\n` +
       `— От: ${originalTask?.from ?? "неизвестно"}\n` +
       `— Причина: ${originalTask?.reason ?? "неизвестно"}\n` +
-      `— Контекст: ${originalTask?.context ?? "неизвестно"}\n\n` +
-      `Твоё последнее сообщение:\n${lastMsg ?? "(нет)"}\n\n` +
+      (originalTask?.fileRef ? `— Файл задания: ${originalTask.fileRef.path} («${originalTask.fileRef.title}»)\n` : `— Контекст: ${originalTask?.context ?? "неизвестно"}\n`) +
+      `\nТвоё последнее сообщение:\n${lastMsg ?? "(нет)"}\n\n` +
       `## Что нужно сделать:\n` +
-      `1. Прочитай файл задания (указан в контексте выше)\n` +
+      `1. Прочитай файл задания (указан выше)\n` +
       `2. Продолжи выполнение задачи до конца\n` +
-      `3. По завершении вызови handoff_file(type="result", ...) для записи результата\n` +
-      `4. Вызови route_to_agent для передачи управления дальше по цепочке\n\n` +
+      `3. По завершении вызови route_to_agent с type="result" для отправки результата и передачи управления дальше по цепочке\n\n` +
       `ВАЖНО: обязательно заверши работу и передай управление, иначе цепочка прервётся снова.`
     );
   }
 
-  /** Достигнут ли лимит восстановлений (нужно ли останавливать авто-восстановление). */
-  isRecoveryLimitReached(recoveries: number): boolean {
-    return recoveries >= this.maxRecoveries;
-  }
 }

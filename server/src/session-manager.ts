@@ -18,6 +18,7 @@ export class AgentSessionManager {
   private pendingThinking = new Map<string, string>();
   private pendingText = new Map<string, string>();
   private msgIdCounter = new Map<string, number>();
+  private currentHandoffId = new Map<string, number>();
 
   constructor(
     private ctxStore: ContextStore,
@@ -60,6 +61,7 @@ export class AgentSessionManager {
       this.ctxStore, this.registry, emit,
       this.getCtxDir, sharedDir, agentsDir,
       maxHandoffs, defaultDisabledToolNames, this.skillInjector, () => key,
+      this,
     );
 
     let model = this.resolveModel(def.model);
@@ -178,6 +180,16 @@ export class AgentSessionManager {
   /** Удалить сессию без закрытия. */
   deleteSession(ctxId: string, agentId: string) {
     this.sessions.delete(this.key(ctxId, agentId));
+  }
+
+  /** Сохранить handoff.id для агента. */
+  setCurrentHandoffId(ctxId: string, agentId: string, id: number) {
+    this.currentHandoffId.set(this.key(ctxId, agentId), id);
+  }
+
+  /** Получить handoff.id для агента. */
+  getCurrentHandoffId(ctxId: string, agentId: string): number | undefined {
+    return this.currentHandoffId.get(this.key(ctxId, agentId));
   }
 
   private key(ctxId: string, agentId: string): string {

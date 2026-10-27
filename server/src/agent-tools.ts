@@ -41,26 +41,34 @@ export function makeListAgentsTool(registry: AgentRegistry) {
   });
 }
 
-export function makeRouteTool(ctxId: string, agentId: string, store: ContextStore, registry: AgentRegistry, emit: Emit, maxHandoffs: number) {
+export function makeRouteTool(ctxId: string, agentId: string, store: ContextStore, registry: AgentRegistry, emit: Emit, maxHandoffs: number, sessionManager?: any) {
   return defineTool({
     name: "route_to_agent",
     label: "Передача диалога",
     description:
-      "Передаёт диалог другому агенту с более подходящей экспертизой. Вызывай, когда следующий шаг задачи требует другой компетенции. " +
-      "Текущий ход завершится, и целевой агент продолжит работу с переданным контекстом.",
+      "Передаёт задачу другому агенту. Создаёт файл задания или результата в рабочей директории контекста и передаёт управление целевому агенту. " +
+      "Используй type='task' для передачи задачи на выполнение, type='result' — для отправки результата обратно.",
     parameters: Type.Object({
       agentId: Type.String({ description: "ID целевого агента (см. list_agents)" }),
       reason: Type.String({ description: "Одно короткое предложение — причина передачи (покажется пользователю в интерфейсе)" }),
-      context: Type.String({
-        description:
-          "Короткое описание задачи (1-3 предложения) + абсолютный путь к файлу ТЗ (вернёт handoff_file). НЕ пересказывай всё задание — агент сам прочитает файл. Укажи инструкции: прочитай ТЗ, результат запиши через handoff_file(type='result').",
-      }),
+      type: Type.Union([Type.Literal("task"), Type.Literal("result")], { description: "'task' = передать задачу на выполнение, 'result' = отправить результат обратно" }),
+      title: Type.String({ description: "Краткое название задачи или результата (1-5 слов) — станет заголовком в интерфейсе" }),
+      body: Type.String({ description: "Полное описание задания или результата в markdown формате" }),
     }),
-    execute: async (_id, params: { agentId: string; reason: string; context: string }) => {
+    execute: async (_id, params: { agentId: string; reason: string; type: "task" | "result"; title: string; body: string }) => {
       const ctx = store.get(ctxId);
       if (ctx?.trainingAgentId) {
         return errText("Во время обучающей сессии передача задач другим агентам запрещена. Объясни пользователю, что ты сам продолжишь работу.");
       }
+
+      // Валидация параметров
+      if (params.type === "task" && (!params.title || !params.body)) {
+        return errText("Для type='task' обязательны параметры title и body");
+      }
+      if (params.type === "result" && (!params.body)) {
+        return errText("Для type='result' обязателен параметр body");
+      }
+
       const target = registry.get(params.agentId);
       if (!target) {
         return errText(`Агент "${params.agentId}" не найден. Доступны: ${registry.list().map((a) => a.id).join(", ")}`);
@@ -71,13 +79,57 @@ export function makeRouteTool(ctxId: string, agentId: string, store: ContextStor
       if (!ctx || ctx.handoffs.length >= maxHandoffs) {
         return errText(`Достигнут лимит передач в цепочке (${maxHandoffs}). Продолжи работу сам.`);
       }
-      const handoff: Handoff = { from: agentId, to: params.agentId, reason: params.reason, context: params.context, ts: Date.now() };
+
+      // Создаём файл задания или результата (внутренняя логика handoff_file)
+      const { dir: ctxDir } = store.resolveDir(ctxId);
+
+      let fileNum: number;
+      if (params.type === "task") {
+        ctx.taskCounter = (ctx.taskCounter ?? 0) + 1;
+        fileNum = ctx.taskCounter;
+        store.save(ctx);
+      } else {
+        // Для result используем currentHandoffId из сессии агента
+        if (sessionManager) {
+          fileNum = sessionManager.getCurrentHandoffId(ctxId, agentId) ?? 0;
+        } else {
+          fileNum = ctx.taskCounter ?? 0;
+        }
+        if (fileNum === 0) return errText("Нет активного задания для этого агента. Сначала создайте задачу через route_to_agent(type='task')");
+      }
+
+      const dirName = params.type === "task" ? "tasks" : "results";
+      const dirPath = path.join(ctxDir, dirName);
+      fs.mkdirSync(dirPath, { recursive: true });
+
+      const filename = `${params.type}-${String(fileNum).padStart(3, "0")}.md`;
+      const filePath = path.join(dirPath, filename);
+      const header = params.type === "task" ? `# Задание: ${params.title}\n\n` : `# Результат: ${params.title}\n\n`;
+      fs.writeFileSync(filePath, header + params.body, "utf8");
+
+      // Формируем Handoff с ссылкой на файл
+      const now = Date.now();
+      const handoff: Handoff = {
+        from: agentId,
+        to: params.agentId,
+        reason: params.reason,
+        id: fileNum,
+        fileRef: {
+          path: filePath,
+          type: params.type,
+          title: params.title,
+          timestamp: now,
+        },
+        ts: now,
+      };
+
       ctx.pendingHandoff = handoff;
       store.save(ctx);
       emit({ type: "handoff_pending", ctxId, handoff });
+
       return okText(
-        `Передача запланирована: после завершения текущего шага диалог будет передан агенту "${params.agentId}" (${target.description}). ` +
-          `Пользователь видит передачу в интерфейсе и может её отменить. Заверши текущий ход.`,
+        `Передача запланирована: задача «${params.title}» будет передана агенту "${params.agentId}" (${target.description}). ` +
+          `Файл задания создан: ${filePath}. Пользователь видит передачу в интерфейсе и может её отменить. Заверши текущий ход.`,
       );
     },
   });
@@ -270,11 +322,11 @@ export function makeNotifyTool(emit: Emit, ctxId: string) {
 }
 
 /** Фабрика всех инструментов агента. */
-export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string) {
+export function buildAgentTools(ctxId: string, agentId: string, def: AgentDef, store: ContextStore, registry: AgentRegistry, emit: Emit, getCtxDir: (ctxId: string) => string, sharedDir: string, agentsDir: string, maxHandoffs: number, defaultDisabledToolNames: () => Promise<string[]>, skillInjector: SkillInjector, sessionsKey: () => string, sessionManager?: any) {
   const manager = PlanManager.getInstance();
   const tools = [
     makeListAgentsTool(registry),
-    makeRouteTool(ctxId, agentId, store, registry, emit, maxHandoffs),
+    makeRouteTool(ctxId, agentId, store, registry, emit, maxHandoffs, sessionManager),
     makeAskUserTool(ctxId, agentId, store, emit, sessionsKey),
     makeHandoffFileTool(ctxId, getCtxDir, store),
     skillInjector.createListSkillsTool(),
