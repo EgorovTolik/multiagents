@@ -73,17 +73,7 @@ export class RecoveryManager {
     // Notify: recovery started
     this.emit({ type: "recovery_started", ctxId, brokenAgent: agentId, attempt: recoveries + 1, maxAttempts: this.maxRecoveries });
 
-    if (agentId === CHAIN_ROUTER_ID) {
-      const decision = "router_fallback";
-      console.log(`[runner] ${ctxId}/${agentId}: маршрутизатор не принял решение — автопередача оркестратору`);
-      this.emit({ type: "recovery_decision", ctxId, decision, targetAgent: ORCHESTRATOR_ID, reason: "Маршрутизатор не принял решение" });
-      const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Маршрутизатор не принял решение — автопередача", context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)", ts: Date.now() };
-      ctx.recoveryCount = recoveries + 1;
-      doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterFallbackPrompt(task, lastMsg));
-      this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
-      return true;
-    }
-
+    // Сначала проверяем незавершённые задачи — это приоритетнее router_fallback
     const incomplete = this.recoveryEngine.detectIncompleteTask(ctxId, agentId, task, ctxId);
     if (incomplete) {
       console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
@@ -91,6 +81,17 @@ export class RecoveryManager {
       const handoff: Handoff = { from: "system", to: agentId, reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)", context: incomplete.context, ts: Date.now() };
       ctx.recoveryCount = recoveries + 1;
       doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
+      this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
+      return true;
+    }
+
+    if (agentId === CHAIN_ROUTER_ID) {
+      const decision = "router_fallback";
+      console.log(`[runner] ${ctxId}/${agentId}: маршрутизатор не принял решение — автопередача оркестратору`);
+      this.emit({ type: "recovery_decision", ctxId, decision, targetAgent: ORCHESTRATOR_ID, reason: "Маршрутизатор не принял решение" });
+      const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Маршрутизатор не принял решение — автопередача", context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)", ts: Date.now() };
+      ctx.recoveryCount = recoveries + 1;
+      doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterFallbackPrompt(task, lastMsg));
       this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
       return true;
     }

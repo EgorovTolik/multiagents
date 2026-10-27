@@ -25,5 +25,6 @@
     "update_orchestrator_agent_description",
     "workflow"
   ],
+  "model": "eac-mac-ai/Ornith-1.5-35B-A3B-APEX-MTP-Quality.gguf",
   "forgetSessionAfterStep": true
 }
