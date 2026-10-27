@@ -81,10 +81,10 @@ export default function App() {
   // ─── WS message handler ────────────────────────────────────────────────────────
   const handle = useCallback(
     (msg: ServerMsg) => {
-      //if (msg.type != lastType) {
-      //  lastType = msg.type;
-      //  console.log(msg);
-      //}
+      if (msg.type != lastType) {
+       lastType = msg.type;
+       console.log(msg);
+      }
       switch (msg.type) {
         case "agents":
           setAgents(msg.agents);

@@ -26,7 +26,7 @@ import {
   chainBrokenError,
   internalError,
 } from "./error-types";
-import { RecoveryEngine, ORCHESTRATOR_ID, CHAIN_ROUTER_ID } from "./recovery.js";
+import { RecoveryEngine, ORCHESTRATOR_ID } from "./recovery.js";
 import { PlanService } from "./plan-service.js";
 import { MutexManager } from "./mutex.js";
 import { SkillInjector } from "./skills-injector.js";
@@ -37,6 +37,8 @@ import { QueueManager } from "./queue.js";
 import { PromptBuilder } from "./prompt-builder.js";
 import { buildAgentTools } from "./agent-tools.js";
 import { AgentSessionManager } from "./session-manager.js";
+import { HandoffManager } from "./handoff-manager.js";
+import { RecoveryManager } from "./recovery-manager.js";
 import { ImageManager, fmtSize } from "./image-manager.js";
 import { readJson } from "./utils.js";
 import { extractText, isImage, sanitizeFileLinks, generateName } from "./utils-runner.js";
@@ -96,9 +98,10 @@ export class AgentRunner {
   activeByCtx = new Map<string, string>();
   private mutexManager!: MutexManager;
   private recoveryEngine!: RecoveryEngine;
+  private handoffManager!: HandoffManager;
+  private recoveryManager!: RecoveryManager;
   private planService!: PlanService;
   private queue!: QueueManager;
-  private lastEventByCtx = new Map<string, number>();
   private modelRuntime: Awaited<ReturnType<typeof ModelRuntime.create>> | null = null;
   private providerRegistry!: ProviderRegistry;
   piToolsFetchedAtValue: number | null = null;
@@ -143,6 +146,26 @@ export class AgentRunner {
       this.skillInjector,
       (ctxId, agentId, ev) => this.forward(ctxId, agentId, ev),
     );
+
+    // Создаём handoff и recovery менеджеры после sessionManager
+    this.handoffManager = new HandoffManager(
+      this.registry,
+      this.store,
+      this.sessionManager,
+      this.promptBuilder,
+      this.emit,
+    );
+    this.recoveryManager = new RecoveryManager(
+      this.registry,
+      this.store,
+      this.sessionManager,
+      this.recoveryEngine,
+      this.activeByCtx,
+      sysCfg.stallTimeoutMs,
+      sysCfg.maxRecoveries,
+      sysCfg.recoveryMode,
+      this.emit,
+    );
   }
 
   private loadGlobalRules() {
@@ -160,18 +183,9 @@ export class AgentRunner {
     await this.providerRegistry.registerProjectProviders(this.modelRuntime);
     this.providerRegistry.correctAgentModels();
 
-    // Watchdog: если активная сессия не генерирует событий дольше STALL_TIMEOUT_MS — прерываем её
+    // Watchdog: проверка зависших сессий каждые 15 секунд
     setInterval(() => {
-      for (const [ctxId, agentId] of this.activeByCtx) {
-        const last = this.lastEventByCtx.get(ctxId);
-        if (last === undefined || Date.now() - last < STALL_TIMEOUT_MS) continue;
-        console.error(`[ctxId:${ctxId}] [runner] сессия ${agentId} зависла (нет событий ${STALL_TIMEOUT_MS / 1000}с), прерываю`);
-        const err = agentStalledError(agentId, STALL_TIMEOUT_MS);
-        this.emit({ type: "error", ctxId, message: err.message, error: err });
-        this.lastEventByCtx.set(ctxId, Date.now());
-        const session = this.sessionManager.getSessionByCtxAndAgent(ctxId, agentId);
-        void session?.abort();
-      }
+      this.recoveryManager.checkStalledSessions();
     }, 15000).unref();
   }
 
@@ -381,7 +395,9 @@ export class AgentRunner {
       const pending = ctx.pendingHandoff;
       ctx.pendingHandoff = undefined;
       if (pending && this.registry.get(pending.to)) {
-        this.doHandoff(ctxId, ctx, pending, this.promptBuilder.buildHandoffPrompt(pending));
+        this.handoffManager.doHandoff(ctxId, ctx, pending, this.promptBuilder.buildHandoffPrompt(pending), (ctxId, text) => {
+          void this.run(ctxId, text);
+        });
         return;
       }
 
@@ -390,63 +406,17 @@ export class AgentRunner {
         this.emit({ type: "agents", agents: this.registry.list() });
       }
 
-      // Обрыв цепочки: агент был «в цепочке», но завершил ход без route_to_agent
-      if (ctx.inChain && agentId !== ORCHESTRATOR_ID && !ctx.awaitingUser && !ctx.aborted) {
-        const recoveries = ctx.recoveryCount ?? 0;
-        if (recoveries < MAX_RECOVERIES) {
-          const task = ctx.handoffs[ctx.handoffs.length - 1];
-          const lastMsg = this.lastAssistantMessage(ctxId, agentId);
-
-          // Notify: recovery started
-          this.emit({ type: "recovery_started", ctxId, brokenAgent: agentId, attempt: recoveries + 1, maxAttempts: MAX_RECOVERIES });
-
-          if (agentId === CHAIN_ROUTER_ID) {
-            const decision = "router_fallback";
-            console.log(`[runner] ${ctxId}/${agentId}: маршрутизатор не принял решение — автопередача оркестратору`);
-            this.emit({ type: "recovery_decision", ctxId, decision, targetAgent: ORCHESTRATOR_ID, reason: "Маршрутизатор не принял решение" });
-            const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Маршрутизатор не принял решение — автопередача", context: lastMsg ?? "(маршрутизатор не оставил завершённого сообщения)", ts: Date.now() };
-            ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterFallbackPrompt(task, lastMsg));
-            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
-            return;
-          }
-
-          const incomplete = this.recoveryEngine.detectIncompleteTask(this.getCtxDir(ctxId), agentId, task, ctxId);
-          if (incomplete) {
-            console.log(`[runner] ${ctxId}/${agentId}: незавершённая задача обнаружена, автоматически возвращаю агенту`);
-            this.emit({ type: "recovery_decision", ctxId, decision: "auto_recover_incomplete", targetAgent: agentId, reason: "Задача не завершена (нет result-файла)" });
-            const handoff: Handoff = { from: "system", to: agentId, reason: "⚠️ Автоматическое восстановление: задача не завершена (нет result-файла)", context: incomplete.context, ts: Date.now() };
-            ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildAutoRecoveryPrompt(agentId, task, lastMsg, incomplete));
-            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
-            return;
-          }
-
-          if (sysCfg.recoveryMode === "router_agent" && this.registry.get(CHAIN_ROUTER_ID)) {
-            console.log(`[runner] ${ctxId}/${agentId}: цепочка прервалась — передача маршрутизатору`);
-            this.emit({ type: "recovery_decision", ctxId, decision: "route_to_router", targetAgent: CHAIN_ROUTER_ID, reason: "Цепочка прервалась — разбор маршрута" });
-            const handoff: Handoff = { from: agentId, to: CHAIN_ROUTER_ID, reason: "⚠️ Цепочка прервалась — разбор маршрута", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
-            ctx.recoveryCount = recoveries + 1;
-            this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRouterPrompt(ctx, agentId, task, lastMsg, (id) => this.getCtxDir(id)));
-            this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
-            return;
-          }
-
-          console.log(`[runner] ${ctxId}/${agentId}: цепочка прервалась — автопроверка оркестратором`);
-          this.emit({ type: "recovery_decision", ctxId, decision: "orchestrator_check", targetAgent: ORCHESTRATOR_ID, reason: "Цепочка прервалась — автопроверка" });
-          const handoff: Handoff = { from: agentId, to: ORCHESTRATOR_ID, reason: "⚠️ Цепочка прервалась — автопроверка", context: lastMsg ?? "(агент не оставил завершённого сообщения)", ts: Date.now() };
-          ctx.recoveryCount = recoveries + 1;
-          this.doHandoff(ctxId, ctx, handoff, this.recoveryEngine.buildRecoveryPrompt(agentId, task, lastMsg));
-          this.emit({ type: "recovery_completed", ctxId, success: true, count: ctx.recoveryCount });
-          return;
-        }
-
-        const chainErr = chainBrokenError(agentId, MAX_RECOVERIES);
-        const sysMsg: Message = { role: "system", text: `⚠️ ${chainErr.message} — автоматическое восстановление остановлено. Отправьте сообщение, чтобы продолжить.`, ts: Date.now() };
-        this.store.appendMessage(ctxId, sysMsg);
-        this.emit({ type: "message", ctxId, message: sysMsg });
-        this.emit({ type: "recovery_completed", ctxId, success: false, count: recoveries, reason: chainErr.message });
-      }
+      // Обрыв цепочки — делегируем RecoveryManager
+      const lastTask = ctx.handoffs[ctx.handoffs.length - 1];
+      const chainBreakHandled = await this.recoveryManager.handleChainBreak(
+        ctxId, ctx, agentId, lastTask,
+        (ctxId, ctx, handoff, prompt) => {
+          this.handoffManager.doHandoff(ctxId, ctx, handoff, prompt, (cid, text) => {
+            void this.run(cid, text);
+          });
+        },
+      );
+      if (chainBreakHandled) return;
 
       if (ctx.activeAgentId !== ORCHESTRATOR_ID && !ctx.awaitingUser) {
         ctx.activeAgentId = ORCHESTRATOR_ID;
@@ -454,48 +424,11 @@ export class AgentRunner {
       }
       this.store.save(ctx);
       this.activeByCtx.delete(ctxId);
-      this.lastEventByCtx.delete(ctxId);
       this.dispatchQueue();
     }
   }
 
-  private lastAssistantMessage(ctxId: string, agentId: string): string | undefined {
-    const msgs = this.store.readMessages(ctxId);
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      if (m.role === "assistant" && m.agentId === agentId && m.text.trim()) return m.text;
-    }
-    return undefined;
-  }
 
-  private doHandoff(ctxId: string, ctx: ContextMeta, handoff: Handoff, prompt: string) {
-    ctx.activeAgentId = handoff.to;
-    ctx.handoffs.push(handoff);
-    ctx.inChain = true;
-    this.store.save(ctx);
-
-    const sysMsg: Message = { role: "system", text: `Передача: ${handoff.from} → ${handoff.to} — ${handoff.reason}`, ts: Date.now() };
-    this.store.appendMessage(ctxId, sysMsg);
-    this.emit({ type: "handoff", ctxId, handoff });
-    this.emit({ type: "message", ctxId, message: sysMsg });
-
-    if (handoff.to !== handoff.from) {
-      const fromDef = this.registry.get(handoff.from);
-      if (fromDef?.forgetSessionAfterStep) {
-        const s = this.sessionManager.getSessionByCtxAndAgent(ctxId, handoff.from);
-        if (s) {
-          try { s.dispose(); } catch { /* ignore */ }
-          this.sessionManager.deleteSession(ctxId, handoff.from);
-        }
-        if (ctx.deliveredSkills && ctx.deliveredSkills[handoff.from]?.length) {
-          delete ctx.deliveredSkills[handoff.from];
-          this.store.save(ctx);
-        }
-      }
-    }
-
-    void this.run(ctxId, prompt);
-  }
 
   private async getSession(ctxId: string, agentId: string, def: AgentDef) {
     const k = this.key(ctxId, agentId);
@@ -517,7 +450,7 @@ export class AgentRunner {
 
   private forward(ctxId: string, agentId: string, ev: AgentSessionEvent) {
     if (["message_update", "message_start", "message_end", "tool_execution_start", "tool_execution_end"].includes(ev.type)) {
-      this.lastEventByCtx.set(ctxId, Date.now());
+      this.recoveryManager.recordActivity(ctxId);
     }
 
     if (ev.type === "tool_execution_start") {
